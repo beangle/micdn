@@ -1,0 +1,9 @@
+name "sample"
+description "CDN sample"
+
+targetType "executable"
+targetName "beangle-micdn-sample"
+
+#buildOptions "betterC" "releaseMode" "optimize"
+version "0.0.1"
+targetPath "target"

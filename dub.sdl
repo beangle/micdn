@@ -1,0 +1,15 @@
+name "beangle-micdn"
+description "A minimal CDN."
+authors "chaostone"
+license "GPLv3"
+version "0.0.1-SNAPSHOT"
+dependency ":gateway" version="*"
+dependency ":watch" version="*"
+
+subPackage "watch"
+subPackage "gateway"
+
+targetType "none"
+targetPath "target"
+
+sourceFiles "source/beangle/cdn/d.d"

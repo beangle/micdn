@@ -1,0 +1,15 @@
+*~
+.*
+
+# Build output directies
+target
+
+*.log
+
+#idea
+*.iml
+*.ipr
+*.iws
+
+dub.selections.json
+

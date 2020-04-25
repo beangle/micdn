@@ -1,0 +1,7 @@
+name "gateway"
+description "CDN gateway"
+
+dependency "vibe-d" version = "~>0.8.2"
+targetType "executable"
+targetName "beangle-micdn-gateway"
+targetPath "target"
