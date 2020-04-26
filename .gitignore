@@ -3,6 +3,7 @@
 
 # Build output directies
 target
+classes
 
 *.log
 

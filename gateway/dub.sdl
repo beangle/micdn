@@ -2,6 +2,8 @@ name "gateway"
 description "CDN gateway"
 
 dependency "vibe-d" version = "~>0.8.2"
+dependency "beangle-micdn:core" version="*"
+
 targetType "executable"
 targetName "beangle-micdn-gateway"
 targetPath "target"

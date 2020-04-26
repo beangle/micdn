@@ -3,10 +3,11 @@ description "A minimal CDN."
 authors "chaostone"
 license "GPLv3"
 version "0.0.1-SNAPSHOT"
-dependency ":gateway" version="*"
-dependency ":watch" version="*"
 
-subPackage "watch"
+dependency ":core" version="*"
+dependency ":gateway" version="*"
+
+subPackage "core"
 subPackage "gateway"
 
 targetType "none"

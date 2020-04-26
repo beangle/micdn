@@ -56,7 +56,9 @@ class FileBrowser{
         auto app = appender!string();
         auto lastSlash=uri[0 .. $-1 ].lastIndexOf( "/");
         if (lastSlash > -1){
-            app.put( "<a href=\"" ~ uri[0 .. lastSlash+1] ~ "\">..</a>\n");
+            app.put( "<a href=\"" );
+            app.put(uri[0 .. lastSlash+1]);
+            app.put("\">..</a>\n");
         }
         foreach (entry;entries){
             app.put( entry.toLine());
@@ -73,12 +75,17 @@ class FileEntry{
     ulong size;
 
     auto toLine(){
-        string href="";
+        import std.array : appender;
+        auto buf = appender!string();
+        buf.put("<a href=\"");
+        buf.put(name);
         if (isDir){
-            href="<a href=\"" ~ name ~ "\\\" >" ~ name ~ "</a>";
-        }else {
-            href="<a href=\"" ~ name ~ "\" >" ~ name ~ "</a>";
+            buf.put("\\");
         }
+        buf.put("\" >");
+        buf.put(name);
+        buf.put("</a>");
+        auto href= buf.data;
         ulong padding=0;
         if (name.length < 60){
             padding=(60-name.length)+href.length;
