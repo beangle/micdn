@@ -1,4 +1,4 @@
-module beangle.micdn.gateway;
+module beangle.micdn.repository;
 
 import std.stdio;
 import std.file;
@@ -7,7 +7,7 @@ import std.algorithm;
 import std.string;
 import std.conv;
 
-class FileBrowser{
+class Repository{
     string base;
 
     this(string b){

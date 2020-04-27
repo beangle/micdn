@@ -8,11 +8,13 @@ import vibe.web.web;
 import std.stdio;
 import std.file;
 import std.string;
-import beangle.micdn.gateway;
+import std.exception;
+import std.datetime.systime;
+import beangle.micdn.repository;
 import beangle.micdn.config;
 
 Config config;
-FileBrowser browser;
+Repository repository;
 
 void main()
 {
@@ -20,9 +22,10 @@ void main()
     static if (is(typeof(registerMemoryErrorHandler)))
         registerMemoryErrorHandler();
     config =new Config( 8080,"/micdn","/home/chaostone/tmp");
-    browser= new FileBrowser( config.fileBase);
+    repository= new Repository( config.fileBase);
     auto router = new URLRouter( config.uriContext);
     router.get( "*",&index);
+    router.post( "*", &upload);
 
     auto settings = new HTTPServerSettings;
     settings.port = config.port;
@@ -37,41 +40,77 @@ bool checkPassword(string user, string password) @safe{
     return user == "admin" && password == "secret";
 }
 
-void index(HTTPServerRequest req, HTTPServerResponse res)
-{
-    auto uri=req.requestURI;
-    if (uri.startsWith( config.uriContext)){
-        uri = uri[config.uriContext.length .. $];
-    }else {
-        throw new HTTPStatusException( HTTPStatus.NotFound);
-    }
-    auto rs = browser.check( uri);
+void index(HTTPServerRequest req, HTTPServerResponse res){
+    auto uri =getPath( req);
+    auto rs = repository.check( uri);
     if (rs ==0 ){
-        throw new HTTPStatusException( HTTPStatus.NotFound);
+        throw new HTTPStatusException( HTTPStatus.notFound);
     }else if (rs == 1 ){ // dir
         if (uri.endsWith( "/")){
-            import std.functional : toDelegate;
-            if (auth( req,res,toDelegate( &checkPassword))){
-                auto content=browser.genListContent( uri);
+            Profile profile = config.getProfile( uri);
+            if (profile.publicList|| basicAuth( req,res)){
+                auto content=repository.genListContent( uri);
                 render!("index.dt",uri,content)( res);
             }
         }else {
-            res.redirect( uri ~"/");
+            import std.array;
+            uri=config.uriContext ~ uri;
+            res.redirect( req.requestURI.replace( uri, uri ~"/"));
         }
     }else { //file
-        FileStream fil;
-        try {
-            fil = openFile( browser.base ~ uri);
-        } catch( Exception e ){
-            logInfo( e.toString());
+        Profile profile = config.getProfile( uri);
+        if (profile.publicDownload){
+            download( req,res,uri);
+        }else {
+            auto token=("token" in req.query);
+            auto t=("t" in req.query);
+            if (null==token||null==t){
+                if (basicAuth( req,res)){
+                    download( req,res,uri);
+                    SysTime now=Clock.currTime();
+                    import core.time;
+                    now.fracSecs= msecs( 0);
+                    writeln( "token="~profile.genToken( uri,now)~"&t="~now.toISOString);
+                }
+            }else if (checkToken( profile,uri,*token,*t)){
+                download( req,res,uri);
+            }else {
+                res.statusCode = HTTPStatus.forbidden;
+                res.writeBody( "bad token!", "text/plain");
+            }
         }
-        scope(exit) fil.close();
-        res.writeRawBody( fil);
     }
 }
 
-bool auth(HTTPServerRequest req,HTTPServerResponse res,PasswordVerifyCallback pwcheck) {
-    if (!checkBasicAuth( req, pwcheck)) {
+void upload(HTTPServerRequest req,   HTTPServerResponse res){
+    auto uri =getPath( req);
+    if (basicAuth( req,res)){
+        auto pf = "file" in req.files;
+        enforce( pf !is null, "No file uploaded!");
+        import vibe.core.path;
+        try moveFile( pf.tempPath, NativePath( repository.base) ~ uri);
+        catch (Exception e) {
+            logWarn( "Failed to move file to destination folder: %s", e.msg);
+            logInfo( "Performing copy+delete instead.");
+            copyFile( pf.tempPath, NativePath( repository.base) ~ uri);
+        }
+        res.writeBody( "File uploaded!", "text/plain");
+    }
+}
+
+void download(HTTPServerRequest req,  HTTPServerResponse res,string path){
+    import vibe.core.path;
+    import vibe.http.fileserver;
+    sendFile( req,res,NativePath( repository.base ~path),null);
+}
+
+bool checkToken(Profile profile,string uri,string token,string timestamp){
+    return profile.verifyToken( uri,token,SysTime.fromISOString( timestamp));
+}
+
+bool basicAuth(HTTPServerRequest req,HTTPServerResponse res) {
+    import std.functional : toDelegate;
+    if (!checkBasicAuth( req, toDelegate( &checkPassword))) {
         res.statusCode = HTTPStatus.unauthorized;
         res.contentType = "text/plain";
         res.headers["WWW-Authenticate"] = "Basic realm=\"micdn\"";
@@ -82,9 +121,17 @@ bool auth(HTTPServerRequest req,HTTPServerResponse res,PasswordVerifyCallback pw
     }
 }
 
-/+
-  这个类不能有带有参数的构造函数，否则编译不通过。
-  也不能有this(){}这种形式的参数，否则运行巨慢，最后异常退出。
-+/
-class List{
+string getPath(HTTPServerRequest req){
+    auto uri=req.requestURI;
+    if (uri.startsWith( config.uriContext)){
+        uri = uri[config.uriContext.length .. $];
+    }else {
+        throw new HTTPStatusException( HTTPStatus.NotFound);
+    }
+    auto qIdx=uri.indexOf( "?");
+    if (qIdx >0){
+        return uri[0..qIdx];
+    }else {
+        return uri;
+    }
 }
