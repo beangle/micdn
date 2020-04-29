@@ -20,6 +20,11 @@ void main(string[] args)
     auto duration = abs(today - st);
     writeln(duration);
     writeln(duration > dur!"minutes"(15));
+
+    import vibe.core.net;
+    auto addr=resolveHost("0.0.0.0");
+    import std.stdio;
+    writeln(addr);
 }
 
 int foo(const(char)* ptr){

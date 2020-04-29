@@ -16,28 +16,27 @@ import beangle.micdn.config;
 Config config;
 Repository repository;
 
-void main()
-{
+void main(string[] args){
+    if (args.length<2){
+        writeln( "Usage: beangle-micdn-gateway path/to/config.xml");
+        return ;
+    }
     import etc.linux.memoryerror;
     static if (is(typeof(registerMemoryErrorHandler)))
         registerMemoryErrorHandler();
-    config =new Config( 8080,"/micdn","/home/chaostone/tmp");
+    string s = cast(string) std.file.read( args[1]);
+    config = Config.parse( s);
     repository= new Repository( config.fileBase);
     auto router = new URLRouter( config.uriContext);
     router.get( "*",&index);
     router.post( "*", &upload);
-
+    router.delete_( "*",&remove);
     auto settings = new HTTPServerSettings;
+    settings.bindAddresses=[ config.host];
     settings.port = config.port;
-    settings.bindAddresses = [ "::1", "127.0.0.1"];
     listenHTTP( settings, router);
-
-    logInfo( "Please open http://127.0.0.1:8080/ in your browser.");
-    runApplication();
-}
-
-bool checkPassword(string user, string password) @safe{
-    return user == "admin" && password == "secret";
+    logInfo( "Please open http://" ~ config.listenAddr ~ config.uriContext~" in your browser.");
+    runApplication( &args);
 }
 
 void index(HTTPServerRequest req, HTTPServerResponse res){
@@ -48,8 +47,8 @@ void index(HTTPServerRequest req, HTTPServerResponse res){
     }else if (rs == 1 ){ // dir
         if (uri.endsWith( "/")){
             Profile profile = config.getProfile( uri);
-            if (profile.publicList|| basicAuth( req,res)){
-                auto content=repository.genListContent( uri);
+            if (profile.publicList|| basicAuth( req,res,profile)){
+                auto content=repository.genListContent( config.uriContext,uri);
                 render!("index.dt",uri,content)( res);
             }
         }else {
@@ -65,12 +64,8 @@ void index(HTTPServerRequest req, HTTPServerResponse res){
             auto token=("token" in req.query);
             auto t=("t" in req.query);
             if (null==token||null==t){
-                if (basicAuth( req,res)){
+                if (basicAuth( req,res,profile)){
                     download( req,res,uri);
-                    SysTime now=Clock.currTime();
-                    import core.time;
-                    now.fracSecs= msecs( 0);
-                    writeln( "token="~profile.genToken( uri,now)~"&t="~now.toISOString);
                 }
             }else if (checkToken( profile,uri,*token,*t)){
                 download( req,res,uri);
@@ -84,17 +79,37 @@ void index(HTTPServerRequest req, HTTPServerResponse res){
 
 void upload(HTTPServerRequest req,   HTTPServerResponse res){
     auto uri =getPath( req);
-    if (basicAuth( req,res)){
+    Profile profile = config.getProfile( uri);
+    if (basicAuth( req,res,profile)){
         auto pf = "file" in req.files;
         enforce( pf !is null, "No file uploaded!");
         import vibe.core.path;
-        try moveFile( pf.tempPath, NativePath( repository.base) ~ uri);
-        catch (Exception e) {
-            logWarn( "Failed to move file to destination folder: %s", e.msg);
-            logInfo( "Performing copy+delete instead.");
-            copyFile( pf.tempPath, NativePath( repository.base) ~ uri);
+        try{
+            copyFile( pf.tempPath, NativePath( repository.base ~ uri),true);
+            logInfo( "upload "~uri);
+            res.writeBody( "File uploaded!", "text/plain");
+        }catch (Exception e) {
+            logInfo( "Performing copy failed.Caurse %s",e.msg);
+            res.statusCode = HTTPStatus.internalServerError;
+            res.writeBody( e.msg, "text/plain");
         }
-        res.writeBody( "File uploaded!", "text/plain");
+    }
+}
+
+void remove(HTTPServerRequest req,   HTTPServerResponse res){
+    auto uri =getPath( req);
+    Profile profile = config.getProfile( uri);
+    if (basicAuth( req,res,profile)){
+        string msg="remove success";
+        try{
+            std.file.remove( repository.base ~ uri );
+            logInfo( "remove "~uri);
+            res.writeBody( "File removed!", "text/plain");
+        }catch (Exception e) {
+            logInfo( "Performing remove failed.Caurse %s",e.msg);
+            res.statusCode = HTTPStatus.internalServerError;
+            res.writeBody( e.msg, "text/plain");
+        }
     }
 }
 
@@ -105,10 +120,17 @@ void download(HTTPServerRequest req,  HTTPServerResponse res,string path){
 }
 
 bool checkToken(Profile profile,string uri,string token,string timestamp){
-    return profile.verifyToken( uri,token,SysTime.fromISOString( timestamp));
+    try {
+        return profile.verifyToken( uri,token,SysTime.fromISOString( timestamp));
+    }catch( Exception e) {
+        return false;
+    }
 }
 
-bool basicAuth(HTTPServerRequest req,HTTPServerResponse res) {
+bool basicAuth(HTTPServerRequest req,HTTPServerResponse res,Profile profile) {
+    bool checkPassword(string user, string password) @safe{
+        return user == profile.path && password == profile.key;
+    }
     import std.functional : toDelegate;
     if (!checkBasicAuth( req, toDelegate( &checkPassword))) {
         res.statusCode = HTTPStatus.unauthorized;
@@ -135,3 +157,4 @@ string getPath(HTTPServerRequest req){
         return uri;
     }
 }
+

@@ -50,13 +50,14 @@ class Repository{
         return entries;
     }
 
-    auto genListContent(string uri){
+    auto genListContent(string prefix,string uri){
         auto entries=list( uri);
         import std.array : appender;
         auto app = appender!string();
         auto lastSlash=uri[0 .. $-1 ].lastIndexOf( "/");
         if (lastSlash > -1){
             app.put( "<a href=\"" );
+            app.put(prefix);
             app.put(uri[0 .. lastSlash+1]);
             app.put("\">..</a>\n");
         }
