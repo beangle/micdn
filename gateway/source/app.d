@@ -85,9 +85,46 @@ void upload(HTTPServerRequest req,   HTTPServerResponse res){
         enforce( pf !is null, "No file uploaded!");
         import vibe.core.path;
         try{
-            copyFile( pf.tempPath, NativePath( repository.base ~ uri),true);
-            logInfo( "upload "~uri);
-            res.writeBody( "File uploaded!", "text/plain");
+            string owner =req.form.get( "owner","--");
+            import std.conv;
+            bool reserveName=req.form.get( "reserveName","true").to!bool;
+            auto meta= new BlobMeta();
+
+            auto tmp = File( pf.tempPath.toNativeString);
+            import std.digest,std.digest.sha;
+            auto shaHex = toHexString( digest!SHA1( tmp.byChunk( 4096 * 1024))).toLower;
+            meta.base=profile.path;
+            meta.owner=owner;
+            meta.name=pf.toString;
+            meta.size=tmp.size();
+            meta.sha=shaHex;
+            meta.updatedAt=Clock.currTime();
+            import std.path;
+            auto fullUri ="";
+            if (reserveName){
+                if (uri.endsWith( "/")){
+                    fullUri = uri ~ meta.name;
+                }else {
+                    fullUri = uri ~ "/" ~ meta.name;
+                }
+            }else {
+                auto ext= extension( meta.name);
+                if (uri.endsWith( "/")){
+                    fullUri = uri  ~ shaHex ~ ext;
+                }else {
+                    fullUri = uri ~ "/" ~ shaHex ~ ext;
+                }
+            }
+
+            meta.path=fullUri[profile.path.length .. $];
+            import vibe.inet.mimetypes;
+            meta.mediaType=getMimeTypeForFile( meta.name);
+            mkdirRecurse(dirName(repository.base ~ profile.path ~ meta.path));
+            copyFile( pf.tempPath, NativePath( repository.base ~ profile.path ~ meta.path),true);
+            //redirect to log
+            logInfo( "upload " ~ meta.toJson() );
+
+            res.writeBody( meta.toJson(), "application/json");
         }catch (Exception e) {
             logInfo( "Performing copy failed.Caurse %s",e.msg);
             res.statusCode = HTTPStatus.internalServerError;
@@ -102,9 +139,13 @@ void remove(HTTPServerRequest req,   HTTPServerResponse res){
     if (basicAuth( req,res,profile)){
         string msg="remove success";
         try{
-            std.file.remove( repository.base ~ uri );
-            logInfo( "remove "~uri);
-            res.writeBody( "File removed!", "text/plain");
+            if (std.file.exists( repository.base ~ uri)){
+                std.file.remove( repository.base ~ uri );
+                logInfo( "remove "~uri);
+                res.writeBody( "File removed!", "text/plain");
+            }else {
+                res.writeBody( "File donot exists!", "text/plain");
+            }
         }catch (Exception e) {
             logInfo( "Performing remove failed.Caurse %s",e.msg);
             res.statusCode = HTTPStatus.internalServerError;

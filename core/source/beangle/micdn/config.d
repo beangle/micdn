@@ -9,7 +9,7 @@ class Config{
     string fileBase;
     Profile[string] profiles;
 
-    private Profile defaultProfile = new Profile( "/","--",true,true);
+    private Profile defaultProfile = new Profile( "","--",false,false);
 
     this(string host,ushort port,string uriContext,string fileBase){
         this.host=host;
@@ -66,9 +66,9 @@ class Profile{
 
     this(string path,string key,bool publicList,bool publicDownload){
         if (path.endsWith( "/")){
-            this.path=path;
+            this.path=path[0..$-1];
         }else {
-            this.path=path~"/";
+            this.path=path;
         }
         this.key=key;
         this.publicList=publicList;
@@ -93,8 +93,26 @@ class Profile{
     }
 }
 
+class BlobMeta{
+    string owner;
+    string name;
+    ulong size;
+    string sha;
+    string mediaType;
+    string base;
+    string path;
+    SysTime updatedAt;
+
+    public  string toJson(){
+        import std.conv;
+        return `{owner:"` ~ owner ~ `",base:"`~ base ~ `",name:"` ~ name ~`",size:` ~
+        size.to!string ~ `,sha:"` ~ sha ~ `",mediaType:"` ~
+        mediaType ~ `",path:"` ~ path ~ `",updatedAt:"` ~ updatedAt.toISOExtString ~ `"}`;
+    }
+}
+
 unittest{
-    auto profile= new Profile( "/","--",false,false);
+    auto profile= new Profile( "","--",false,false);
     SysTime now=Clock.currTime();
     import core.time;
     now.fracSecs= msecs( 0);
