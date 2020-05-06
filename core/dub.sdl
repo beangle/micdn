@@ -1,6 +1,9 @@
 name "core"
 description "CDN Watch Base on inotify"
 
+dependency "dxml" version = "~>0.4.1"
+dependency "vibe-d-postgresql" version = "~>3.0.0-rc.2"
+
 targetType "library"
 targetName "beangle-micdn-core"
 targetPath "target"

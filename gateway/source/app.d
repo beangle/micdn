@@ -12,6 +12,7 @@ import std.exception;
 import std.datetime.systime;
 import beangle.micdn.repository;
 import beangle.micdn.config;
+import beangle.micdn.db;
 
 Config config;
 Repository repository;
@@ -26,7 +27,11 @@ void main(string[] args){
         registerMemoryErrorHandler();
     string s = cast(string) std.file.read( args[1]);
     config = Config.parse( s);
-    repository= new Repository( config.fileBase);
+    MetaDao metaDao=null;
+    if (!config.dataSourceProps.empty){
+        metaDao = new MetaDao( config.dataSourceProps);
+    }
+    repository= new Repository( config.fileBase,metaDao);
     auto router = new URLRouter( config.uriContext);
     router.get( "*",&index);
     router.post( "*", &upload);
@@ -86,44 +91,10 @@ void upload(HTTPServerRequest req,   HTTPServerResponse res){
         import vibe.core.path;
         try{
             string owner =req.form.get( "owner","--");
-            import std.conv;
-            bool reserveName=req.form.get( "reserveName","true").to!bool;
-            auto meta= new BlobMeta();
-
-            auto tmp = File( pf.tempPath.toNativeString);
-            import std.digest,std.digest.sha;
-            auto shaHex = toHexString( digest!SHA1( tmp.byChunk( 4096 * 1024))).toLower;
-            meta.base=profile.path;
-            meta.owner=owner;
-            meta.name=pf.toString;
-            meta.size=tmp.size();
-            meta.sha=shaHex;
-            meta.updatedAt=Clock.currTime();
-            import std.path;
-            auto fullUri ="";
-            if (reserveName){
-                if (uri.endsWith( "/")){
-                    fullUri = uri ~ meta.name;
-                }else {
-                    fullUri = uri ~ "/" ~ meta.name;
-                }
-            }else {
-                auto ext= extension( meta.name);
-                if (uri.endsWith( "/")){
-                    fullUri = uri  ~ shaHex ~ ext;
-                }else {
-                    fullUri = uri ~ "/" ~ shaHex ~ ext;
-                }
-            }
-
-            meta.path=fullUri[profile.path.length .. $];
             import vibe.inet.mimetypes;
-            meta.mediaType=getMimeTypeForFile( meta.name);
-            mkdirRecurse(dirName(repository.base ~ profile.path ~ meta.path));
-            copyFile( pf.tempPath, NativePath( repository.base ~ profile.path ~ meta.path),true);
-            //redirect to log
-            logInfo( "upload " ~ meta.toJson() );
-
+            auto mediaType=getMimeTypeForFile( pf.toString);
+            auto meta = repository.create( profile,pf.tempPath.toNativeString,pf.toString,uri,owner,mediaType);
+            logInfo( "upload " ~ profile.path ~ meta.path ~ " at " ~ meta.updatedAt.toISOExtString ~ "(" ~ meta.owner ~ ")" );
             res.writeBody( meta.toJson(), "application/json");
         }catch (Exception e) {
             logInfo( "Performing copy failed.Caurse %s",e.msg);
@@ -134,17 +105,15 @@ void upload(HTTPServerRequest req,   HTTPServerResponse res){
 }
 
 void remove(HTTPServerRequest req,   HTTPServerResponse res){
-    auto uri =getPath( req);
+    auto uri = getPath( req);
     Profile profile = config.getProfile( uri);
     if (basicAuth( req,res,profile)){
-        string msg="remove success";
         try{
-            if (std.file.exists( repository.base ~ uri)){
-                std.file.remove( repository.base ~ uri );
-                logInfo( "remove "~uri);
+            if (repository.remove( profile,uri)){
+                logInfo( "remove "~uri ~ " at " ~ Clock.currTime().toISOExtString);
                 res.writeBody( "File removed!", "text/plain");
             }else {
-                res.writeBody( "File donot exists!", "text/plain");
+                res.writeBody( "File is not existed!", "text/plain");
             }
         }catch (Exception e) {
             logInfo( "Performing remove failed.Caurse %s",e.msg);

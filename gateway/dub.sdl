@@ -1,8 +1,9 @@
 name "gateway"
 description "CDN gateway"
 
-dependency "vibe-d" version = "~>0.9.0-alpha.4"
-dependency "beangle-micdn:core" version="*"
+dependency "vibe-d" version = "~>0.8.6"
+dependency "vibe-d-postgresql" version = "~>3.0.0-rc.2"
+dependency "beangle-micdn:core" version = "*"
 
 targetType "executable"
 targetName "beangle-micdn-gateway"

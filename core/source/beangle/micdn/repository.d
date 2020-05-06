@@ -6,12 +6,16 @@ import std.datetime.date;
 import std.algorithm;
 import std.string;
 import std.conv;
+import beangle.micdn.db;
+import beangle.micdn.config;
 
 class Repository{
     string base;
+    MetaDao metaDao;
 
-    this(string b){
+    this(string b,MetaDao metaDao){
         this.base=b;
+        this.metaDao=metaDao;
     }
 
     int check(string path){
@@ -26,8 +30,7 @@ class Repository{
         }
     }
 
-    auto list(string path)
-    {
+    auto list(string path){
         auto startIdx= (base ~ path).length;
         if (!path.endsWith( "/")){
             startIdx+=1;
@@ -57,9 +60,9 @@ class Repository{
         auto lastSlash=uri[0 .. $-1 ].lastIndexOf( "/");
         if (lastSlash > -1){
             app.put( "<a href=\"" );
-            app.put(prefix);
-            app.put(uri[0 .. lastSlash+1]);
-            app.put("\">..</a>\n");
+            app.put( prefix);
+            app.put( uri[0 .. lastSlash+1]);
+            app.put( "\">..</a>\n");
         }
         foreach (entry;entries){
             app.put( entry.toLine());
@@ -67,6 +70,58 @@ class Repository{
         }
         return app.data;
     }
+
+    public BlobMeta create(Profile profile,string tmpfile,string filename,string dir,string owner,string mediaType){
+        auto meta= new BlobMeta();
+        import std.digest,std.digest.sha;
+        auto tmp= File( tmpfile);
+        auto shaHex = toHexString( digest!SHA1( tmp.byChunk( 4096 * 1024))).toLower;
+        meta.profileId=profile.id;
+        meta.owner=owner;
+        meta.name=filename;
+        meta.size=tmp.size();
+        meta.mediaType=mediaType;
+        meta.sha=shaHex;
+        import std.datetime.systime;
+        meta.updatedAt=Clock.currTime();
+        import std.path;
+        auto filePath ="";
+        if (profile.namedBySha){
+            auto ext= extension( meta.name);
+            if (dir.endsWith( "/")){
+                filePath = dir  ~ shaHex ~ ext;
+            }else {
+                filePath = dir ~ "/" ~ shaHex ~ ext;
+            }
+        }else {
+            if (dir.endsWith( "/")){
+                filePath = dir ~ meta.name;
+            }else {
+                filePath = dir ~ "/" ~ meta.name;
+            }
+        }
+        meta.path=filePath[profile.path.length .. $];
+        mkdirRecurse( dirName( this.base ~ profile.path ~ meta.path));
+        copy( tmpfile, this.base ~ profile.path ~ meta.path);
+        if (metaDao !is null){
+            metaDao.remove(profile,meta.path);
+            metaDao.create( profile,meta);
+        }
+        return meta;
+    }
+
+    public bool remove(Profile profile,string path){
+        if (std.file.exists( this.base ~ path)){
+            std.file.remove( this.base ~ path );
+            if ( metaDao !is null){
+                metaDao.remove( profile,path);
+            }
+            return true;
+        }else {
+            return false;
+        }
+    }
+
 }
 
 class FileEntry{
@@ -78,14 +133,14 @@ class FileEntry{
     auto toLine(){
         import std.array : appender;
         auto buf = appender!string();
-        buf.put("<a href=\"");
-        buf.put(name);
+        buf.put( "<a href=\"");
+        buf.put( name);
         if (isDir){
-            buf.put("\\");
+            buf.put( "\\");
         }
-        buf.put("\" >");
-        buf.put(name);
-        buf.put("</a>");
+        buf.put( "\" >");
+        buf.put( name);
+        buf.put( "</a>");
         auto href= buf.data;
         ulong padding=0;
         if (name.length < 60){
@@ -94,7 +149,7 @@ class FileEntry{
         if (isDir){
             return leftJustify( href,padding,' ') ~ lastModified.toString() ~ rightJustify( "-",30,' ');
         }else {
-            return leftJustify( href,padding,' ') ~ lastModified.toString() ~ rightJustify(size.to!string,30,' ');
+            return leftJustify( href,padding,' ') ~ lastModified.toString() ~ rightJustify( size.to!string,30,' ');
         }
     }
 }
