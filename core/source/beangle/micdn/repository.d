@@ -114,7 +114,7 @@ class Repository{
         if (std.file.exists( this.base ~ path)){
             std.file.remove( this.base ~ path );
             if ( metaDao !is null){
-                metaDao.remove( profile,path);
+                metaDao.remove( profile,path[profile.path.length..$]);
             }
             return true;
         }else {
