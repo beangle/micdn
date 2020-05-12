@@ -12,10 +12,14 @@ import beangle.micdn.config;
 class Repository{
     string base;
     MetaDao metaDao;
+    bool[string] images;
 
     this(string b,MetaDao metaDao){
         this.base=b;
         this.metaDao=metaDao;
+        images[".jpg"]=true;
+        images[".png"]=true;
+        images[".gif"]=true;
     }
 
     int check(string path){
@@ -27,6 +31,14 @@ class Repository{
             }
         }else {
             return 0;
+        }
+    }
+
+    public string getRealname(Profile profile,string path){
+        if(metaDao !is null){
+            return metaDao.getFilename( profile,path);
+        }else{
+            return "";
         }
     }
 

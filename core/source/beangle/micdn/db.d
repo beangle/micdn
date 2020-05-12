@@ -5,6 +5,7 @@ import vibe.core.log;
 import std.datetime.systime;
 import beangle.micdn.config;
 import std.stdio;
+
 class MetaDao{
 
     PostgresClient client;
@@ -24,7 +25,6 @@ class MetaDao{
         (scope conn) {
             QueryParams query;
             query.sqlCommand = "delete from "~schema~".blob_metas where profile_id=$1 and path=$2";
-            import std.conv;
             query.argsVariadic( profile.id,path);
             auto r= conn.execParams( query);
             scope(exit) destroy( r);
@@ -52,6 +52,24 @@ class MetaDao{
         );
         return success;
     }
+
+    public string getFilename(Profile profile,string path){
+        string filename="";
+        client.pickConnection(
+        (scope conn) {
+            QueryParams query;
+            query.sqlCommand =  "select name from "~schema ~".blob_metas where profile_id=$1 and path=$2";
+            query.argsVariadic( profile.id,path);
+            auto r= conn.execParams( query);
+            if(r.length>0){
+                filename= r[0][ "name"].as!PGtext;
+            }
+            scope(exit) destroy( r);
+        }
+        );
+        return filename;
+    }
+
     public void loadProfiles(Config config){
         client.pickConnection(
         (scope conn) {

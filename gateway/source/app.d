@@ -27,22 +27,25 @@ void main(string[] args){
     import etc.linux.memoryerror;
     static if (is(typeof(registerMemoryErrorHandler)))
         registerMemoryErrorHandler();
-    server = Server.parse(cast(string) std.file.read( args[1]));
-    config = Config.parse(cast(string) std.file.read( args[2]));
+    server = Server.parse( cast(string) std.file.read( args[1]));
+    config = Config.parse( cast(string) std.file.read( args[2]));
     MetaDao metaDao=null;
     if (!config.dataSourceProps.empty){
         metaDao = new MetaDao( config.dataSourceProps);
         metaDao.loadProfiles( config);
     }
-    repository= new Repository( config.fileBase,metaDao);
+    repository = new Repository( config.fileBase,metaDao);
     auto router = new URLRouter( server.contextPath);
     router.get( "*",&index);
     router.post( "*", &upload);
     router.delete_( "*",&remove);
+
     auto settings = new HTTPServerSettings;
     settings.maxRequestSize=config.maxSize;
     settings.bindAddresses= server.ips;
     settings.port = server.port;
+    settings.serverString=null;
+
     listenHTTP( settings, router);
     logInfo( "Please open http://" ~ server.listenAddr ~ server.contextPath~" in your browser.");
     runApplication( &args);
@@ -68,17 +71,17 @@ void index(HTTPServerRequest req, HTTPServerResponse res){
     }else { //file
         Profile profile = config.getProfile( uri);
         if (profile.publicDownload){
-            download( req,res,uri);
+            download( profile, req,res,uri);
         }else {
             auto token=("token" in req.query);
             auto t=("t" in req.query);
             auto user=("u" in req.query);
             if (null==user || null==token || null==t){
                 if (basicAuth( req,res,profile)){
-                    download( req,res,uri);
+                    download( profile, req,res,uri);
                 }
             }else if (checkToken( profile,uri,*user,profile.keys.get( *user,""),*token,*t)){
-                download( req,res,uri);
+                download( profile, req,res,uri);
             }else {
                 res.statusCode = HTTPStatus.forbidden;
                 res.writeBody( "bad token!", "text/plain");
@@ -128,10 +131,29 @@ void remove(HTTPServerRequest req,   HTTPServerResponse res){
     }
 }
 
-void download(HTTPServerRequest req,  HTTPServerResponse res,string path){
+//fixme for realname detection
+void download(Profile profile,HTTPServerRequest req,  HTTPServerResponse res,string path){
     import vibe.core.path;
     import vibe.http.fileserver;
-    sendFile( req,res,NativePath( repository.base ~path),null);
+    import beangle.vibed.http;
+    import std.path;
+    auto ext=extension( path);
+    if (ext in repository.images){
+        sendFile( req,res,NativePath( repository.base ~path),null);
+    }else {
+        auto realname = repository.getRealname( profile,path[profile.path.length ..$]);
+        if (realname.length > 0){
+            void setContextDisposition(scope HTTPServerRequest req, scope HTTPServerResponse res, ref string physicalPath)@safe{
+                import beangle.vibed.http;
+                res.headers["Content-Disposition"]=encodeAttachmentName( realname);
+            }
+            auto settings=new HTTPFileServerSettings;
+            settings.preWriteCallback = &setContextDisposition;
+            sendFile( req,res,NativePath( repository.base ~path),settings);
+        }else {
+            sendFile( req,res,NativePath( repository.base ~path),null);
+        }
+    }
 }
 
 bool checkToken(Profile profile,string uri,string user,string key,string token,string timestamp){
