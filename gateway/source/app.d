@@ -40,6 +40,7 @@ void main(string[] args){
     router.post( "*", &upload);
     router.delete_( "*",&remove);
     auto settings = new HTTPServerSettings;
+    settings.maxRequestSize=config.maxSize;
     settings.bindAddresses= server.ips;
     settings.port = server.port;
     listenHTTP( settings, router);
@@ -171,4 +172,3 @@ string getPath(HTTPServerRequest req){
         return uri;
     }
 }
-

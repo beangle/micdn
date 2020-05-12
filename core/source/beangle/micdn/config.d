@@ -3,9 +3,11 @@ module beangle.micdn.config;
 import std.string;
 import dxml.dom;
 import std.stdio;
+import std.conv;
 
 class Config{
     string fileBase;
+    ulong maxSize=10*1024*1024; //default 10m
     Profile[string] profiles;
     string[string] keys;
     string[string] dataSourceProps;
@@ -26,12 +28,13 @@ class Config{
     }
 
     public static Config parse(string content){
-        import std.conv;
         Config config;
         auto dom = parseDOM!simpleXML( content).children[0];
         auto attrs = getAttrs( dom);
         string fileBase = attrs["base"];
+        string sizeLimit=attrs.get("maxSize","50M");
         config = new Config( fileBase);
+        config.maxSize=parseSize(sizeLimit);
         auto usersEntry = children( dom,"users");
         if (!usersEntry.empty){
             auto userEntries=children( usersEntry.front,"user");
@@ -78,6 +81,16 @@ class Config{
             a[at.name]=at.value;
         }
         return a;
+    }
+    public static ulong parseSize(string size){
+        string s=size.toLower;
+        if(s.endsWith("m")){
+            return s[0..$-1].to!ulong*1024*1024;
+        }else if (s.endsWith("g")){
+            return s[0..$-1].to!ulong*1024*1024*1024;
+        }else{
+            return s[0..$-1].to!ulong;
+        }
     }
 }
 
@@ -134,7 +147,6 @@ class BlobMeta{
     SysTime updatedAt;
 
     public  string toJson(){
-        import std.conv;
         return `{owner:"` ~ owner ~ `",profileId:`~ profileId.to!string ~ `,name:"` ~ name ~`",size:` ~
         size.to!string ~ `,sha:"` ~ sha ~ `",mediaType:"` ~
         mediaType ~ `",path:"` ~ path ~ `",updatedAt:"` ~ updatedAt.toISOExtString ~ `"}`;
@@ -177,5 +189,6 @@ unittest{
     assert(config.profiles.length ==1 );
     assert("/group/test" in config.profiles);
     assert("databaseName" in config.dataSourceProps);
+    assert(10L*1024*1024*1024 == config.parseSize("10g"));
 }
 
