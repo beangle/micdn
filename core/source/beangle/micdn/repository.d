@@ -50,6 +50,7 @@ class Repository{
             fe.lastModified =DateTime( st.year,st.month,st.day,st.hour,st.minute,st.second);
             entries[i++]=fe;
         }
+        sort( entries);
         return entries;
     }
 
@@ -104,7 +105,7 @@ class Repository{
         mkdirRecurse( dirName( this.base ~ profile.path ~ meta.path));
         copy( tmpfile, this.base ~ profile.path ~ meta.path);
         if (metaDao !is null){
-            metaDao.remove(profile,meta.path);
+            metaDao.remove( profile,meta.path);
             metaDao.create( profile,meta);
         }
         return meta;
@@ -152,4 +153,17 @@ class FileEntry{
             return leftJustify( href,padding,' ') ~ lastModified.toString() ~ rightJustify( size.to!string,30,' ');
         }
     }
+    public override int opCmp(Object o){
+        return cmp( this.name,(cast(FileEntry)o).name);
+    }
+}
+
+unittest{
+    auto entries = new FileEntry[2];
+    entries[0]=new FileEntry();
+    entries[1]=new FileEntry();
+    entries[0].name="av";
+    entries[1].name="a";
+    sort( entries);
+    assert( entries[0].name =="a");
 }

@@ -1,9 +1,10 @@
 module beangle.micdn.db;
 
 import vibe.db.postgresql;
+import vibe.core.log;
 import std.datetime.systime;
 import beangle.micdn.config;
-
+import std.stdio;
 class MetaDao{
 
     PostgresClient client;
@@ -25,8 +26,6 @@ class MetaDao{
             query.sqlCommand = "delete from "~schema~".blob_metas where profile_id=$1 and path=$2";
             import std.conv;
             query.argsVariadic( profile.id,path);
-            import std.stdio;
-            writeln(profile.id,",",path);
             auto r= conn.execParams( query);
             scope(exit) destroy( r);
         }
@@ -75,7 +74,11 @@ class MetaDao{
                 string[string] profileKeys;
                 if (!users.empty){
                     foreach (u;users.split( ",")){
-                        profileKeys[u]=config.keys[u];
+                        if (u in config.keys){
+                            profileKeys[u]=config.keys[u];
+                        }else {
+                            logInfo( "ignore illegal user "~ u);
+                        }
                     }
                 }
                 config.profiles[path]=new Profile( id,path,profileKeys,namedBySha,publicList,publicDownload);
@@ -114,7 +117,7 @@ unittest{
         assert(dao.create( profile,meta));
     }
     if (dao !is null){
-        Config config = new Config("~/tmp");
+        Config config = new Config( "~/tmp");
         dao.loadProfiles( config);
     }
 }
