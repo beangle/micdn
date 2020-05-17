@@ -16,15 +16,20 @@ class Server{
         Server server;
         auto dom = parseDOM!simpleXML( content).children[0];
         auto attrs = getAttrs( dom);
-        string hosts = attrs.get( "ips","127.0.0.1");
+        string hosts ;
+        if ("ips" in attrs){
+            hosts= attrs.get( "ips","127.0.0.1");
+        }else {
+            hosts= attrs.get( "hosts","127.0.0.1");
+        }
         ushort port = attrs.get( "port","8080").to!ushort;
         auto contextEntries= children( dom,"Context");
-        if(contextEntries.empty){
-            throw new Exception("Context element is needed in server.xml.");
+        if (contextEntries.empty){
+            throw new Exception( "Context element is needed in server.xml.");
         }
-        auto contextAttrs = getAttrs(contextEntries.front);
+        auto contextAttrs = getAttrs( contextEntries.front);
         import std.array;
-        return new Server( split(hosts,","),port,contextAttrs["path"]);
+        return new Server( split( hosts,","),port,contextAttrs["path"]);
     }
     @property
     public string listenAddr(){
@@ -44,7 +49,6 @@ class Server{
     }
 
 }
-
 
 unittest{
     auto content=`<?xml version="1.0" encoding="UTF-8"?>
