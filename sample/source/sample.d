@@ -11,6 +11,20 @@ void main(string[] args)
     auto b=a;
     int dd=45;
     writeln(a.ptr == b.ptr);
+    import std.datetime.systime;
+    auto st = SysTime.fromISOString("20200427T143000");
+    SysTime today = Clock.currTime();
+    import core.time;
+    writeln("today:" ~today.toISOString);
+    writeln("st:" ~st.toISOString);
+    auto duration = abs(today - st);
+    writeln(duration);
+    writeln(duration > dur!"minutes"(15));
+
+    import vibe.core.net;
+    auto addr=resolveHost("0.0.0.0");
+    import std.stdio;
+    writeln(addr);
 }
 
 int foo(const(char)* ptr){

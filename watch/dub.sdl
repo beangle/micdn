@@ -1,6 +1,0 @@
-name "watch"
-description "CDN Watch Base on inotify"
-
-targetType "library"
-targetName "beangle-micdn-watch"
-targetPath "target"

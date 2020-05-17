@@ -118,7 +118,7 @@ public auto watch(string base,int mask) {
 }
 
 unittest {
-    import std.process, std.stdio : writeln;
+    import std.process;
     executeShell( "rm -rf temp");
     executeShell( "mkdir temp");
     auto monitor = watch( "temp",IN_CREATE | IN_DELETE);
