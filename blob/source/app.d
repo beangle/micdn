@@ -21,12 +21,13 @@ Server server;
 
 void main(string[] args){
     if (args.length<3){
-        writeln( "Usage: beangle-micdn-gateway path/to/server.xml path/to/config.xml");
+        writeln( "Usage: beangle-micdn-blob path/to/server.xml path/to/config.xml");
         return ;
     }
-    import etc.linux.memoryerror;
+
+    /*import etc.linux.memoryerror;
     static if (is(typeof(registerMemoryErrorHandler)))
-        registerMemoryErrorHandler();
+        registerMemoryErrorHandler();*/
     server = Server.parse( cast(string) std.file.read( args[1]));
     config = Config.parse( cast(string) std.file.read( args[2]));
     MetaDao metaDao=null;
@@ -139,7 +140,7 @@ void download(Profile profile,HTTPServerRequest req,  HTTPServerResponse res,str
     import std.path;
     auto ext=extension( path);
     if (ext in repository.images){
-        sendFile( req,res,NativePath( repository.base ~path),null);
+        sendFile( req,res,  repository.base ~path,null);
     }else {
         auto realname = repository.getRealname( profile,path[profile.path.length ..$]);
         if (realname.length > 0){
@@ -149,9 +150,9 @@ void download(Profile profile,HTTPServerRequest req,  HTTPServerResponse res,str
             }
             auto settings=new HTTPFileServerSettings;
             settings.preWriteCallback = &setContextDisposition;
-            sendFile( req,res,NativePath( repository.base ~path),settings);
+            sendFile( req,res, repository.base ~path,settings);
         }else {
-            sendFile( req,res,NativePath( repository.base ~path),null);
+            sendFile( req,res, repository.base ~path,null);
         }
     }
 }

@@ -114,7 +114,7 @@ unittest{
     props["databaseName"]="openurp";
     props["user"]="openurp";
     props["schema"]="blob";
-    props["password"]="openurp";
+    //props["password"]="openurp";
     MetaDao dao;
     if ("password" in props){
         dao = new MetaDao( props);

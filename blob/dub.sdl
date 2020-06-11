@@ -1,10 +1,10 @@
-name "gateway"
-description "CDN gateway"
+name "blob"
+description "Beangle Micdn Blob"
 
-dependency "vibe-d" version = "~>0.8.6"
+dependency "vibe-d:web" version = "~>0.8.6"
 dependency "vibe-d-postgresql" version = "~>3.0.0-rc.2"
 dependency "beangle-micdn:core" version = "*"
 
 targetType "executable"
-targetName "beangle-micdn-gateway"
+targetName "beangle-micdn-blob"
 targetPath "target"
