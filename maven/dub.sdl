@@ -1,0 +1,9 @@
+name "maven"
+description "Beangle Micdn Maven Repo"
+
+dependency "vibe-d:web" version = "~>0.8.6"
+dependency "beangle-micdn:core" version = "*"
+
+targetType "executable"
+targetName "beangle-micdn-maven"
+targetPath "target"

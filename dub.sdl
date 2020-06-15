@@ -7,10 +7,12 @@ version "0.0.2"
 dependency ":core" version="*"
 dependency ":blob" version="*"
 dependency ":asset" version="*"
+dependency ":maven" version="*"
 
 subPackage "core"
 subPackage "blob"
 subPackage "asset"
+subPackage "maven"
 
 targetType "none"
 targetPath "target"

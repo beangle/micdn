@@ -54,11 +54,10 @@ class Config{
         local =attrs["local"];
       }
     }
-    import std.process : environment;
-    string home =environment["HOME"];
-    base = replace( base,"~",home);
+    import std.path;
+    base=expandTilde(base);
 
-    Config config = new Config( base,Repo( remote,replace( local,"~",home)));
+    Config config = new Config( base,Repo( remote,expandTilde( local)));
     auto contextsEntry= children( dom,"contexts");
     if (!contextsEntry.empty){
       auto contextEntries=children( contextsEntry.front,"context");
@@ -77,7 +76,7 @@ class Config{
         auto dirs=children( c,"dir");
         foreach (dir;dirs){
           attrs = getAttrs( dir);
-          string location = replace( attrs["location"],"~",home);
+          string location = expandTilde( attrs["location"]);
           context.addProvider( new DirProvider( location));
         }
         auto zips=children( c,"zip");

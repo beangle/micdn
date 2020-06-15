@@ -30,7 +30,7 @@ void main(string[] args){
         registerMemoryErrorHandler();*/
   server = Server.parse( cast(string) std.file.read( args[1]));
   config = Config.parse( cast(string) std.file.read( args[2]));
-  repository =   Repository.build( config);
+  repository = Repository.build( config);
   auto router = new URLRouter( server.contextPath);
   router.get( "*",&index);
 

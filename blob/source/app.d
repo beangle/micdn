@@ -38,7 +38,7 @@ void main(string[] args){
     metaDao = new MetaDao( config.dataSourceProps);
     metaDao.loadProfiles( config);
   }
-  repository = new Repository( config.fileBase,metaDao);
+  repository = new Repository( config.base,metaDao);
   auto router = new URLRouter( server.contextPath);
   router.get( "*",&index);
   router.post( "*", &upload);

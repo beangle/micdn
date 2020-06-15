@@ -4,18 +4,24 @@ import std.string;
 import dxml.dom;
 import std.stdio;
 import std.conv;
+import beangle.xml.reader;
 
 class Config{
-  string fileBase;
+  /**file base store blobs*/
+  string base;
+  /**upload file limit*/
   ulong maxSize=10*1024*1024; //default 10m
+  /**url profile for management*/
   Profile[string] profiles;
+  /**every key for profile*/
   string[string] keys;
+  /**store datasource properties*/
   string[string] dataSourceProps;
 
   private Profile defaultProfile = new Profile( 0,"",null,false,false,false);
 
-  this(string fileBase){
-    this.fileBase=fileBase;
+  this(string base){
+    this.base=base;
   }
 
   Profile getProfile(string path){
@@ -31,9 +37,10 @@ class Config{
     Config config;
     auto dom = parseDOM!simpleXML( content).children[0];
     auto attrs = getAttrs( dom);
-    string fileBase = attrs["base"];
     string sizeLimit=attrs.get( "maxSize","50M");
-    config = new Config( fileBase);
+    import std.path;
+    string base=expandTilde(attrs["base"]);
+    config = new Config( base);
     config.maxSize=parseSize( sizeLimit);
     auto usersEntry = children( dom,"users");
     if (!usersEntry.empty){
@@ -70,19 +77,6 @@ class Config{
     return config;
   }
 
-  private static auto children(T)(ref DOMEntity!T dom,string path){
-    import std.algorithm;
-    return dom.children.filter!(c => c.name==path);
-  }
-
-  private static auto getAttrs(T)(ref DOMEntity!T dom){
-    string[string] a;
-    foreach (at;dom.attributes){
-      a[at.name]=at.value;
-    }
-    return a;
-  }
-
   public static ulong parseSize(string size){
     string s=size.toLower;
     if (s.endsWith( "m")){
@@ -100,10 +94,15 @@ import std.uni;
 import std.datetime.systime;
 class Profile{
   int id;
+  /**profile path prefix*/
   string path;
+  /**which user/key could write this profile*/
   string[string] keys;
+  /**should name file by sha*/
   bool namedBySha;
+  /**could list dir publicly*/
   bool publicList;
+  /**could download file publicly*/
   bool publicDownload;
 
   this(int id,string path,string[string] keys,bool namedBySha,bool publicList,bool publicDownload){
@@ -147,7 +146,7 @@ class BlobMeta{
   string path;
   SysTime updatedAt;
 
-   string toJson(){
+  string toJson(){
     return `{owner:"` ~ owner ~ `",profileId:`~ profileId.to!string ~ `,name:"` ~ name ~`",size:` ~
     size.to!string ~ `,sha:"` ~ sha ~ `",mediaType:"` ~
     mediaType ~ `",path:"` ~ path ~ `",updatedAt:"` ~ updatedAt.toISOExtString ~ `"}`;
@@ -170,7 +169,7 @@ unittest{
 
 unittest{
   auto content=`<?xml version="1.0"?>
-<micdn port="9080" context="/micdn" base="/home/chaostone/tmp">
+<blob port="9080" context="/micdn" base="/home/chaostone/tmp">
   <users>
     <user name="default" key="--"/>
   </users>
@@ -184,7 +183,7 @@ unittest{
     <password>1</password>
     <tableName>public.blob_metas</tableName>
   </dataSource>
-</micdn>`;
+</blob>`;
   auto config = Config.parse( content);
   import std.stdio;
   assert(config.profiles.length ==1 );
