@@ -6,9 +6,11 @@ version "0.0.2"
 
 dependency ":core" version="*"
 dependency ":blob" version="*"
+dependency ":asset" version="*"
 
 subPackage "core"
 subPackage "blob"
+subPackage "asset"
 
 targetType "none"
 targetPath "target"
