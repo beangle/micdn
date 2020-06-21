@@ -11,6 +11,7 @@ ferror(){
   echo "==========================================================" >&2
   exit 1
 }
+dub build --build=release --compiler=ldc2
 
 # needed commands function
 E=0
@@ -35,10 +36,7 @@ fi
   RELEASE=$(awk -F. '{ print $3 +0 }' <<<$VERSION)
   if [ "$REVISION" == "" ]
   then
-    REVISION="1.
-
-
-    fc32"
+    REVISION="1.fc32"
   fi
   DESTDIR="$MICDN_HOME/target"
   VERSION=$(sed 's/-/~/' <<<$VERSION) # replace dash by tilde

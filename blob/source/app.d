@@ -24,7 +24,7 @@ Server server;
 
 void main(string[] args){
   if (args.length<3){
-    writeln( "Usage: beangle-micdn-blob --server path/to/server.xml --config path/to/config.xml");
+    writeln( "Usage: " ~ args[0] ~ " --server path/to/server.xml --config path/to/config.xml");
     return ;
   }
 
