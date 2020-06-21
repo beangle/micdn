@@ -24,15 +24,15 @@ Server server;
 
 void main(string[] args){
   if (args.length<3){
-    writeln( "Usage: beangle-micdn-blob path/to/server.xml path/to/config.xml");
+    writeln( "Usage: beangle-micdn-blob --server path/to/server.xml --config path/to/config.xml");
     return ;
   }
 
   /*import etc.linux.memoryerror;
     static if (is(typeof(registerMemoryErrorHandler)))
         registerMemoryErrorHandler();*/
-  server = Server.parse( cast(string) std.file.read( args[1]));
-  config = Config.parse( cast(string) std.file.read( args[2]));
+  server = getServer();
+  config = Config.parse( getConfigXml( "/micdn/blob.xml"));
   MetaDao metaDao=null;
   if (!config.dataSourceProps.empty){
     metaDao = new MetaDao( config.dataSourceProps);

@@ -1,6 +1,10 @@
 module beangle.web.server;
 
 import dxml.dom;
+import std.algorithm;
+import std.file;
+import std.path;
+
 class Server{
   string[] ips;
   ushort port;
@@ -11,6 +15,7 @@ class Server{
     this.port=port;
     this.contextPath=contextPath;
   }
+
   public static Server parse(string content){
     import std.conv;
     Server server;
@@ -58,5 +63,45 @@ unittest{
   auto server = Server.parse( content);
   import std.stdio;
   assert(server.ips.length ==1 );
+}
+
+import vibe.core.args;
+
+string getConfigXml(string configName){
+  string serverxml;
+  auto success = readOption!string( "config",&serverxml,"specify server params");
+  if (success){
+    return cast(string) read( expandTilde(serverxml));
+  }else {
+    string home;
+    success= readOption!string( "home",&home,"specify home params");
+    if (success){
+      if (home.endsWith( "/")){
+        home = home[0..$-1];
+      }
+      return cast(string) read( expandTilde(home ~ configName));
+    }else {
+      throw new Exception( "Missing config or home params");
+    }
+  }
+}
+
+Server getServer(){
+  string serverxml;
+  auto success = readOption!string( "server",&serverxml,"specify server params");
+  if (success){
+    return parseServer( expandTilde(serverxml));
+  }else {
+    throw new Exception( "Missing server params");
+  }
+}
+
+Server parseServer(string serverxml){
+  import std.file;
+  if (exists( serverxml)){
+    return Server.parse( cast(string) read( serverxml));
+  }else {
+    throw new Exception( serverxml ~ " is not exists!");
+  }
 }
 

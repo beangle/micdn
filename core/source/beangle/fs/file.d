@@ -127,6 +127,7 @@ private void doSetWritable(string dir){
     dir.setAttributes( dir.getAttributes | octal!600);
   }
 }
+
 unittest{
   import std.file : read;
   import std.stdio;

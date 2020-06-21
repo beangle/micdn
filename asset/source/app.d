@@ -21,15 +21,15 @@ Server server;
 Config config;
 void main(string[] args){
   if (args.length<3){
-    writeln( "Usage: beangle-micdn-asset path/to/server.xml path/to/config.xml");
+    writeln( "Usage: beangle-micdn-asset --server path/to/server.xml --config path/to/config.xml");
     return ;
   }
 
   /*import etc.linux.memoryerror;
     static if (is(typeof(registerMemoryErrorHandler)))
         registerMemoryErrorHandler();*/
-  server = Server.parse( cast(string) std.file.read( args[1]));
-  config = Config.parse( cast(string) std.file.read( args[2]));
+  server = getServer();
+  config = Config.parse( getConfigXml( "/micdn/asset.xml"));
   repository = Repository.build( config);
   auto router = new URLRouter( server.contextPath);
   router.get( "*",&index);
