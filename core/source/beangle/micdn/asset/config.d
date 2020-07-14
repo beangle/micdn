@@ -96,7 +96,7 @@ class Config{
     auto app = appender!string();
     app.put( `<?xml version="1.0" encoding="UTF-8"?>`);
     app.put( "\n");
-    app.put( "<assets base=\"" ~ base ~ "\">\n");
+    app.put( "<asset base=\"" ~ base ~ "\">\n");
     app.put( "  <repository remote=\"" ~ repo.remote ~ "\" local=\""~ repo.local~"\" />\n");
     app.put( "  <contexts>\n");
     foreach (c;contexts){
@@ -104,7 +104,7 @@ class Config{
       app.put( "\n");
     }
     app.put( "  </contexts>\n");
-    app.put( "</assets>\n");
+    app.put( "</asset>\n");
     return app.data;
   }
 }

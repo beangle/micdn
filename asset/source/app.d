@@ -65,10 +65,16 @@ void index(HTTPServerRequest req, HTTPServerResponse res){
           res.redirect( req.requestURI.replace( uri, uri ~"/"));
         }
       }else {
+        void setCORS(scope HTTPServerRequest req, scope HTTPServerResponse res, ref string physicalPath)@safe{
+          res.headers["Access-Control-Allow-Origin"]="*";
+        }
+        auto settings=new CacheSetting;
+        settings.preWriteCallback = &setCORS;
+
         if (rs.length==1){
-          sendFile( req,res,rs[0]);
+          sendFile( req,res,rs[0],settings);
         }else {
-          sendFiles( req,res,rs);
+          sendFiles( req,res,rs,settings);
         }
       }
     }
