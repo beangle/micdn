@@ -41,7 +41,6 @@ fi
   DESTDIR="$MICDN_HOME/target"
   VERSION=$(sed 's/-/~/' <<<$VERSION) # replace dash by tilde
   ARCH="x86_64"
-  FARCH="x86-64"
 
   CDNDIR="beangle-micdn-"$VERSION"-"$REVISION"."$ARCH
   RPMFILE="beangle-micdn-"$VERSION"-"$REVISION"."$ARCH".rpm"
@@ -77,7 +76,7 @@ echo $MICDN_HOME
     chmod 0755 usr/bin/{micdn-asset,micdn-blob,micdn-maven}
 
     # find deb package dependencies
-    DEPEND="ldc($FARCH)"
+    DEPEND="ldc($ARCH)"
     # create micdn.spec file
     cd ..
     echo -e 'Name: beangle-micdn
@@ -90,7 +89,7 @@ echo $MICDN_HOME
     Packager: '$MAINTAINER'
     ExclusiveArch: '$ARCH'
     Requires: '$DEPEND'
-    Provides: micdn-asset('$FARCH') = '$VERSION-$REVISION', micdn-blob('$FARCH') = '$VERSION-$REVISION', micdn-maven('$FARCH') = '$VERSION-$REVISION'
+    Provides: micdn-asset('$ARCH') = '$VERSION-$REVISION', micdn-blob('$ARCH') = '$VERSION-$REVISION', micdn-maven('$ARCH') = '$VERSION-$REVISION'
     %description
     Mini cdn,serve static resource, maven artifacts and binary file storage.
     Main designer: Duan TiHua
