@@ -30,7 +30,7 @@ fi
 
   # assign variables
   MAINTAINER="duantihua <duantihua@163.com>"
-  VERSION="0.0.2"
+  VERSION=`grep "version " -R dub.sdl |awk 'NR==1{gsub(/"/,"");print $2}'`
   MAJOR=$(awk -F. '{ print $1 +0 }' <<<$VERSION)
   MINOR=$(awk -F. '{ print $2 +0 }' <<<$VERSION)
   RELEASE=$(awk -F. '{ print $3 +0 }' <<<$VERSION)
