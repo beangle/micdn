@@ -7,6 +7,7 @@ import std.conv;
 import beangle.xml.reader;
 
 class Config{
+  string hostname;
   /**file base store blobs*/
   string base;
   /**upload file limit*/
@@ -20,7 +21,8 @@ class Config{
 
   private Profile defaultProfile = new Profile( 0,"",null,false,false,false);
 
-  this(string base){
+  this(string hostname,string base){
+    this.hostname=hostname;
     this.base=base;
   }
 
@@ -40,7 +42,8 @@ class Config{
     string sizeLimit=attrs.get( "maxSize","50M");
     import std.path;
     string base=expandTilde(attrs["base"]);
-    config = new Config( base);
+    string hostname=attrs.get( "hostname","localhost");
+    config = new Config(hostname, base);
     config.maxSize=parseSize( sizeLimit);
     auto usersEntry = children( dom,"users");
     if (!usersEntry.empty){

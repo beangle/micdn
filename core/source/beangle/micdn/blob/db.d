@@ -10,6 +10,7 @@ class MetaDao{
 
   PostgresClient client;
   string schema;
+  int domainId;
 
   this(string[string] props){
     import std.format;
@@ -38,9 +39,9 @@ class MetaDao{
     (scope conn) {
       QueryParams query;
       query.sqlCommand = "insert into "~schema
-      ~".blob_metas(id,owner,name,size,sha,media_type,profile_id,path,updated_at) values(datetime_id(),$1,$2,$3,$4,$5,$6,$7,$8)";
+      ~".blob_metas(id,owner,name,size,sha,media_type,profile_id,path,updated_at,dimain_id) values(datetime_id(),$1,$2,$3,$4,$5,$6,$7,$8,$9)";
       import std.conv;
-      query.argsVariadic( m.owner,m.name,m.size.to!long,m.sha,m.mediaType,m.profileId,m.path,m.updatedAt);
+      query.argsVariadic( m.owner,m.name,m.size.to!long,m.sha,m.mediaType,m.profileId,m.path,m.updatedAt,this.domainId);
       try{
         auto r = conn.execParams( query);
         scope(exit) destroy( r);
@@ -73,14 +74,26 @@ class MetaDao{
   public void loadProfiles(Config config){
     client.pickConnection(
     (scope conn) {
-      auto r = conn.execStatement( "select name,key from "~schema ~".users");
+      QueryParams query;
+      query.sqlCommand = "select  id from "~schema~".domains where hostname=$1";
+      query.argsVariadic( config.hostname);
+      auto r0= conn.execParams( query);
+      for (auto row = 0; row < r0.length; row++){
+        this.domainId=r0[row]["id"].as!PGinteger;
+        break ;
+      }
+      if (this.domainId==0){
+        throw new Exception( "cannot find domain with hostname "~ config.hostname);
+      }
+      import std.conv;
+      auto r = conn.execStatement( "select name,key from "~schema ~".users where domain_id="~domainId.to!string);
       for (auto row = 0; row < r.length; row++){
         string name= r[row]["name"].as!PGtext;
         string key = r[row]["key"].as!PGtext;
         config.keys[name]=key;
       }
       destroy( r);
-      auto r2 = conn.execStatement( "select id,path,users,named_by_sha,public_list,public_download from "~schema ~".profiles");
+      auto r2 = conn.execStatement( "select id,path,users,named_by_sha,public_list,public_download from "~schema ~".profiles where domain_id="~this.domainId.to!string);
       for (auto row = 0; row < r2.length; row++){
         int id= r2[row]["id"].as!PGinteger;
         string path = r2[row]["path"].as!PGtext;
@@ -101,6 +114,7 @@ class MetaDao{
         }
         config.profiles[path]=new Profile( id,path,profileKeys,namedBySha,publicList,publicDownload);
       }
+      logInfo("find "~ r2.length.to!string ~" blob profiles");
       destroy( r2);
     }
     );
