@@ -159,7 +159,7 @@ class BlobMeta{
 unittest{
   string[string] keys;
   keys["default"] = "--";
-  auto profile= new Profile( 0, "",keys,false,false,false);
+  auto profile= new Profile( 0, "",keys,false,false);
   SysTime now=Clock.currTime();
   import core.time;
   now.fracSecs= msecs( 0);

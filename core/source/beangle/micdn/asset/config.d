@@ -195,7 +195,7 @@ class GavJarProvider: Provider{
 }
 
 unittest{
-  auto repo = Repo( "https://repo1.maven.org/maven2","~/.m2/repository");
+  immutable(Repo) repo = Repo( "https://repo1.maven.org/maven2","~/.m2/repository");
   auto remoteBui="https://repo1.maven.org/maven2/org/beangle/bundles/beangle-bundles-bui/0.1.7/beangle-bundles-bui-0.1.7.jar";
   assert( remoteBui == repo.remoteUrl( "org.beangle.bundles:beangle-bundles-bui:0.1.7"));
 }

@@ -59,11 +59,10 @@ class Config{
 
 }
 
-void add(string[] remotes,string remote){
+void add(ref string[] remotes,string remote){
   remotes.length+=1;
   remotes[$-1]=remote;
 }
-
 unittest{
   auto content=`<?xml version="1.0" encoding="UTF-8"?>
 <maven cacheable="true" >

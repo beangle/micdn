@@ -133,7 +133,7 @@ unittest{
     dao = new MetaDao( props);
   }
   if (dao !is null){
-    auto profile= new Profile( 0, "",null,false,false,false);
+    auto profile= new Profile( 0, "",null,false,false);
     dao.remove( profile,"/a");
     BlobMeta meta= new BlobMeta();
     meta.profileId=profile.id;
@@ -148,7 +148,7 @@ unittest{
     assert(dao.create( profile,meta));
   }
   if (dao !is null){
-    Config config = new Config( "~/tmp");
+    Config config = new Config( "localhost","~/tmp",true);
     dao.loadProfiles( config);
   }
 }
