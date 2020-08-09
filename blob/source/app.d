@@ -61,16 +61,18 @@ void index(HTTPServerRequest req, HTTPServerResponse res){
   if (rs ==0 ){
     throw new HTTPStatusException( HTTPStatus.notFound);
   }else if (rs == 1 ){ // dir
-    if (uri.endsWith( "/")){
-      Profile profile = config.getProfile( uri);
-      if (profile.publicList|| basicAuth( req,res,profile)){
+    if (config.publicList){
+      if (uri.endsWith( "/")){
+        Profile profile = config.getProfile( uri);
         auto content=genListContents( repository.base~uri,server.contextPath,uri);
         render!("index.dt",uri,content)( res);
+      }else {
+        import std.array;
+        uri=server.contextPath ~ uri;
+        res.redirect( req.requestURI.replace( uri, uri ~"/"));
       }
     }else {
-      import std.array;
-      uri=server.contextPath ~ uri;
-      res.redirect( req.requestURI.replace( uri, uri ~"/"));
+      throw new HTTPStatusException( HTTPStatus.notFound);
     }
   }else { //file
     Profile profile = config.getProfile( uri);

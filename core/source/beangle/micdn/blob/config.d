@@ -7,9 +7,11 @@ import std.conv;
 import beangle.xml.reader;
 
 class Config{
-  string hostname;
+  immutable string hostname;
   /**file base store blobs*/
-  string base;
+  immutable string base;
+  /**enable dir list*/
+  immutable bool publicList;
   /**upload file limit*/
   ulong maxSize=10*1024*1024; //default 10m
   /**url profile for management*/
@@ -19,11 +21,12 @@ class Config{
   /**store datasource properties*/
   string[string] dataSourceProps;
 
-  private Profile defaultProfile = new Profile( 0,"",null,false,false,false);
+  private Profile defaultProfile = new Profile( 0,"",null,false,false);
 
-  this(string hostname,string base){
+  this(string hostname,string base,bool publicList){
     this.hostname=hostname;
     this.base=base;
+    this.publicList=publicList;
   }
 
   Profile getProfile(string path){
@@ -41,9 +44,10 @@ class Config{
     auto attrs = getAttrs( dom);
     string sizeLimit=attrs.get( "maxSize","50M");
     import std.path;
-    string base=expandTilde(attrs["base"]);
+    string base=expandTilde( attrs["base"]);
     string hostname=attrs.get( "hostname","localhost");
-    config = new Config(hostname, base);
+    bool publicList = attrs.get( "publicList","false").to!bool;
+    config = new Config( hostname, base,publicList);
     config.maxSize=parseSize( sizeLimit);
     auto usersEntry = children( dom,"users");
     if (!usersEntry.empty){
@@ -68,9 +72,8 @@ class Config{
           }
         }
         bool namedBySha = attrs.get( "namedBySha","false").to!bool;
-        bool publicList = attrs.get( "publicList","false").to!bool;
         bool publicDownload = attrs.get( "publicDownload","false").to!bool;
-        config.profiles[path] = new Profile( id,path,profileKeys,namedBySha,publicList,publicDownload);
+        config.profiles[path] = new Profile( id,path,profileKeys,namedBySha,publicDownload);
       }
     }
     auto dataSource= children( dom,"dataSource").front;
@@ -96,37 +99,34 @@ import std.digest.sha;
 import std.uni;
 import std.datetime.systime;
 class Profile{
-  int id;
+  immutable int id;
   /**profile path prefix*/
-  string path;
+  immutable  string path;
   /**which user/key could write this profile*/
-  string[string] keys;
+  immutable string[string] keys;
   /**should name file by sha*/
-  bool namedBySha;
-  /**could list dir publicly*/
-  bool publicList;
+  immutable bool namedBySha;
   /**could download file publicly*/
-  bool publicDownload;
+  immutable bool publicDownload;
 
-  this(int id,string path,string[string] keys,bool namedBySha,bool publicList,bool publicDownload){
+  this(int id,string path,string[string] keys,bool namedBySha,bool publicDownload){
     this.id=id;
     if (path.endsWith( "/")){
       this.path=path[0..$-1];
     }else {
       this.path=path;
     }
-    this.keys=keys;
+    this.keys=to!(immutable(string[string]))( keys);
     this.namedBySha=namedBySha;
-    this.publicList=publicList;
     this.publicDownload=publicDownload;
   }
 
-  string genToken(string path,string user,string key,SysTime timestamp){
+  string genToken(string path,string user,string key,SysTime timestamp)   {
     string content = path ~ user ~ key ~ timestamp.toISOString;
     return toHexString( sha1Of( content)).toLower;
   }
 
-  bool verifyToken(string path,string user,string key,string token,SysTime timestamp){
+  bool verifyToken(string path,string user,string key,string token,SysTime timestamp)   {
     SysTime today = Clock.currTime();
     import core.time;
     auto duration = abs( today - timestamp);

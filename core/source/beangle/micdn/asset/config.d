@@ -3,35 +3,40 @@ module beangle.micdn.asset.config;
 import std.file;
 import std.algorithm;
 import std.string;
+import std.conv;
 import dxml.dom;
 import beangle.xml.reader;
 import std.array : appender;
 
 struct Repo{
-  string remote;
-  string local;
-  private string path(string gav){
+  immutable string remote;
+  immutable string local;
+  private string path(string gav) immutable{
     auto parts= split( gav,":");
     assert(parts.length==3);
     parts[0]= replace( parts[0],".","/");
     return "/"~parts[0]~"/"~parts[1]~"/"~parts[2]~"/"~parts[1]~"-"~parts[2]~".jar";
   }
-  string remoteUrl(string gav){
+  string remoteUrl(string gav) immutable{
     return remote ~ path( gav);
   }
-  string localFile(string gav){
+  string localFile(string gav) immutable{
     return local ~ path( gav);
   }
 }
 
 class Config{
-  Repo repo;
-  string base;
+  immutable Repo repo;
+  immutable string base;
+  /**enable dir list*/
+  immutable bool publicList;
+
   Context[string] contexts;
 
-  this(string base, Repo repo){
+  this(string base, Repo repo,bool publicList){
     this.base=base;
     this.repo=repo;
+    this.publicList=publicList;
   }
 
   void addContext(Context context){
@@ -42,6 +47,7 @@ class Config{
     auto dom = parseDOM!simpleXML( content).children[0];
     auto attrs = getAttrs( dom);
     string base = attrs.get( "base","~/.beangle/assets");
+    bool publicList = attrs.get( "publicList","false").to!bool;
     auto repoEntry = children( dom,"repository");
     auto remote="https://repo1.maven.org/maven2";
     auto local="~/.m2/repository";
@@ -55,14 +61,14 @@ class Config{
       }
     }
     import std.path;
-    base=expandTilde(base);
+    base=expandTilde( base);
 
-    Config config = new Config( base,Repo( remote,expandTilde( local)));
+    Config config = new Config( base,Repo( remote,expandTilde( local)),publicList);
     auto contextsEntry= children( dom,"contexts");
     if (!contextsEntry.empty){
       auto contextEntries=children( contextsEntry.front,"context");
       foreach (c;contextEntries){
-        auto context= new Context(  getAttrs( c)["base"]);
+        auto context= new Context( getAttrs( c)["base"]);
         auto jars=children( c,"jar");
         foreach (jar;jars){
           attrs = getAttrs( jar);

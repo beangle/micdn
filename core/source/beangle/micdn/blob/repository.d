@@ -22,6 +22,7 @@ class Repository{
   }
 
   int check(string path){
+    if (path.indexOf( "..") > -1 ) return 0;
     if (exists( base ~ path)){
       if (isDir( base ~ path)){
         return 1;

@@ -39,21 +39,29 @@ void main(string[] args){
 
 void index(HTTPServerRequest req, HTTPServerResponse res){
   auto uri =getPath( server.contextPath, req);
+  if (uri.indexOf( "..") > -1 )throw new HTTPStatusException( HTTPStatus.notFound);
   auto file = config.base ~ uri;
   import std.stdio;
   if (exists( file)){
     if (isDir( file)){
-      if (uri.endsWith( "/")){
-        auto content=genListContents( config.base ~ uri,server.contextPath,uri);
-        render!("index.dt",uri,content)( res);
-      }else {
-        uri=server.contextPath ~ uri;
-        res.redirect( req.requestURI.replace( uri, uri ~"/"));
+      if(config.publicList){
+        if (uri.endsWith( "/")){
+          auto content=genListContents( config.base ~ uri,server.contextPath,uri);
+          render!("index.dt",uri,content)( res);
+        }else {
+          uri=server.contextPath ~ uri;
+          res.redirect( req.requestURI.replace( uri, uri ~"/"));
+        }
+      }else{
+        throw new HTTPStatusException( HTTPStatus.notFound);
       }
     }else {
       sendFile( req,res,file);
     }
   }else {
+    if(uri.endsWith(".diff")){
+      throw new HTTPStatusException( HTTPStatus.notFound);
+    }
     if (config.cacheable){
       auto local = config.base ~ uri;
       auto tmp=deleteme();

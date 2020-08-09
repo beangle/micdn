@@ -3,6 +3,7 @@ module beangle.micdn.asset.repository;
 import beangle.micdn.asset.config;
 import beangle.fs.file;
 import std.file;
+import std.string;
 import std.path;
 import std.string;
 import vibe.core.log;
@@ -15,6 +16,7 @@ class Repository{
   }
 
   string[] get(string uri){
+    if (uri.indexOf( "..") > -1 )return null;
     auto files= resolve( uri);
     for (int i=0;i<files.length;i++){
       auto location=base~files[i];

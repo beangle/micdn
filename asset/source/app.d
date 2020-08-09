@@ -57,12 +57,16 @@ void index(HTTPServerRequest req, HTTPServerResponse res){
     }else {
       // dir
       if (isDir( rs[0])){
-        if (uri.endsWith( "/")){
-          auto content=genListContents( repository.base ~ uri,server.contextPath,uri);
-          render!("index.dt",uri,content)( res);
+        if (config.publicList){
+          if (uri.endsWith( "/")){
+            auto content=genListContents( repository.base ~ uri,server.contextPath,uri);
+            render!("index.dt",uri,content)( res);
+          }else {
+            uri=server.contextPath ~ uri;
+            res.redirect( req.requestURI.replace( uri, uri ~"/"));
+          }
         }else {
-          uri=server.contextPath ~ uri;
-          res.redirect( req.requestURI.replace( uri, uri ~"/"));
+          throw new HTTPStatusException( HTTPStatus.notFound);
         }
       }else {
         void setCORS(scope HTTPServerRequest req, scope HTTPServerResponse res, ref string physicalPath)@safe{

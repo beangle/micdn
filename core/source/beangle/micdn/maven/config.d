@@ -6,56 +6,62 @@ import beangle.xml.reader;
 
 class Config{
   /**artifact local repo*/
-  string base;
+  immutable string base;
   /**cache the artifacts*/
-  bool cacheable;
-  /**default remote repo*/
-  string defaultRepo;
+  immutable bool cacheable;
+  /**enable dir list*/
+  immutable bool publicList;
   /**candinates remote repos*/
-  string[] remoteRepos=[];
+  immutable string[] remoteRepos=[];
+  /**default remote repo*/
+  immutable string defaultRepo;
 
   static auto CentralURL = "https://repo1.maven.org/maven2";
   static auto AliyunURL = "https://maven.aliyun.com/nexus/content/groups/public";
 
-  this(string base,bool cacheable){
+  this(string base,bool cacheable,bool publicList,string[] remoteRepos){
     this.base=base;
     this.cacheable=cacheable;
-  }
-
-  void addRemote(string remote){
-    remoteRepos.length+=1;
-    remoteRepos[$-1]=remote;
+    this.publicList=publicList;
+    this.remoteRepos=to!(immutable(string[]))(remoteRepos);
+    this.defaultRepo=remoteRepos[$-1];
   }
 
   public static Config parse(string content){
     auto dom = parseDOM!simpleXML( content).children[0];
     auto attrs = getAttrs( dom);
     bool cacheable = attrs.get( "cacheable","true").to!bool;
+    bool publicList = attrs.get( "publicList","false").to!bool;
     import std.path;
     string base = expandTilde( attrs.get( "base","~/.m2/repository"));
-    Config config = new Config( base,cacheable);
+    string[] remoteRepos=[];
     auto remotesEntries = children( dom,"remotes");
     if (!remotesEntries.empty){
       auto remoteEntries = children( remotesEntries.front,"remote");
       foreach (remoteEntry;remoteEntries){
         attrs = getAttrs( remoteEntry);
         if ("url" in attrs){
-          config.addRemote( attrs["url"]);
+          remoteRepos.add( attrs["url"]);
         }else if ("alias" in attrs){
           switch ( attrs["alias"]){
-            case "central": config.addRemote( CentralURL); break ;
-            case "aliyun": config.addRemote( AliyunURL);break ;
+            case "central": remoteRepos.add( CentralURL); break ;
+            case "aliyun":remoteRepos.add( AliyunURL);break ;
             default: throw new Exception( "unknown named repo "~ attrs["alias"] );
           }
         }
       }
     }
-    if (config.remoteRepos.length==0){
-      config.addRemote( CentralURL);
+    if (remoteRepos.length==0){
+      remoteRepos.add( CentralURL);
     }
-    config.defaultRepo= config.remoteRepos[$-1];
-    return config;
+    return new Config( base,cacheable,publicList,remoteRepos);
   }
+
+}
+
+void add(string[] remotes,string remote){
+  remotes.length+=1;
+  remotes[$-1]=remote;
 }
 
 unittest{
