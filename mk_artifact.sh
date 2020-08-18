@@ -17,3 +17,9 @@ dub build --build=release --compiler=ldc2
 mk_artifact "asset" "ldc"
 mk_artifact "blob" "ldc"
 mk_artifact "maven" "ldc"
+
+cd $MICDN_HOME
+mkdir -p target
+rm -rf target/beangle-micdn-$version.zip
+
+zip -j target/beangle-micdn-$version.zip asset/target/beangle-micdn-asset-$version-ldc.bin blob/target/beangle-micdn-blob-$version-ldc.bin maven/target/beangle-micdn-maven-$version-ldc.bin
