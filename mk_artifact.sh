@@ -9,6 +9,7 @@ mk_artifact(){
   rm -rf target/$targetName-$version-$2.bin
   mv target/$targetName target/$targetName-$version-$2.bin
   mkdir -p ~/.m2/repository/org/beangle/micdn/$targetName/$version/
+  rm -rf ~/.m2/repository/org/beangle/micdn/$targetName/$version/$targetName-$version-$2.bin
   cp target/$targetName-$version-$2.bin ~/.m2/repository/org/beangle/micdn/$targetName/$version/$targetName-$version-$2.bin
   cd ..
 }
@@ -22,4 +23,9 @@ cd $MICDN_HOME
 mkdir -p target
 rm -rf target/beangle-micdn-$version.zip
 
-zip -j target/beangle-micdn-$version.zip asset/target/beangle-micdn-asset-$version-ldc.bin blob/target/beangle-micdn-blob-$version-ldc.bin maven/target/beangle-micdn-maven-$version-ldc.bin
+cd ~/.m2/repository
+zip  $MICDN_HOME/target/beangle-micdn-$version.zip org/beangle/micdn/beangle-micdn-asset/$version/beangle-micdn-asset-$version-ldc.bin \
+org/beangle/micdn/beangle-micdn-blob/$version/beangle-micdn-blob-$version-ldc.bin \
+org/beangle/micdn/beangle-micdn-maven/$version/beangle-micdn-maven-$version-ldc.bin
+
+gpg -ab $MICDN_HOME/target/beangle-micdn-$version.zip
