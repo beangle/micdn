@@ -63,7 +63,7 @@ class Config{
       foreach (p;profileEntries){
         attrs= getAttrs( p);
         int id = attrs["id"].to!int;
-        string path =attrs["path"];
+        string path =attrs["base"];
         string users = attrs.get( "users","");
         string[string] profileKeys;
         if (!users.empty){
@@ -101,7 +101,7 @@ import std.datetime.systime;
 class Profile{
   immutable int id;
   /**profile path prefix*/
-  immutable  string path;
+  immutable string base;
   /**which user/key could write this profile*/
   immutable string[string] keys;
   /**should name file by sha*/
@@ -109,12 +109,12 @@ class Profile{
   /**could download file publicly*/
   immutable bool publicDownload;
 
-  this(int id,string path,string[string] keys,bool namedBySha,bool publicDownload){
+  this(int id,string base,string[string] keys,bool namedBySha,bool publicDownload){
     this.id=id;
-    if (path.endsWith( "/")){
-      this.path=path[0..$-1];
+    if (base.endsWith( "/")){
+      this.base=base[0..$-1];
     }else {
-      this.path=path;
+      this.base=base;
     }
     this.keys=to!(immutable(string[string]))( keys);
     this.namedBySha=namedBySha;
@@ -142,17 +142,17 @@ class Profile{
 class BlobMeta{
   string owner;
   string name;
-  ulong size;
+  ulong fileSize;
   string sha;
   string mediaType;
   int profileId;
-  string path;
+  string filePath;
   SysTime updatedAt;
 
   string toJson(){
-    return `{owner:"` ~ owner ~ `",profileId:`~ profileId.to!string ~ `,name:"` ~ name ~`",size:` ~
-    size.to!string ~ `,sha:"` ~ sha ~ `",mediaType:"` ~
-    mediaType ~ `",path:"` ~ path ~ `",updatedAt:"` ~ updatedAt.toISOExtString ~ `"}`;
+    return `{owner:"` ~ owner ~ `",profileId:`~ profileId.to!string ~ `,name:"` ~ name ~`",fileSize:` ~
+    fileSize.to!string ~ `,sha:"` ~ sha ~ `",mediaType:"` ~
+    mediaType ~ `",filePath:"` ~ filePath ~ `",updatedAt:"` ~ updatedAt.toISOExtString ~ `"}`;
   }
 }
 
@@ -177,7 +177,7 @@ unittest{
     <user name="default" key="--"/>
   </users>
   <profiles>
-    <profile id="0" path="/group/test" users="default"/>
+    <profile id="0" base="/group/test" users="default"/>
   </profiles>
   <dataSource>
     <serverName>localhost</serverName>

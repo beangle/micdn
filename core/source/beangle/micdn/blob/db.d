@@ -39,9 +39,9 @@ class MetaDao{
     (scope conn) {
       QueryParams query;
       query.sqlCommand = "insert into "~schema
-      ~".blob_metas(id,owner,name,size,sha,media_type,profile_id,path,updated_at,dimain_id) values(datetime_id(),$1,$2,$3,$4,$5,$6,$7,$8,$9)";
+      ~".blob_metas(id,owner,name,file_size,sha,media_type,profile_id,file_path,updated_at,dimain_id) values(datetime_id(),$1,$2,$3,$4,$5,$6,$7,$8,$9)";
       import std.conv;
-      query.argsVariadic( m.owner,m.name,m.size.to!long,m.sha,m.mediaType,m.profileId,m.path,m.updatedAt,this.domainId);
+      query.argsVariadic( m.owner,m.name,m.fileSize.to!long,m.sha,m.mediaType,m.profileId,m.filePath,m.updatedAt,this.domainId);
       try{
         auto r = conn.execParams( query);
         scope(exit) destroy( r);
@@ -93,10 +93,10 @@ class MetaDao{
         config.keys[name]=key;
       }
       destroy( r);
-      auto r2 = conn.execStatement( "select id,path,users,named_by_sha,public_download from "~schema ~".profiles where domain_id="~this.domainId.to!string);
+      auto r2 = conn.execStatement( "select id,base,users,named_by_sha,public_download from "~schema ~".profiles where domain_id="~this.domainId.to!string);
       for (auto row = 0; row < r2.length; row++){
         int id= r2[row]["id"].as!PGinteger;
-        string path = r2[row]["path"].as!PGtext;
+        string base = r2[row]["base"].as!PGtext;
         string users = r2[row]["users"].as!PGtext;
         bool namedBySha = r2[row]["named_by_sha"].as!PGboolean;
         bool publicDownload = r2[row]["public_download"].as!PGboolean;
@@ -111,7 +111,7 @@ class MetaDao{
             }
           }
         }
-        config.profiles[path]=new Profile( id,path,profileKeys,namedBySha,publicDownload);
+        config.profiles[base]=new Profile( id,base,profileKeys,namedBySha,publicDownload);
       }
       logInfo("find "~ r2.length.to!string ~" blob profiles");
       destroy( r2);
@@ -142,7 +142,7 @@ unittest{
     meta.size=3;
     meta.mediaType="text/plain";
     meta.sha="aa";
-    meta.path="/a.txt";
+    meta.base="/a.txt";
     meta.updatedAt= Clock.currTime();
     dao.remove( profile,"/a.txt");
     assert(dao.create( profile,meta));

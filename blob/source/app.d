@@ -108,7 +108,7 @@ void upload(HTTPServerRequest req,   HTTPServerResponse res){
       import vibe.inet.mimetypes;
       auto mediaType=getMimeTypeForFile( pf.toString);
       auto meta = repository.create( profile,pf.tempPath.toNativeString,pf.toString,uri,owner,mediaType);
-      logInfo( "upload " ~ profile.path ~ meta.path ~ " at " ~ meta.updatedAt.toISOExtString ~ "(" ~ meta.owner ~ ")" );
+      logInfo( "upload " ~ profile.base ~ meta.filePath ~ " at " ~ meta.updatedAt.toISOExtString ~ "(" ~ meta.owner ~ ")" );
       res.writeBody( meta.toJson(), "application/json");
     }catch (Exception e) {
       logInfo( "Performing copy failed.Caurse %s",e.msg);
@@ -144,7 +144,7 @@ void download(Profile profile,HTTPServerRequest req,  HTTPServerResponse res,str
   if (ext in repository.images){
     sendFile( req,res,  repository.base ~path,null);
   }else {
-    auto realname = repository.getRealname( profile,path[profile.path.length ..$]);
+    auto realname = repository.getRealname( profile,path[profile.base.length ..$]);
     if (realname.length > 0){
       void setContextDisposition(scope HTTPServerRequest req, scope HTTPServerResponse res, ref string physicalPath)@safe{
         res.headers["Content-Disposition"]=encodeAttachmentName( realname);

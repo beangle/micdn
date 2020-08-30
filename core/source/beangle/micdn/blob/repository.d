@@ -50,7 +50,7 @@ class Repository{
     meta.profileId=profile.id;
     meta.owner=owner;
     meta.name=filename;
-    meta.size=tmp.size();
+    meta.fileSize=tmp.size();
     meta.mediaType=mediaType;
     meta.sha=shaHex;
     import std.datetime.systime;
@@ -71,11 +71,11 @@ class Repository{
         filePath = dir ~ "/" ~ meta.name;
       }
     }
-    meta.path=filePath[profile.path.length .. $];
-    mkdirRecurse( dirName( this.base ~ profile.path ~ meta.path));
-    copy( tmpfile, this.base ~ profile.path ~ meta.path);
+    meta.filePath=filePath[profile.base.length .. $];
+    mkdirRecurse( dirName( this.base ~ profile.base ~ meta.filePath));
+    copy( tmpfile, this.base ~ profile.base ~ meta.filePath);
     if (metaDao !is null){
-      metaDao.remove( profile,meta.path);
+      metaDao.remove( profile,meta.filePath);
       metaDao.create( profile,meta);
     }
     return meta;
@@ -85,7 +85,7 @@ class Repository{
     if (std.file.exists( this.base ~ path)){
       std.file.remove( this.base ~ path );
       if ( metaDao !is null){
-        metaDao.remove( profile,path[profile.path.length..$]);
+        metaDao.remove( profile,path[profile.base.length..$]);
       }
       return true;
     }else {
