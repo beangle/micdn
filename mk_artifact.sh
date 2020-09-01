@@ -19,6 +19,11 @@ mk_artifact "asset" "ldc"
 mk_artifact "blob" "ldc"
 mk_artifact "maven" "ldc"
 
+dub build --build=release --compiler=dmd
+mk_artifact "asset" "dmd"
+mk_artifact "blob" "dmd"
+mk_artifact "maven" "dmd"
+
 cd $MICDN_HOME
 mkdir -p target
 rm -rf target/beangle-micdn-$version.zip
@@ -26,6 +31,9 @@ rm -rf target/beangle-micdn-$version.zip
 cd ~/.m2/repository
 zip  $MICDN_HOME/target/beangle-micdn-$version.zip org/beangle/micdn/beangle-micdn-asset/$version/beangle-micdn-asset-$version-ldc.bin \
 org/beangle/micdn/beangle-micdn-blob/$version/beangle-micdn-blob-$version-ldc.bin \
-org/beangle/micdn/beangle-micdn-maven/$version/beangle-micdn-maven-$version-ldc.bin
+org/beangle/micdn/beangle-micdn-maven/$version/beangle-micdn-maven-$version-ldc.bin \
+org/beangle/micdn/beangle-micdn-asset/$version/beangle-micdn-asset-$version-dmd.bin \
+org/beangle/micdn/beangle-micdn-blob/$version/beangle-micdn-blob-$version-dmd.bin \
+org/beangle/micdn/beangle-micdn-maven/$version/beangle-micdn-maven-$version-dmd.bin
 
 gpg -ab $MICDN_HOME/target/beangle-micdn-$version.zip

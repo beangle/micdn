@@ -59,7 +59,7 @@ class MetaDao{
     client.pickConnection(
     (scope conn) {
       QueryParams query;
-      query.sqlCommand =  "select name from "~schema ~".blob_metas where profile_id=$1 and path=$2";
+      query.sqlCommand =  "select name from "~schema ~".blob_metas where profile_id=$1 and file_path=$2";
       query.argsVariadic( profile.id,path);
       auto r= conn.execParams( query);
       if (r.length>0){
