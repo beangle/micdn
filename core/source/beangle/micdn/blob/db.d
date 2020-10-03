@@ -139,10 +139,10 @@ unittest{
     meta.profileId=profile.id;
     meta.owner="me";
     meta.name="a.txt";
-    meta.size=3;
+    meta.fileSize=3;
     meta.mediaType="text/plain";
     meta.sha="aa";
-    meta.base="/a.txt";
+    meta.filePath="/a.txt";
     meta.updatedAt= Clock.currTime();
     dao.remove( profile,"/a.txt");
     assert(dao.create( profile,meta));
