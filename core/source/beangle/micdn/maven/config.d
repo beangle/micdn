@@ -2,6 +2,9 @@ module beangle.micdn.maven.config;
 import std.string;
 import dxml.dom;
 import std.conv;
+import std.file;
+import std.stdio;
+import vibe.core.log;
 import beangle.xml.reader;
 
 class Config{
@@ -16,6 +19,7 @@ class Config{
   /**default remote repo*/
   immutable string defaultRepo;
 
+  static Sha1Postfix=".sha1";
   static auto CentralURL = "https://repo1.maven.org/maven2";
   static auto AliyunURL = "https://maven.aliyun.com/nexus/content/groups/public";
 
@@ -23,7 +27,7 @@ class Config{
     this.base=base;
     this.cacheable=cacheable;
     this.publicList=publicList;
-    this.remoteRepos=to!(immutable(string[]))(remoteRepos);
+    this.remoteRepos=to!(immutable(string[]))( remoteRepos);
     this.defaultRepo=remoteRepos[$-1];
   }
 
@@ -57,12 +61,104 @@ class Config{
     return new Config( base,cacheable,publicList,remoteRepos);
   }
 
+  bool download(string uri){
+    if (uri.endsWith( ".sha1")){
+      return doDownload( uri);
+    }else {
+      doDownload( uri~".sha1");
+      doDownload( uri);
+      int res = verify( uri);
+      if (res<0){
+        remove( uri);
+        return false;
+      }else {
+        return true;
+      }
+    }
+  }
+
+  void remove(string uri){
+    auto sha1 = this.base ~ uri ~ Sha1Postfix;
+    auto artifact = this.base ~ uri;
+    if (exists( sha1)) {
+      logInfo( "Remove %s", sha1);
+      std.file.remove( sha1);
+    }
+    if (exists( artifact)) {
+      logInfo( "Remove %s", artifact);
+      std.file.remove( artifact);
+    }
+  }
+
+  /** verify artifact
+   * return 0 is ok. -1 miss match sha1,-2 missing artifact ,-3 missing sha1
+   */
+  int verify(string uri){
+    auto sha1 = this.base ~ uri ~ Sha1Postfix;
+    auto artifact = this.base ~ uri;
+
+    if (!exists( sha1)) return -1;
+    if (!exists( artifact))return -2;
+
+    logInfo( "Verify %s against sha1", artifact);
+    import std.digest.sha;
+    File file = File( artifact);
+    auto digest = new SHA1Digest();
+    foreach (buffer; file.byChunk( 4096 * 1024))
+      digest.put( buffer);
+    ubyte[] result = digest.finish();
+    auto hexCalc=toHexString( result).toLower;
+    auto sha1InFile = readText( sha1);
+    import std.algorithm;
+    auto ok = hexCalc.equal( sha1InFile);
+    if (!ok){
+      logWarn( "Miss match sha for %s.", artifact);
+      return -1;
+    }else {
+      return 0;
+    }
+  }
+
+  /** try to download file
+   * @return true if local exists
+   */
+  bool doDownload(string uri){
+    auto local = this.base ~ uri;
+    if (exists( local)){
+      return true;
+    }
+    auto part = local ~ ".part";
+    import std.path;
+    mkdirRecurse( dirName( local));
+    foreach (r;this.remoteRepos){
+      auto remote= r ~ uri;
+      try{
+        import vibe.inet.urltransfer;
+        vibe.inet.urltransfer.download( remote,part);
+
+        if (exists( part) && !exists( local)){
+          rename( part,local);
+          logInfo( "Downloaded %s", remote);
+        }
+        break ;
+      }catch(Exception e){
+        logWarn( "Download failure %s %s",remote,e.msg);
+      }finally{
+        if (exists( part)){
+          std.file.remove( part);
+        }
+      }
+    }
+    return exists( local);
+  }
+
 }
 
 void add(ref string[] remotes,string remote){
   remotes.length+=1;
   remotes[$-1]=remote;
 }
+
 unittest{
   auto content=`<?xml version="1.0" encoding="UTF-8"?>
 <maven cacheable="true" >

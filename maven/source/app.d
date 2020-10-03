@@ -63,25 +63,7 @@ void index(HTTPServerRequest req, HTTPServerResponse res){
       throw new HTTPStatusException( HTTPStatus.notFound);
     }
     if (config.cacheable){
-      auto local = config.base ~ uri;
-      auto tmp=deleteme();
-      foreach (r;config.remoteRepos){
-        auto remote= r ~ uri;
-        try{
-          import vibe.inet.urltransfer;
-          download( remote,tmp);
-          import std.path;
-          mkdirRecurse( dirName( local));
-          copy( tmp,local);
-          logInfo( "Downloaded %s", remote);
-          break ;
-        }catch(Exception e){
-          logWarn( "Download failure %s %s",remote,e.msg);
-        }finally{
-          std.file.remove( tmp);
-        }
-      }
-      if (exists( local)){
+      if (config.download(uri)){
         sendFile( req,res,file);
       }else {
         throw new HTTPStatusException( HTTPStatus.notFound);
@@ -91,4 +73,3 @@ void index(HTTPServerRequest req, HTTPServerResponse res){
     }
   }
 }
-
