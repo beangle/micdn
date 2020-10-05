@@ -21,11 +21,6 @@ mk_artifact "asset" "ldc"
 mk_artifact "blob" "ldc"
 mk_artifact "maven" "ldc"
 
-# dub build --build=release --compiler=dmd
-# mk_artifact "asset" "dmd"
-# mk_artifact "blob" "dmd"
-# mk_artifact "maven" "dmd"
-
 cd $MICDN_HOME
 mkdir -p target
 rm -rf target/beangle-micdn-$version.zip
