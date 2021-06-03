@@ -2,7 +2,7 @@ name "beangle-micdn"
 description "A minimal CDN."
 authors "chaostone"
 license "GPLv3"
-version "0.0.10"
+version "0.0.11"
 
 dependency ":core" version="*"
 dependency ":blob" version="*"

@@ -39,16 +39,12 @@ class MetaDao{
     (scope conn) {
       QueryParams query;
       query.sqlCommand = "insert into "~schema
-      ~".blob_metas(id,owner,name,file_size,sha,media_type,profile_id,file_path,updated_at,dimain_id) values(datetime_id(),$1,$2,$3,$4,$5,$6,$7,$8,$9)";
+      ~".blob_metas(id,owner,name,file_size,sha,media_type,profile_id,file_path,updated_at,domain_id) values(datetime_id(),$1,$2,$3,$4,$5,$6,$7,$8,$9)";
       import std.conv;
       query.argsVariadic( m.owner,m.name,m.fileSize.to!long,m.sha,m.mediaType,m.profileId,m.filePath,m.updatedAt,this.domainId);
-      try{
-        auto r = conn.execParams( query);
-        scope(exit) destroy( r);
-        success= true;
-      }catch(Exception ){
-        success= false;
-      }
+      auto r = conn.execParams( query);
+      scope(exit) destroy( r);
+      success= true;
     }
     );
     return success;
@@ -113,7 +109,7 @@ class MetaDao{
         }
         config.profiles[base]=new Profile( id,base,profileKeys,namedBySha,publicDownload);
       }
-      logInfo("find "~ r2.length.to!string ~" blob profiles");
+      logInfo( "find "~ r2.length.to!string ~" blob profiles");
       destroy( r2);
     }
     );
