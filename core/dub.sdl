@@ -1,10 +1,10 @@
 name "core"
 description "CDN Watch Base on inotify"
 
-dependency "dxml" version = "~>0.4.1"
-dependency "vibe-d:textfilter" version = "~>0.9.2"
-dependency "vibe-d:http" version = "~>0.9.2"
-dependency "dpq2" version="~>1.0.17"
+dependency "dxml" version = "~>0.4.3"
+dependency "vibe-d:textfilter" version = "~>0.9.3"
+dependency "vibe-d:http" version = "~>0.9.3"
+dependency "dpq2" version="~>1.0.19"
 
 targetType "library"
 targetName "beangle-micdn-core"
