@@ -69,7 +69,7 @@ import vibe.core.args;
 
 string getConfigXml(string configName){
   string serverxml;
-  auto success = readOption!string( "config",&serverxml,"specify server params");
+  auto success = readOption!string( "config",&serverxml,"specify config params");
   if (success){
     return cast(string) read( expandTilde(serverxml));
   }else {

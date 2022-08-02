@@ -1,7 +1,7 @@
 name "blob"
 description "Beangle Micdn Blob"
 
-dependency "vibe-d:web" version = "~>0.9.3"
+dependency "vibe-d:web" version = "~>0.9.5"
 dependency "beangle-micdn:core" version = "*"
 
 targetType "executable"

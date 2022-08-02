@@ -8,7 +8,7 @@ string getPath(string contextPath,HTTPServerRequest req){
   if (uri.startsWith( contextPath)){
     uri = uri[contextPath.length .. $];
   }else {
-    throw new HTTPStatusException( HTTPStatus.NotFound);
+    throw new HTTPStatusException( HTTPStatus.notFound);
   }
   auto qIdx=uri.indexOf( "?");
   if (qIdx >0){
