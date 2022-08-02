@@ -46,7 +46,7 @@ class Repository{
     auto meta= new BlobMeta();
     import std.digest,std.digest.sha;
     auto tmp= File( tmpfile);
-    auto shaHex = toHexString( digest!SHA1( tmp.byChunk( 4096 * 1024))).toLower;
+    auto shaHex = toHexString!(LetterCase.lower)( digest!SHA1( tmp.byChunk( 4096 * 1024))).idup;
     meta.profileId=profile.id;
     meta.owner=owner;
     meta.name=filename;

@@ -1,3 +1,4 @@
+
 module beangle.micdn.maven.config;
 import std.string;
 import dxml.dom;

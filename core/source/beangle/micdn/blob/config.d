@@ -123,7 +123,7 @@ class Profile{
 
   string genToken(string path,string user,string key,SysTime timestamp)   {
     string content = path ~ user ~ key ~ timestamp.toISOString;
-    return toHexString( sha1Of( content)).toLower;
+    return toHexString!(LetterCase.lower)(sha1Of(content)).idup;
   }
 
   bool verifyToken(string path,string user,string key,string token,SysTime timestamp)   {

@@ -107,16 +107,16 @@ void sendFiles(scope HTTPServerRequest req, scope HTTPServerResponse res,string[
 
 private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse res, NativePath path, const CacheSetting settings = null){
   auto pathstr = path.toNativeString();
-  if (!existsFile( pathstr))  throw new HTTPStatusException( HTTPStatus.NotFound);
+  if (!existsFile( pathstr))  throw new HTTPStatusException( HTTPStatus.notFound);
 
   FileInfo dirent;
   try dirent = getFileInfo( pathstr);
   catch(Exception){
-    throw new HTTPStatusException( HTTPStatus.InternalServerError, "Failed to get information for the file due to a file system error.");
+    throw new HTTPStatusException( HTTPStatus.internalServerError, "Failed to get information for the file due to a file system error.");
   }
 
   if (dirent.isDirectory) {
-    throw new HTTPStatusException( HTTPStatus.NotFound);
+    throw new HTTPStatusException( HTTPStatus.notFound);
   }
 
   if (handleCacheFile( req, res, dirent, settings.cacheControl, settings.maxAge)) {
