@@ -16,7 +16,7 @@ class MetaDao{
     import std.format;
     import std.conv;
     auto url = format( "host=%s dbname=%s user=%s password=%s",props["serverName"],props["databaseName"],props["user"],props["password"]);
-    auto maximumPoolSize= props.get( "maximumPoolSize","10").to!ushort;
+    auto maximumPoolSize= props.get( "maximumPoolSize","7").to!ushort;
     schema= props["schema"];
     client = new PostgresClient( url, maximumPoolSize);
   }
@@ -27,8 +27,7 @@ class MetaDao{
       QueryParams query;
       query.sqlCommand = "delete from "~schema~".blob_metas where profile_id=$1 and file_path=$2";
       query.argsVariadic( profile.id,path);
-      auto r= conn.execParams( query);
-      scope(exit) destroy( r);
+      conn.execParams( query);
     }
     );
   }
@@ -42,8 +41,7 @@ class MetaDao{
       ~".blob_metas(id,owner,name,file_size,sha,media_type,profile_id,file_path,updated_at,domain_id) values(datetime_id(),$1,$2,$3,$4,$5,$6,$7,$8,$9)";
       import std.conv;
       query.argsVariadic( m.owner,m.name,m.fileSize.to!long,m.sha,m.mediaType,m.profileId,m.filePath,m.updatedAt,this.domainId);
-      auto r = conn.execParams( query);
-      scope(exit) destroy( r);
+      conn.execParams( query);
       success= true;
     }
     );
@@ -61,7 +59,6 @@ class MetaDao{
       if (r.length>0){
         filename= r[0][ "name"].as!PGtext;
       }
-      scope(exit) destroy( r);
     }
     );
     return filename;
@@ -88,7 +85,6 @@ class MetaDao{
         string key = r[row]["key"].as!PGtext;
         config.keys[name]=key;
       }
-      destroy( r);
       auto r2 = conn.execStatement( "select id,base,users,named_by_sha,public_download from "~schema ~".profiles where domain_id="~this.domainId.to!string);
       for (auto row = 0; row < r2.length; row++){
         int id= r2[row]["id"].as!PGinteger;
@@ -110,7 +106,6 @@ class MetaDao{
         config.profiles[base]=new Profile( id,base,profileKeys,namedBySha,publicDownload);
       }
       logInfo( "find "~ r2.length.to!string ~" blob profiles");
-      destroy( r2);
     }
     );
   }

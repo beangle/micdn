@@ -76,7 +76,7 @@ class Config{
         config.profiles[path] = new Profile( id,path,profileKeys,namedBySha,publicDownload);
       }
     }
-    auto dataSource= children( dom,"dataSource").front;
+    auto dataSource = children( dom,"dataSource").front;
     foreach (p;dataSource.children){
       config.dataSourceProps[p.name]=p.children[0].text;
     }
