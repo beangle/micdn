@@ -5,6 +5,7 @@ dependency "dxml" version = "~>0.4.3"
 dependency "vibe-d:textfilter" version = "~>0.9.5"
 dependency "vibe-d:http" version = "~>0.9.5"
 dependency "dpq2" version="~>1.1.1"
+dependency "vibe-d-postgresql" version="~>3.1.1"
 
 targetType "library"
 targetName "beangle-micdn-core"

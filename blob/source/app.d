@@ -35,8 +35,7 @@ void main(string[] args){
   config = Config.parse( getConfigXml( "/micdn/blob.xml"));
   MetaDao metaDao=null;
   if (!config.dataSourceProps.empty){
-    metaDao = new MetaDao( config.dataSourceProps);
-    metaDao.loadProfiles( config);
+    metaDao = new MetaDao( config.dataSourceProps,config);
   }
   repository = new Repository( config.base,metaDao);
   auto router = new URLRouter( server.contextPath);
@@ -111,7 +110,7 @@ void upload(HTTPServerRequest req,   HTTPServerResponse res){
       logInfo( "upload " ~ profile.base ~ meta.filePath ~ " at " ~ meta.updatedAt.toISOExtString ~ "(" ~ meta.owner ~ ")" );
       res.writeBody( meta.toJson(), "application/json");
     }catch (Exception e) {
-      logInfo( "Performing copy failed.Caurse %s",e.msg);
+      logInfo( "Performing copy failed.Cause %s",e.msg);
       res.statusCode = HTTPStatus.internalServerError;
       res.writeBody( e.msg, "text/plain");
     }
@@ -130,7 +129,7 @@ void remove(HTTPServerRequest req,   HTTPServerResponse res){
         res.writeBody( "File is not existed!", "text/plain");
       }
     }catch (Exception e) {
-      logInfo( "Performing remove failed.Caurse %s",e.msg);
+      logInfo( "Performing remove failed.Cause %s",e.msg);
       res.statusCode = HTTPStatus.internalServerError;
       res.writeBody( e.msg, "text/plain");
     }
