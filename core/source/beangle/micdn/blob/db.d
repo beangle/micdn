@@ -12,13 +12,14 @@ class MetaDao{
   string schema;
   int domainId;
 
-  this(string[string] props){
+  this(string[string] props,Config config){
     import std.format;
     import std.conv;
     auto url = format( "host=%s dbname=%s user=%s password=%s",props["serverName"],props["databaseName"],props["user"],props["password"]);
     auto maximumPoolSize= props.get( "maximumPoolSize","7").to!ushort;
     schema= props["schema"];
     client = new PostgresClient( url, maximumPoolSize);
+    loadProfiles(config);
   }
 
   void remove(Profile profile,string path){
@@ -38,9 +39,9 @@ class MetaDao{
     (scope conn) {
       QueryParams query;
       query.sqlCommand = "insert into "~schema
-      ~".blob_metas(id,owner,name,file_size,sha,media_type,profile_id,file_path,updated_at,domain_id) values(datetime_id(),$1,$2,$3,$4,$5,$6,$7,$8,$9)";
+      ~".blob_metas(id,owner,name,file_size,sha,media_type,profile_id,file_path,updated_at,domain_id) values(datetime_id(),$1,$2,$3,$4,$5,$6,$7,now(),$8)";
       import std.conv;
-      query.argsVariadic( m.owner,m.name,m.fileSize.to!long,m.sha,m.mediaType,m.profileId,m.filePath,m.updatedAt,this.domainId);
+      query.argsVariadic( m.owner,m.name,m.fileSize.to!long,m.sha,m.mediaType,m.profileId,m.filePath,this.domainId);
       conn.execParams( query);
       success= true;
     }
@@ -112,19 +113,22 @@ class MetaDao{
 }
 
 unittest{
+  /*import dpq2.conv.to_d_types;
+  toValue(Clock.currTime());*/
   import std.stdio;
   string[string] props;
   props["serverName"]="localhost";
-  props["databaseName"]="openurp";
+  props["databaseName"]="platform";
   props["user"]="openurp";
-  props["schema"]="blob";
-  //props["password"]="openurp";
+  props["schema"]="blb";
+  props["password"]="openurp";
+  Config config = new Config( "local.openurp.net","~/tmp",true);
   MetaDao dao;
   if ("password" in props){
-    dao = new MetaDao( props);
+    dao = new MetaDao( props,config);
   }
   if (dao !is null){
-    auto profile= new Profile( 0, "",null,false,false);
+    auto profile= new Profile( 1, "",null,false,false);
     dao.remove( profile,"/a");
     BlobMeta meta= new BlobMeta();
     meta.profileId=profile.id;
@@ -137,9 +141,5 @@ unittest{
     meta.updatedAt= Clock.currTime();
     dao.remove( profile,"/a.txt");
     assert(dao.create( profile,meta));
-  }
-  if (dao !is null){
-    Config config = new Config( "localhost","~/tmp",true);
-    dao.loadProfiles( config);
   }
 }
