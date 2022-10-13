@@ -34,4 +34,4 @@ org/beangle/micdn/beangle-micdn-blob/$version/beangle-micdn-blob-$version-$arch.
 org/beangle/micdn/beangle-micdn-maven/$version/beangle-micdn-maven-$version-$arch.bin \
 org/beangle/micdn/beangle-micdn-maven/$version/beangle-micdn-maven-$version-$arch.bin.sha1
 
-#gpg -ab $MICDN_HOME/target/beangle-micdn-$version.zip
+gpg -ab $MICDN_HOME/target/beangle-micdn-$version.$arch.zip
