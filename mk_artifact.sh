@@ -27,7 +27,7 @@ mkdir -p target
 rm -rf target/beangle-micdn-$version.zip
 
 cd ~/.m2/repository
-zip  $MICDN_HOME/target/beangle-micdn-$version.zip org/beangle/micdn/beangle-micdn-asset/$version/beangle-micdn-asset-$version-$arch.bin \
+zip  $MICDN_HOME/target/beangle-micdn-$version.$arch.zip org/beangle/micdn/beangle-micdn-asset/$version/beangle-micdn-asset-$version-$arch.bin \
 org/beangle/micdn/beangle-micdn-asset/$version/beangle-micdn-asset-$version-$arch.bin.sha1 \
 org/beangle/micdn/beangle-micdn-blob/$version/beangle-micdn-blob-$version-$arch.bin \
 org/beangle/micdn/beangle-micdn-blob/$version/beangle-micdn-blob-$version-$arch.bin.sha1 \
