@@ -26,7 +26,7 @@ class MetaDao{
     client.pickConnection(
     (scope conn) {
       QueryParams query;
-      query.sqlCommand = "delete from "~schema~".blob_metas where profile_id=$1 and file_path=$2";
+      query.sqlCommand = "delete from "~schema~".blb_blob_metas where profile_id=$1 and file_path=$2";
       query.argsVariadic( profile.id,path);
       conn.execParams( query);
     }
@@ -39,7 +39,7 @@ class MetaDao{
     (scope conn) {
       QueryParams query;
       query.sqlCommand = "insert into "~schema
-      ~".blob_metas(id,owner,name,file_size,sha,media_type,profile_id,file_path,updated_at,domain_id) values(datetime_id(),$1,$2,$3,$4,$5,$6,$7,now(),$8)";
+      ~".blb_blob_metas(id,owner,name,file_size,sha,media_type,profile_id,file_path,updated_at,domain_id) values(datetime_id(),$1,$2,$3,$4,$5,$6,$7,now(),$8)";
       import std.conv;
       query.argsVariadic( m.owner,m.name,m.fileSize.to!long,m.sha,m.mediaType,m.profileId,m.filePath,this.domainId);
       conn.execParams( query);
@@ -54,7 +54,7 @@ class MetaDao{
     client.pickConnection(
     (scope conn) {
       QueryParams query;
-      query.sqlCommand =  "select name from "~schema ~".blob_metas where profile_id=$1 and file_path=$2";
+      query.sqlCommand =  "select name from "~schema ~".blb_blob_metas where profile_id=$1 and file_path=$2";
       query.argsVariadic( profile.id,path);
       auto r= conn.execParams( query);
       if (r.length>0){
@@ -69,7 +69,7 @@ class MetaDao{
     client.pickConnection(
     (scope conn) {
       QueryParams query;
-      query.sqlCommand = "select  id from "~schema~".domains where hostname=$1";
+      query.sqlCommand = "select  id from "~schema~".blb_domains where hostname=$1";
       query.argsVariadic( config.hostname);
       auto r0= conn.execParams( query);
       for (auto row = 0; row < r0.length; row++){
@@ -80,13 +80,13 @@ class MetaDao{
         throw new Exception( "cannot find domain with hostname "~ config.hostname);
       }
       import std.conv;
-      auto r = conn.execStatement( "select name,key from "~schema ~".users where domain_id="~domainId.to!string);
+      auto r = conn.execStatement( "select name,key from "~schema ~".blb_users where domain_id="~domainId.to!string);
       for (auto row = 0; row < r.length; row++){
         string name= r[row]["name"].as!PGtext;
         string key = r[row]["key"].as!PGtext;
         config.keys[name]=key;
       }
-      auto r2 = conn.execStatement( "select id,base,users,named_by_sha,public_download from "~schema ~".profiles where domain_id="~this.domainId.to!string);
+      auto r2 = conn.execStatement( "select id,base,users,named_by_sha,public_download from "~schema ~".blb_profiles where domain_id="~this.domainId.to!string);
       for (auto row = 0; row < r2.length; row++){
         int id= r2[row]["id"].as!PGinteger;
         string base = r2[row]["base"].as!PGtext;

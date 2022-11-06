@@ -184,7 +184,7 @@ unittest{
     <databaseName>platform</databaseName>
     <user>postgres</user>
     <password>1</password>
-    <tableName>public.blob_metas</tableName>
+    <tableName>public.blb_blob_metas</tableName>
   </dataSource>
 </blob>`;
   auto config = Config.parse( content);
