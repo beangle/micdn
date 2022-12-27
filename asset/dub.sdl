@@ -4,10 +4,6 @@ description "Beangle Micdn Static Assets"
 dependency "vibe-d:web" version = "~>0.9.5"
 dependency "beangle-micdn:core" version = "*"
 
-dependency "vibe-d:tls" version="*"
-subConfiguration "vibe-d:tls" "notls"
-versions "VibeHighEventPriority" "VibeNoSSL"
-
 targetType "executable"
 targetName "beangle-micdn-asset"
 targetPath "target"
