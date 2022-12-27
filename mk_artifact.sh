@@ -17,14 +17,15 @@ mk_artifact(){
   cd ..
 }
 
+dub clean
 dub build --build=release-nobounds --compiler=ldc2
 mk_artifact "asset"
 mk_artifact "blob"
 mk_artifact "maven"
 
 cd $MICDN_HOME
+rm -rf target
 mkdir -p target
-rm -rf target/beangle-micdn-$version.zip
 
 cd ~/.m2/repository
 zip  $MICDN_HOME/target/beangle-micdn-$version.$arch.zip org/beangle/micdn/beangle-micdn-asset/$version/beangle-micdn-asset-$version-$arch.bin \
