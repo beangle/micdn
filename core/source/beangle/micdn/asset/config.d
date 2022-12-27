@@ -43,28 +43,28 @@ class Config{
     contexts[context.base]=context;
   }
 
-  public static Config parse(string content){
+  public static Config parse(string home,string content){
     auto dom = parseDOM!simpleXML( content).children[0];
-    auto attrs = getAttrs( dom);
-    string base = attrs.get( "base","~/.beangle/assets");
+    auto attrs = getAttrs(dom);
+    string base = attrs.get( "base",home ~ "/static");
     bool publicList = attrs.get( "publicList","false").to!bool;
     auto repoEntry = children( dom,"repository");
-    auto remote="https://repo1.maven.org/maven2";
-    auto local="~/.m2/repository";
+    auto remote = "https://repo1.maven.org/maven2";
+    auto local = "~/.m2/repository";
     if (!repoEntry.empty){
       attrs = getAttrs( repoEntry.front);
       if ("remote" in attrs){
-        remote =attrs["remote"];
+        remote = attrs["remote"];
       }
       if ("local" in attrs){
-        local =attrs["local"];
+        local = attrs["local"];
       }
     }
     import std.path;
     base=expandTilde( base);
 
     Config config = new Config( base,Repo( remote,expandTilde( local)),publicList);
-    auto contextsEntry= children( dom,"contexts");
+    auto contextsEntry = children( dom,"contexts");
     if (!contextsEntry.empty){
       auto contextEntries=children( contextsEntry.front,"context");
       foreach (c;contextEntries){
@@ -202,7 +202,7 @@ unittest{
 
 unittest{
   auto content=`<?xml version="1.0" encoding="UTF-8"?>
-<assets base="~/tmp/static">
+<assets>
   <repository remote="https://repo1.maven.org/maven2"/>
   <contexts>
     <context base="/urp/">
@@ -221,7 +221,7 @@ unittest{
   </contexts>
 </assets>`;
 
-  auto config = Config.parse( content);
+  auto config = Config.parse("~/tmp", content);
   assert(config.toXml().canFind( "https://repo1.maven.org/maven2"));
 }
 

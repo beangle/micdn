@@ -59,7 +59,7 @@ ulong[2] parseRange(string range,ulong maxSize) @safe{
 
 unittest{
   auto s = encodeAttachmentName( "早上 好.txt");
-  writeln( s ==`attachment; filename="%E6%97%A9%E4%B8%8A%20%E5%A5%BD.txt"; filename*=utf-8''%E6%97%A9%E4%B8%8A%20%E5%A5%BD.txt`);
+  assert( s ==`attachment; filename="%E6%97%A9%E4%B8%8A%20%E5%A5%BD.txt"; filename*=utf-8''%E6%97%A9%E4%B8%8A%20%E5%A5%BD.txt`);
   auto r1= parseRange( "0-1",2);
   assert(r1 ==[ 0,1]);
 

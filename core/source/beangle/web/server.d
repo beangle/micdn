@@ -62,27 +62,44 @@ unittest{
 </Server>`;
   auto server = Server.parse( content);
   import std.stdio;
-  assert(server.ips.length ==1 );
+  assert(server.ips.length == 1 );
+
+  string test = "~/ems/micdn/asset.xml";
+  assert(dirName(test) == "~/ems/micdn");
 }
 
 import vibe.core.args;
 
-string getConfigXml(string configName){
+string getHome(){
+  string home;
+  auto success = readOption!string( "home",&home,"specify home params");
+  if (success){
+    if (home.endsWith( "/")) home = home[0..$-1];
+    return home;
+  }else {
+    string serverxml;
+    success = readOption!string( "config",&serverxml,"specify config params");
+    if(success){
+      return (std.file.exists(serverxml))?std.path.dirName(serverxml) : "~";
+    }else{
+      return "~";
+    }
+  }
+}
+
+string getConfigFile(string defaultConfigFile){
   string serverxml;
   auto success = readOption!string( "config",&serverxml,"specify config params");
-  if (success){
-    return cast(string) read( expandTilde(serverxml));
-  }else {
-    string home;
-    success= readOption!string( "home",&home,"specify home params");
-    if (success){
-      if (home.endsWith( "/")){
-        home = home[0..$-1];
-      }
-      return cast(string) read( expandTilde(home ~ configName));
-    }else {
-      throw new Exception( "Missing config or home params");
-    }
+  return success?serverxml:defaultConfigFile;
+}
+
+import std.file;
+string readXml(string xmlfile){
+  auto fullPath = expandTilde(xmlfile);
+  if (exists(fullPath)){
+    return cast(string) read(fullPath);
+  }else{
+    throw new Exception( xmlfile ~ " is not exists!");
   }
 }
 
@@ -97,7 +114,6 @@ Server getServer(){
 }
 
 Server parseServer(string serverxml){
-  import std.file;
   if (exists( serverxml)){
     return Server.parse( cast(string) read( serverxml));
   }else {

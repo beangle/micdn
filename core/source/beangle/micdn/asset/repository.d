@@ -80,7 +80,7 @@ class Repository{
           location ~= c.base;
           if (exists( local)){
             mount( config,local,c.base,location);
-          }else {
+          }else if(!local.endsWith( "SNAPSHOT.jar")) {
             string remote = repo.remoteUrl( gap.gav);
             mkdirRecurse( dirName( local));
             import vibe.inet.urltransfer;
@@ -91,6 +91,8 @@ class Repository{
             }catch(Exception e){
               logWarn( "Download failure %s",remote);
             }
+          }else{
+            logWarn( "Cannot resolve %s,ignore it.",gap.gav);
           }
         } else if (ZipProvider zp = cast(ZipProvider ) p ){
           mount( config,zp.file,c.base,zp.location);
@@ -127,7 +129,7 @@ unittest{
 
 unittest{
   auto content=`<?xml version="1.0" encoding="UTF-8"?>
-<assets base="~/tmp/static">
+<assets>
   <repository remote="https://repo1.maven.org/maven2"/>
   <contexts>
     <context base="/urp/">
@@ -145,7 +147,8 @@ unittest{
     </context>
   </contexts>
 </assets>`;
-  auto config = Config.parse( content);
+  auto config = Config.parse("~/tmp", content);
+  assert(config.base==expandTilde("~/tmp/static"));
   //auto repo=Repository.build( config);
 
 }

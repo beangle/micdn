@@ -38,13 +38,13 @@ class Config{
     return defaultProfile;
   }
 
-  public static Config parse(string content){
+  public static Config parse(string home,string content){
     Config config;
     auto dom = parseDOM!simpleXML( content).children[0];
     auto attrs = getAttrs( dom);
     string sizeLimit=attrs.get( "maxSize","50M");
     import std.path;
-    string base=expandTilde( attrs["base"]);
+    string base = attrs.get( "base",home ~ "/blob");
     string hostname=attrs.get( "hostname","localhost");
     bool publicList = attrs.get( "publicList","false").to!bool;
     config = new Config( hostname, base,publicList);
@@ -129,7 +129,7 @@ class Profile{
   bool verifyToken(string path,string user,string key,string token,SysTime timestamp)   {
     SysTime today = Clock.currTime();
     import core.time;
-    auto duration = abs( today - timestamp);
+    immutable auto duration = abs( today - timestamp);
     if (duration > dur!"minutes"( 15)){
       return false;
     }else {
@@ -187,7 +187,7 @@ unittest{
     <tableName>public.blb_blob_metas</tableName>
   </dataSource>
 </blob>`;
-  auto config = Config.parse( content);
+  auto config = Config.parse("~/tmp",content);
   import std.stdio;
   assert(config.profiles.length ==1 );
   assert("/group/test" in config.profiles);

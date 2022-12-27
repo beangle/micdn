@@ -32,13 +32,13 @@ class Config{
     this.defaultRepo=remoteRepos[$-1];
   }
 
-  public static Config parse(string content){
+  public static Config parse(string home,string content){
     auto dom = parseDOM!simpleXML( content).children[0];
     auto attrs = getAttrs( dom);
-    bool cacheable = attrs.get( "cacheable","true").to!bool;
-    bool publicList = attrs.get( "publicList","false").to!bool;
+    immutable bool cacheable = attrs.get( "cacheable","true").to!bool;
+    immutable bool publicList = attrs.get( "publicList","false").to!bool;
     import std.path;
-    string base = expandTilde( attrs.get( "base","~/.m2/repository"));
+    string base = expandTilde( attrs.get( "base",home));
     string[] remoteRepos=[];
     auto remotesEntries = children( dom,"remotes");
     if (!remotesEntries.empty){
@@ -169,7 +169,7 @@ unittest{
   </remotes>
 </maven>`;
 
-  auto config = Config.parse( content);
+  auto config = Config.parse("~/.m2/repository", content);
   assert( config.remoteRepos.length==2);
   assert( config.remoteRepos[1] == Config.CentralURL);
 }

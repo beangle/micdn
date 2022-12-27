@@ -29,7 +29,8 @@ void main(string[] args){
     static if (is(typeof(registerMemoryErrorHandler)))
         registerMemoryErrorHandler();*/
   server = getServer();
-  config = Config.parse( getConfigXml( "/micdn/asset.xml"));
+  auto home = getHome();
+  config = Config.parse(home, readXml(getConfigFile(home ~ "/asset.xml")));
   repository = Repository.build( config);
   auto router = new URLRouter( server.contextPath);
   router.get( "*",&index);

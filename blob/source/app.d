@@ -32,7 +32,8 @@ void main(string[] args){
     static if (is(typeof(registerMemoryErrorHandler)))
         registerMemoryErrorHandler();*/
   server = getServer();
-  config = Config.parse( getConfigXml( "/micdn/blob.xml"));
+  auto home = getHome();
+  config = Config.parse(home, readXml(getConfigFile(home ~ "/blob.xml")));
   MetaDao metaDao=null;
   if (!config.dataSourceProps.empty){
     metaDao = new MetaDao( config.dataSourceProps,config);

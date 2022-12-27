@@ -121,7 +121,7 @@ unittest{
   props["databaseName"]="platform";
   props["user"]="openurp";
   props["schema"]="blb";
-  props["password"]="openurp";
+  //props["password"]="openurp";
   Config config = new Config( "local.openurp.net","~/tmp",true);
   MetaDao dao;
   if ("password" in props){

@@ -17,7 +17,7 @@ mk_artifact(){
   cd ..
 }
 
-dub build --build=release --compiler=ldc2
+dub build --build=release-nobounds --compiler=ldc2
 mk_artifact "asset"
 mk_artifact "blob"
 mk_artifact "maven"
