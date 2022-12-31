@@ -33,7 +33,7 @@ void main(string[] args){
         registerMemoryErrorHandler();*/
   server = getServer();
   auto home = getHome();
-  config = Config.parse(home, readXml(getConfigFile(home ~ "/blob.xml")));
+  config = Config.parse(home, readXml(getConfigFile(home, "/blob.xml",false)));
   MetaDao metaDao=null;
   if (!config.dataSourceProps.empty){
     metaDao = new MetaDao( config.dataSourceProps,config);

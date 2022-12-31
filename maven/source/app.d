@@ -24,7 +24,7 @@ void main(string[] args){
 
   server = getServer();
   string home = getHome();
-  config = Config.parse("~/.m2/repository", readXml(getConfigFile(home ~ "/maven.xml")));
+  config = Config.parse("~/.m2/repository", readXml(getConfigFile(home,"/maven.xml",false)));
   auto router = new URLRouter( server.contextPath);
   router.get( "*",&index);
 

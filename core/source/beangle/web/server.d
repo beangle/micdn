@@ -4,6 +4,7 @@ import dxml.dom;
 import std.algorithm;
 import std.file;
 import std.path;
+import vibe.core.log;
 
 class Server{
   string[] ips;
@@ -87,10 +88,28 @@ string getHome(){
   }
 }
 
-string getConfigFile(string defaultConfigFile){
+string getConfigFile(string home,string defaultPath,bool checkRemote){
   string serverxml;
   auto success = readOption!string( "config",&serverxml,"specify config params");
-  return success?serverxml:defaultConfigFile;
+  if(!success){
+    serverxml = expandTilde(home ~ defaultPath);
+    if(checkRemote){
+      string remoteUrl;
+      auto hasRemote = readOption!string( "remote",&remoteUrl,"specify remote params");
+      if(hasRemote){
+        auto newxml = serverxml ~ ".new";
+        try{
+          logInfo( "Downloading %s",remoteUrl ~ defaultPath);
+          import vibe.inet.urltransfer;
+          download(remoteUrl ~ defaultPath, newxml);
+          if (exists(newxml)) rename(newxml, serverxml);
+        }catch(Exception e){
+          logWarn( "Cannot fetch %s",remoteUrl ~ defaultPath ~ " for " ~ e.toString());
+        }
+      }
+    }
+  }
+  return serverxml;
 }
 
 import std.file;

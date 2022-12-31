@@ -30,7 +30,7 @@ void main(string[] args){
         registerMemoryErrorHandler();*/
   server = getServer();
   auto home = getHome();
-  config = Config.parse(home, readXml(getConfigFile(home ~ "/asset.xml")));
+  config = Config.parse(home, readXml(getConfigFile(home,"/asset.xml",true)));
   repository = Repository.build( config);
   auto router = new URLRouter( server.contextPath);
   router.get( "*",&index);

@@ -63,9 +63,10 @@ class Repository{
             if (exists( config.base ~ c.base)){
               remove( config.base ~ c.base);
             }
+            logInfo("Linking "~ dp.location ~" to " ~ config.base~c.base);
             symlink( dp.location,config.base ~ c.base);
           }else {
-            logWarn( "Cannot link "~dp.location ~" to "~config.base~c.base);
+            logWarn( "Cannot link " ~ dp.location ~" to " ~ config.base~c.base);
           }
         }else if (GavJarProvider gap = cast(GavJarProvider) p){
           string local= repo.localFile( gap.gav);

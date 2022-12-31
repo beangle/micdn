@@ -3,6 +3,7 @@ module beangle.micdn.asset.config;
 import std.file;
 import std.algorithm;
 import std.string;
+import std.array;
 import std.conv;
 import dxml.dom;
 import beangle.xml.reader;
@@ -41,6 +42,10 @@ class Config{
 
   void addContext(Context context){
     contexts[context.base]=context;
+  }
+
+  void build(){
+    this.contexts = this.contexts.rehash();
   }
 
   public static Config parse(string home,string content){
@@ -82,7 +87,7 @@ class Config{
         auto dirs=children( c,"dir");
         foreach (dir;dirs){
           attrs = getAttrs( dir);
-          string location = expandTilde( attrs["location"]);
+          string location = expandTilde( attrs["location"].replace("${micdn.home}",home));
           context.addProvider( new DirProvider( location));
         }
         auto zips=children( c,"zip");
@@ -95,6 +100,7 @@ class Config{
         config.addContext( context);
       }
     }
+    config.build();
     return config;
   }
 
@@ -105,7 +111,9 @@ class Config{
     app.put( "<asset base=\"" ~ base ~ "\">\n");
     app.put( "  <repository remote=\"" ~ repo.remote ~ "\" local=\""~ repo.local~"\" />\n");
     app.put( "  <contexts>\n");
-    foreach (c;contexts){
+    auto contextList=contexts.values;
+    contextList.sort!((a, b) => a.base < b.base);
+    foreach (c;contextList){
       app.put( c.toXml( "    "));
       app.put( "\n");
     }
