@@ -24,8 +24,8 @@ Server server;
 
 void main(string[] args){
   if (args.length<3){
-    writeln( "Usage: " ~ args[0] ~ " --server path/to/server.xml --config path/to/config.xml");
-    return ;
+    writeln("Usage: " ~ args[0] ~ " --server path/to/server.xml --config path/to/config.xml");
+    return;
   }
 
   /*import etc.linux.memoryerror;
@@ -33,16 +33,16 @@ void main(string[] args){
         registerMemoryErrorHandler();*/
   server = getServer();
   auto home = getHome();
-  config = Config.parse(home, readXml(getConfigFile(home, "/blob.xml",false)));
+  config = Config.parse(home, readXml(getConfigFile(home, "/blob.xml", false)));
   MetaDao metaDao=null;
   if (!config.dataSourceProps.empty){
-    metaDao = new MetaDao( config.dataSourceProps,config);
+    metaDao = new MetaDao(config.dataSourceProps, config);
   }
-  repository = new Repository( config.base,metaDao);
-  auto router = new URLRouter( server.contextPath);
-  router.get( "*",&index);
-  router.post( "*", &upload);
-  router.delete_( "*",&remove);
+  repository = new Repository(config.base, metaDao);
+  auto router = new URLRouter(server.contextPath);
+  router.get("*", &index);
+  router.post("*", &upload);
+  router.delete_("*", &remove);
 
   auto settings = new HTTPServerSettings;
   settings.maxRequestSize=config.maxSize;
@@ -50,132 +50,132 @@ void main(string[] args){
   settings.port = server.port;
   settings.serverString=null;
 
-  listenHTTP( settings, router);
-  logInfo( "Please open http://" ~ server.listenAddr ~ server.contextPath~" in your browser.");
-  runApplication( &args);
+  listenHTTP(settings, router);
+  logInfo("Please open http://" ~ server.listenAddr ~ server.contextPath~" in your browser.");
+  runApplication(&args);
 }
 
 void index(HTTPServerRequest req, HTTPServerResponse res){
-  auto uri =getPath( server.contextPath, req);
-  auto rs = repository.check( uri);
+  auto uri =getPath(server.contextPath, req);
+  auto rs = repository.check(uri);
   if (rs ==0 ){
-    throw new HTTPStatusException( HTTPStatus.notFound);
+    throw new HTTPStatusException(HTTPStatus.notFound);
   }else if (rs == 1 ){ // dir
     if (config.publicList){
-      if (uri.endsWith( "/")){
-        Profile profile = config.getProfile( uri);
-        auto content=genListContents( repository.base~uri,server.contextPath,uri);
-        render!("index.dt",uri,content)( res);
+      if (uri.endsWith("/")){
+        Profile profile = config.getProfile(uri);
+        auto content=genListContents(repository.base~uri, server.contextPath, uri);
+        render!("index.dt", uri, content)(res);
       }else {
         import std.array;
         uri=server.contextPath ~ uri;
-        res.redirect( req.requestURI.replace( uri, uri ~"/"));
+        res.redirect(req.requestURI.replace(uri, uri ~"/"));
       }
     }else {
-      throw new HTTPStatusException( HTTPStatus.notFound);
+      throw new HTTPStatusException(HTTPStatus.notFound);
     }
   }else { //file
-    Profile profile = config.getProfile( uri);
+    Profile profile = config.getProfile(uri);
     if (profile.publicDownload){
-      download( profile, req,res,uri);
+      download(profile, req, res, uri);
     }else {
       auto token=("token" in req.query);
       auto t=("t" in req.query);
       auto user=("u" in req.query);
       if (null==user || null==token || null==t){
-        if (basicAuth( req,res,profile)){
-          download( profile, req,res,uri);
+        if (basicAuth(req, res, profile)){
+          download(profile, req, res, uri);
         }
-      }else if (checkToken( profile,uri,*user,profile.keys.get( *user,""),*token,*t)){
-        download( profile, req,res,uri);
+      }else if (checkToken(profile, uri, *user, profile.keys.get(*user, ""), *token, *t)){
+        download(profile, req, res, uri);
       }else {
         res.statusCode = HTTPStatus.forbidden;
-        res.writeBody( "bad token!", "text/plain");
+        res.writeBody("bad token!", "text/plain");
       }
     }
   }
 }
 
-void upload(HTTPServerRequest req,   HTTPServerResponse res){
-  auto uri =getPath( server.contextPath,req);
-  Profile profile = config.getProfile( uri);
-  if (basicAuth( req,res,profile)){
+void upload(HTTPServerRequest req, HTTPServerResponse res){
+  auto uri =getPath(server.contextPath, req);
+  Profile profile = config.getProfile(uri);
+  if (basicAuth(req, res, profile)){
     auto pf = "file" in req.files;
-    enforce( pf !is null, "No file uploaded!");
+    enforce(pf !is null, "No file uploaded!");
     import vibe.core.path;
     try{
-      string owner =req.form.get( "owner","--");
+      string owner =req.form.get("owner", "--");
       import vibe.inet.mimetypes;
-      auto mediaType=getMimeTypeForFile( pf.toString);
-      auto meta = repository.create( profile,pf.tempPath.toNativeString,pf.toString,uri,owner,mediaType);
-      logInfo( "upload " ~ profile.base ~ meta.filePath ~ " at " ~ meta.updatedAt.toISOExtString ~ "(" ~ meta.owner ~ ")" );
-      res.writeBody( meta.toJson(), "application/json");
+      auto mediaType=getMimeTypeForFile(pf.toString);
+      auto meta = repository.create(profile, pf.tempPath.toNativeString, pf.toString, uri, owner, mediaType);
+      logInfo("upload " ~ profile.base ~ meta.filePath ~ " at " ~ meta.updatedAt.toISOExtString ~ "(" ~ meta.owner ~ ")" );
+      res.writeBody(meta.toJson(), "application/json");
     }catch (Exception e) {
-      logInfo( "Performing copy failed.Cause %s",e.msg);
+      logInfo("Performing copy failed.Cause %s", e.msg);
       res.statusCode = HTTPStatus.internalServerError;
-      res.writeBody( e.msg, "text/plain");
+      res.writeBody(e.msg, "text/plain");
     }
   }
 }
 
-void remove(HTTPServerRequest req,   HTTPServerResponse res){
-  auto uri = getPath( server.contextPath, req);
-  Profile profile = config.getProfile( uri);
-  if (basicAuth( req,res,profile)){
+void remove(HTTPServerRequest req, HTTPServerResponse res){
+  auto uri = getPath(server.contextPath, req);
+  Profile profile = config.getProfile(uri);
+  if (basicAuth(req, res, profile)){
     try{
-      if (repository.remove( profile,uri)){
-        logInfo( "remove "~uri ~ " at " ~ Clock.currTime().toISOExtString);
-        res.writeBody( "File removed!", "text/plain");
+      if (repository.remove(profile, uri)){
+        logInfo("remove "~uri ~ " at " ~ Clock.currTime().toISOExtString);
+        res.writeBody("File removed!", "text/plain");
       }else {
-        res.writeBody( "File is not existed!", "text/plain");
+        res.writeBody("File is not existed!", "text/plain");
       }
     }catch (Exception e) {
-      logInfo( "Performing remove failed.Cause %s",e.msg);
+      logInfo("Performing remove failed.Cause %s", e.msg);
       res.statusCode = HTTPStatus.internalServerError;
-      res.writeBody( e.msg, "text/plain");
+      res.writeBody(e.msg, "text/plain");
     }
   }
 }
 
 //fixme for realname detection
-void download(Profile profile,HTTPServerRequest req,  HTTPServerResponse res,string path){
+void download(Profile profile, HTTPServerRequest req, HTTPServerResponse res, string path){
   import std.path;
-  auto ext=extension( path);
+  auto ext=extension(path);
   if (ext in repository.images){
-    sendFile( req,res,  repository.base ~path,null);
+    sendFile(req, res, repository.base ~path, null);
   }else {
-    auto realname = repository.getRealname( profile,path[profile.base.length ..$]);
+    auto realname = repository.getRealname(profile, path[profile.base.length ..$]);
     if (realname.length > 0){
       void setContextDisposition(scope HTTPServerRequest req, scope HTTPServerResponse res, ref string physicalPath)@safe{
-        res.headers["Content-Disposition"]=encodeAttachmentName( realname);
+        res.headers["Content-Disposition"]=encodeAttachmentName(realname);
       }
       auto settings=new CacheSetting;
       settings.preWriteCallback = &setContextDisposition;
-      sendFile( req,res, repository.base ~path,settings);
+      sendFile(req, res, repository.base ~path, settings);
     }else {
-      sendFile( req,res, repository.base ~path,null);
+      sendFile(req, res, repository.base ~path, null);
     }
   }
 }
 
-bool checkToken(Profile profile,string uri,string user,string key,string token,string timestamp){
+bool checkToken(Profile profile, string uri, string user, string key, string token, string timestamp){
   try {
-    return profile.verifyToken( uri,user,key,token,SysTime.fromISOString( timestamp));
+    return profile.verifyToken(uri, user, key, token, SysTime.fromISOString(timestamp));
   }catch( Exception e) {
     return false;
   }
 }
 
-bool basicAuth(HTTPServerRequest req,HTTPServerResponse res,Profile profile) {
+bool basicAuth(HTTPServerRequest req, HTTPServerResponse res, Profile profile) {
   bool checkPassword(string user, string password) @safe{
-    return !user.empty && !password.empty && profile.keys.get( user,"") == password;
+    return !user.empty && !password.empty && profile.keys.get(user, "") == password;
   }
   import std.functional : toDelegate;
-  if (!checkBasicAuth( req, toDelegate( &checkPassword))) {
+  if (!checkBasicAuth(req, toDelegate(&checkPassword))) {
     res.statusCode = HTTPStatus.unauthorized;
     res.contentType = "text/plain";
     res.headers["WWW-Authenticate"] = "Basic realm=\"micdn\"";
-    res.bodyWriter.write( "Authorization required");
+    res.bodyWriter.write("Authorization required");
     return false;
   }else {
     return true;

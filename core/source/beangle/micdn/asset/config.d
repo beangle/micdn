@@ -13,16 +13,16 @@ struct Repo{
   immutable string remote;
   immutable string local;
   private string path(string gav) immutable{
-    auto parts= split( gav,":");
+    auto parts= split(gav, ":");
     assert(parts.length==3);
-    parts[0]= replace( parts[0],".","/");
+    parts[0]= replace(parts[0], ".", "/");
     return "/"~parts[0]~"/"~parts[1]~"/"~parts[2]~"/"~parts[1]~"-"~parts[2]~".jar";
   }
   string remoteUrl(string gav) immutable{
-    return remote ~ path( gav);
+    return remote ~ path(gav);
   }
   string localFile(string gav) immutable{
-    return local ~ path( gav);
+    return local ~ path(gav);
   }
 }
 
@@ -34,7 +34,7 @@ class Config{
 
   Context[string] contexts;
 
-  this(string base, Repo repo,bool publicList){
+  this(string base, Repo repo, bool publicList){
     this.base=base;
     this.repo=repo;
     this.publicList=publicList;
@@ -48,16 +48,16 @@ class Config{
     this.contexts = this.contexts.rehash();
   }
 
-  public static Config parse(string home,string content){
-    auto dom = parseDOM!simpleXML( content).children[0];
+  public static Config parse(string home, string content){
+    auto dom = parseDOM!simpleXML(content).children[0];
     auto attrs = getAttrs(dom);
-    string base = attrs.get( "base",home ~ "/static");
-    bool publicList = attrs.get( "publicList","false").to!bool;
-    auto repoEntry = children( dom,"repository");
+    string base = attrs.get("base", home ~ "/static");
+    bool publicList = attrs.get("publicList", "false").to!bool;
+    auto repoEntry = children(dom, "repository");
     auto remote = "https://repo1.maven.org/maven2";
     auto local = "~/.m2/repository";
     if (!repoEntry.empty){
-      attrs = getAttrs( repoEntry.front);
+      attrs = getAttrs(repoEntry.front);
       if ("remote" in attrs){
         remote = attrs["remote"];
       }
@@ -66,38 +66,38 @@ class Config{
       }
     }
     import std.path;
-    base=expandTilde( base);
+    base=expandTilde(base);
 
-    Config config = new Config( base,Repo( remote,expandTilde( local)),publicList);
-    auto contextsEntry = children( dom,"contexts");
+    Config config = new Config(base, Repo(remote, expandTilde(local)), publicList);
+    auto contextsEntry = children(dom, "contexts");
     if (!contextsEntry.empty){
-      auto contextEntries=children( contextsEntry.front,"context");
-      foreach (c;contextEntries){
-        auto context= new Context( getAttrs( c)["base"]);
-        auto jars=children( c,"jar");
-        foreach (jar;jars){
-          attrs = getAttrs( jar);
+      auto contextEntries=children(contextsEntry.front, "context");
+      foreach (c; contextEntries){
+        auto context= new Context(getAttrs(c)["base"]);
+        auto jars=children(c, "jar");
+        foreach (jar; jars){
+          attrs = getAttrs(jar);
           string gav = attrs["gav"];
           string location = null;
           if ("location" in attrs){
             location =attrs["location"];
           }
-          context.addProvider( new GavJarProvider( gav,location));
+          context.addProvider(new GavJarProvider(gav, location));
         }
-        auto dirs=children( c,"dir");
-        foreach (dir;dirs){
-          attrs = getAttrs( dir);
-          string location = expandTilde( attrs["location"].replace("${micdn.home}",home));
-          context.addProvider( new DirProvider( location));
+        auto dirs=children(c, "dir");
+        foreach (dir; dirs){
+          attrs = getAttrs(dir);
+          string location = expandTilde(attrs["location"].replace("${micdn.home}", home));
+          context.addProvider(new DirProvider(location));
         }
-        auto zips=children( c,"zip");
-        foreach (zip;zips){
-          attrs= getAttrs( zip);
+        auto zips=children(c, "zip");
+        foreach (zip; zips){
+          attrs= getAttrs(zip);
           string file = attrs["file"];
           string location = attrs["location"];
-          context.addProvider( new ZipProvider( file,location));
+          context.addProvider(new ZipProvider(file, location));
         }
-        config.addContext( context);
+        config.addContext(context);
       }
     }
     config.build();
@@ -106,19 +106,19 @@ class Config{
 
   string toXml(){
     auto app = appender!string();
-    app.put( `<?xml version="1.0" encoding="UTF-8"?>`);
-    app.put( "\n");
-    app.put( "<asset base=\"" ~ base ~ "\">\n");
-    app.put( "  <repository remote=\"" ~ repo.remote ~ "\" local=\""~ repo.local~"\" />\n");
-    app.put( "  <contexts>\n");
+    app.put(`<?xml version="1.0" encoding="UTF-8"?>`);
+    app.put("\n");
+    app.put("<asset base=\"" ~ base ~ "\">\n");
+    app.put("  <repository remote=\"" ~ repo.remote ~ "\" local=\""~ repo.local~"\" />\n");
+    app.put("  <contexts>\n");
     auto contextList=contexts.values;
     contextList.sort!((a, b) => a.base < b.base);
-    foreach (c;contextList){
-      app.put( c.toXml( "    "));
-      app.put( "\n");
+    foreach (c; contextList){
+      app.put(c.toXml("    "));
+      app.put("\n");
     }
-    app.put( "  </contexts>\n");
-    app.put( "</asset>\n");
+    app.put("  </contexts>\n");
+    app.put("</asset>\n");
     return app.data;
   }
 }
@@ -127,7 +127,7 @@ class Context{
   string base;
   Provider[] providers=new Provider[0];
   this(string base){
-    if (base.endsWith( "/")){
+    if (base.endsWith("/")){
       this.base=base[0..$-1];
     }else {
       this.base=base;
@@ -139,12 +139,12 @@ class Context{
   }
   string toXml(string indent){
     auto app = appender!string();
-    app.put( indent ~ "<context base=\"" ~ base ~"\">\n");
-    foreach (p;providers){
-      app.put( p.toXml( indent ~ "  "));
-      app.put( "\n");
+    app.put(indent ~ "<context base=\"" ~ base ~"\">\n");
+    foreach (p; providers){
+      app.put(p.toXml(indent ~ "  "));
+      app.put("\n");
     }
-    app.put( indent~ "</context>");
+    app.put(indent~ "</context>");
     return app.data;
   }
 }
@@ -158,7 +158,7 @@ class ZipProvider: Provider{
   string file;
   string location;
 
-  this(string file,string location){
+  this(string file, string location){
     this.file=file;
     this.location=location;
   }
@@ -186,7 +186,7 @@ class DirProvider:Provider{
 class GavJarProvider: Provider{
   string gav;
   string location;
-  this(string gav,string location){
+  this(string gav, string location){
     this.gav=gav;
     this.location=location;
   }
@@ -203,9 +203,9 @@ class GavJarProvider: Provider{
 }
 
 unittest{
-  immutable(Repo) repo = Repo( "https://repo1.maven.org/maven2","~/.m2/repository");
+  immutable(Repo) repo = Repo("https://repo1.maven.org/maven2", "~/.m2/repository");
   auto remoteBui="https://repo1.maven.org/maven2/org/beangle/bundles/beangle-bundles-bui/0.1.7/beangle-bundles-bui-0.1.7.jar";
-  assert( remoteBui == repo.remoteUrl( "org.beangle.bundles:beangle-bundles-bui:0.1.7"));
+  assert( remoteBui == repo.remoteUrl("org.beangle.bundles:beangle-bundles-bui:0.1.7"));
 }
 
 unittest{
@@ -230,6 +230,6 @@ unittest{
 </assets>`;
 
   auto config = Config.parse("~/tmp", content);
-  assert(config.toXml().canFind( "https://repo1.maven.org/maven2"));
+  assert(config.toXml().canFind("https://repo1.maven.org/maven2"));
 }
 

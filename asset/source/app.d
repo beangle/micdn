@@ -21,8 +21,8 @@ Server server;
 Config config;
 void main(string[] args){
   if (args.length<3){
-    writeln( "Usage: " ~ args[0] ~ " --server path/to/server.xml --config path/to/config.xml");
-    return ;
+    writeln("Usage: " ~ args[0] ~ " --server path/to/server.xml --config path/to/config.xml");
+    return;
   }
 
   /*import etc.linux.memoryerror;
@@ -30,44 +30,44 @@ void main(string[] args){
         registerMemoryErrorHandler();*/
   server = getServer();
   auto home = getHome();
-  config = Config.parse(home, readXml(getConfigFile(home,"/asset.xml",true)));
-  repository = Repository.build( config);
-  auto router = new URLRouter( server.contextPath);
-  router.get( "*",&index);
+  config = Config.parse(home, readXml(getConfigFile(home, "/asset.xml", true)));
+  repository = Repository.build(config);
+  auto router = new URLRouter(server.contextPath);
+  router.get("*", &index);
 
   auto settings = new HTTPServerSettings;
   settings.bindAddresses= server.ips;
   settings.port = server.port;
   settings.serverString=null;
 
-  listenHTTP( settings, router);
-  logInfo( "Please open http://" ~ server.listenAddr ~ server.contextPath~" in your browser.");
-  runApplication( &args);
+  listenHTTP(settings, router);
+  logInfo("Please open http://" ~ server.listenAddr ~ server.contextPath~" in your browser.");
+  runApplication(&args);
 }
 
 void index(HTTPServerRequest req, HTTPServerResponse res){
-  auto uri =getPath( server.contextPath, req);
+  auto uri =getPath(server.contextPath, req);
   if (uri =="/config.xml"){
     res.statusCode=200;
     res.headers["Content-Type"] ="application/xml";
-    res.writeBody( config.toXml());
+    res.writeBody(config.toXml());
   }else {
-    auto rs = repository.get( uri);
+    auto rs = repository.get(uri);
     if (null==rs){
-      throw new HTTPStatusException( HTTPStatus.notFound);
+      throw new HTTPStatusException(HTTPStatus.notFound);
     }else {
       // dir
-      if (isDir( rs[0])){
+      if (isDir(rs[0])){
         if (config.publicList){
-          if (uri.endsWith( "/")){
-            auto content=genListContents( repository.base ~ uri,server.contextPath,uri);
-            render!("index.dt",uri,content)( res);
+          if (uri.endsWith("/")){
+            auto content=genListContents(repository.base ~ uri, server.contextPath, uri);
+            render!("index.dt", uri, content)(res);
           }else {
             uri=server.contextPath ~ uri;
-            res.redirect( req.requestURI.replace( uri, uri ~"/"));
+            res.redirect(req.requestURI.replace(uri, uri ~"/"));
           }
         }else {
-          throw new HTTPStatusException( HTTPStatus.notFound);
+          throw new HTTPStatusException(HTTPStatus.notFound);
         }
       }else {
         void setCORS(scope HTTPServerRequest req, scope HTTPServerResponse res, ref string physicalPath)@safe{
@@ -77,9 +77,9 @@ void index(HTTPServerRequest req, HTTPServerResponse res){
         settings.preWriteCallback = &setCORS;
 
         if (rs.length==1){
-          sendFile( req,res,rs[0],settings);
+          sendFile(req, res, rs[0], settings);
         }else {
-          sendFiles( req,res,rs,settings);
+          sendFiles(req, res, rs, settings);
         }
       }
     }

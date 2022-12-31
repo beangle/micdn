@@ -1,4 +1,3 @@
-
 module beangle.micdn.maven.config;
 import std.string;
 import dxml.dom;
@@ -24,53 +23,55 @@ class Config{
   static auto CentralURL = "https://repo1.maven.org/maven2";
   static auto AliyunURL = "https://maven.aliyun.com/nexus/content/groups/public";
 
-  this(string base,bool cacheable,bool publicList,string[] remoteRepos){
+  this(string base, bool cacheable, bool publicList, string[] remoteRepos){
     this.base=base;
     this.cacheable=cacheable;
     this.publicList=publicList;
-    this.remoteRepos=to!(immutable(string[]))( remoteRepos);
+    this.remoteRepos=to!(immutable(string[]))(remoteRepos);
     this.defaultRepo=remoteRepos[$-1];
   }
 
-  public static Config parse(string home,string content){
-    auto dom = parseDOM!simpleXML( content).children[0];
-    auto attrs = getAttrs( dom);
-    immutable bool cacheable = attrs.get( "cacheable","true").to!bool;
-    immutable bool publicList = attrs.get( "publicList","false").to!bool;
+  public static Config parse(string home, string content){
+    auto dom = parseDOM!simpleXML(content).children[0];
+    auto attrs = getAttrs(dom);
+    immutable bool cacheable = attrs.get("cacheable", "true").to!bool;
+    immutable bool publicList = attrs.get("publicList", "false").to!bool;
     import std.path;
-    string base = expandTilde( attrs.get( "base",home));
+    string base = expandTilde(attrs.get("base", home));
     string[] remoteRepos=[];
-    auto remotesEntries = children( dom,"remotes");
+    auto remotesEntries = children(dom, "remotes");
     if (!remotesEntries.empty){
-      auto remoteEntries = children( remotesEntries.front,"remote");
-      foreach (remoteEntry;remoteEntries){
-        attrs = getAttrs( remoteEntry);
+      auto remoteEntries = children(remotesEntries.front, "remote");
+      foreach (remoteEntry; remoteEntries){
+        attrs = getAttrs(remoteEntry);
         if ("url" in attrs){
-          remoteRepos.add( attrs["url"]);
+          remoteRepos.add(attrs["url"]);
         }else if ("alias" in attrs){
           switch ( attrs["alias"]){
-            case "central": remoteRepos.add( CentralURL); break ;
-            case "aliyun":remoteRepos.add( AliyunURL);break ;
-            default: throw new Exception( "unknown named repo "~ attrs["alias"] );
+            case "central":
+              remoteRepos.add(CentralURL); break;
+            case "aliyun":
+              remoteRepos.add(AliyunURL);break;
+            default: throw new Exception("unknown named repo "~ attrs["alias"] );
           }
         }
       }
     }
     if (remoteRepos.length==0){
-      remoteRepos.add( CentralURL);
+      remoteRepos.add(CentralURL);
     }
-    return new Config( base,cacheable,publicList,remoteRepos);
+    return new Config(base, cacheable, publicList, remoteRepos);
   }
 
   bool download(string uri){
-    if (uri.endsWith( ".sha1")){
-      return doDownload( uri);
+    if (uri.endsWith(".sha1")){
+      return doDownload(uri);
     }else {
-      doDownload( uri~".sha1");
-      doDownload( uri);
-      int res = verify( uri);
+      doDownload(uri~".sha1");
+      doDownload(uri);
+      int res = verify(uri);
       if (res<0){
-        remove( uri);
+        remove(uri);
         return false;
       }else {
         return true;
@@ -81,13 +82,13 @@ class Config{
   void remove(string uri){
     auto sha1 = this.base ~ uri ~ Sha1Postfix;
     auto artifact = this.base ~ uri;
-    if (exists( sha1)) {
-      logInfo( "Remove %s", sha1);
-      std.file.remove( sha1);
+    if (exists(sha1)) {
+      logInfo("Remove %s", sha1);
+      std.file.remove(sha1);
     }
-    if (exists( artifact)) {
-      logInfo( "Remove %s", artifact);
-      std.file.remove( artifact);
+    if (exists(artifact)) {
+      logInfo("Remove %s", artifact);
+      std.file.remove(artifact);
     }
   }
 
@@ -98,22 +99,22 @@ class Config{
     auto sha1 = this.base ~ uri ~ Sha1Postfix;
     auto artifact = this.base ~ uri;
 
-    if (!exists( sha1)) return -1;
-    if (!exists( artifact))return -2;
+    if (!exists(sha1)) return -1;
+    if (!exists(artifact))return -2;
 
-    logInfo( "Verify %s against sha1", artifact);
+    logInfo("Verify %s against sha1", artifact);
     import std.digest.sha;
-    File file = File( artifact);
+    File file = File(artifact);
     auto digest = new SHA1Digest();
-    foreach (buffer; file.byChunk( 4096 * 1024))
-      digest.put( buffer);
+    foreach (buffer; file.byChunk(4096 * 1024))
+      digest.put(buffer);
     ubyte[] result = digest.finish();
-    auto hexCalc=toHexString( result).toLower;
-    auto sha1InFile = readText( sha1);
+    auto hexCalc=toHexString(result).toLower;
+    auto sha1InFile = readText(sha1);
     import std.algorithm;
-    auto ok = hexCalc.equal( sha1InFile);
+    auto ok = hexCalc.equal(sha1InFile);
     if (!ok){
-      logWarn( "Miss match sha for %s.", artifact);
+      logWarn("Miss match sha for %s.", artifact);
       return -1;
     }else {
       return 0;
@@ -125,37 +126,37 @@ class Config{
    */
   bool doDownload(string uri){
     auto local = this.base ~ uri;
-    if (exists( local)){
+    if (exists(local)){
       return true;
     }
     auto part = local ~ ".part";
     import std.path;
-    mkdirRecurse( dirName( local));
-    foreach (r;this.remoteRepos){
+    mkdirRecurse(dirName(local));
+    foreach (r; this.remoteRepos){
       auto remote= r ~ uri;
       try{
         import vibe.inet.urltransfer;
-        vibe.inet.urltransfer.download( remote,part);
+        vibe.inet.urltransfer.download(remote, part);
 
-        if (exists( part) && !exists( local)){
-          rename( part,local);
-          logInfo( "Downloaded %s", remote);
+        if (exists(part) && !exists(local)){
+          rename(part, local);
+          logInfo("Downloaded %s", remote);
         }
-        break ;
+        break;
       }catch(Exception e){
-        logWarn( "Download failure %s %s",remote,e.msg);
+        logWarn("Download failure %s %s", remote, e.msg);
       }finally{
-        if (exists( part)){
-          std.file.remove( part);
+        if (exists(part)){
+          std.file.remove(part);
         }
       }
     }
-    return exists( local);
+    return exists(local);
   }
 
 }
 
-void add(ref string[] remotes,string remote){
+void add(ref string[] remotes, string remote){
   remotes.length+=1;
   remotes[$-1]=remote;
 }
