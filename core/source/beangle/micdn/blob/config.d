@@ -44,7 +44,7 @@ class Config{
     auto attrs = getAttrs(dom);
     string sizeLimit=attrs.get("maxSize", "50M");
     import std.path;
-    string base = attrs.get("base", home ~ "/blob");
+    string base = expandTilde(attrs.get("base", home ~ "/blob"));
     string hostname=attrs.get("hostname", "localhost");
     bool publicList = attrs.get("publicList", "false").to!bool;
     config = new Config(hostname, base, publicList);

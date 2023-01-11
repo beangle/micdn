@@ -76,7 +76,7 @@ string getHome(){
   auto success = readOption!string("home", &home, "specify home params");
   if (success){
     if (home.endsWith("/")) home = home[0..$-1];
-    return home;
+    return expandTilde(home);
   }else {
     string serverxml;
     success = readOption!string("config", &serverxml, "specify config params");
