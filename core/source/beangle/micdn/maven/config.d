@@ -7,7 +7,7 @@ import std.stdio;
 import vibe.core.log;
 import beangle.xml.reader;
 
-class Config{
+class Config {
   /**artifact local repo*/
   immutable string base;
   /**cache the artifacts*/
@@ -15,71 +15,75 @@ class Config{
   /**enable dir list*/
   immutable bool publicList;
   /**candinates remote repos*/
-  immutable string[] remoteRepos=[];
+  immutable string[] remoteRepos = [];
   /**default remote repo*/
   immutable string defaultRepo;
 
-  static Sha1Postfix=".sha1";
+  static Sha1Postfix = ".sha1";
   static auto CentralURL = "https://repo1.maven.org/maven2";
   static auto AliyunURL = "https://maven.aliyun.com/nexus/content/groups/public";
 
-  this(string base, bool cacheable, bool publicList, string[] remoteRepos){
-    this.base=base;
-    this.cacheable=cacheable;
-    this.publicList=publicList;
-    this.remoteRepos=to!(immutable(string[]))(remoteRepos);
-    this.defaultRepo=remoteRepos[$-1];
+  this(string base, bool cacheable, bool publicList, string[] remoteRepos) {
+    this.base = base;
+    this.cacheable = cacheable;
+    this.publicList = publicList;
+    this.remoteRepos = to!(immutable(string[]))(remoteRepos);
+    this.defaultRepo = remoteRepos[$ - 1];
   }
 
-  public static Config parse(string home, string content){
+  public static Config parse(string home, string content) {
     auto dom = parseDOM!simpleXML(content).children[0];
     auto attrs = getAttrs(dom);
     immutable bool cacheable = attrs.get("cacheable", "true").to!bool;
     immutable bool publicList = attrs.get("publicList", "false").to!bool;
     import std.path;
+
     string base = expandTilde(attrs.get("base", home));
-    string[] remoteRepos=[];
+    string[] remoteRepos = [];
     auto remotesEntries = children(dom, "remotes");
-    if (!remotesEntries.empty){
+    if (!remotesEntries.empty) {
       auto remoteEntries = children(remotesEntries.front, "remote");
-      foreach (remoteEntry; remoteEntries){
+      foreach (remoteEntry; remoteEntries) {
         attrs = getAttrs(remoteEntry);
-        if ("url" in attrs){
+        if ("url" in attrs) {
           remoteRepos.add(attrs["url"]);
-        }else if ("alias" in attrs){
-          switch ( attrs["alias"]){
+        } else if ("alias" in attrs) {
+          switch (attrs["alias"]) {
             case "central":
-              remoteRepos.add(CentralURL); break;
+              remoteRepos.add(CentralURL);
+              break;
             case "aliyun":
-              remoteRepos.add(AliyunURL);break;
-            default: throw new Exception("unknown named repo "~ attrs["alias"] );
+              remoteRepos.add(AliyunURL);
+              break;
+            default:
+              throw new Exception("unknown named repo " ~ attrs["alias"]);
           }
         }
       }
     }
-    if (remoteRepos.length==0){
+    if (remoteRepos.length == 0) {
       remoteRepos.add(CentralURL);
     }
     return new Config(base, cacheable, publicList, remoteRepos);
   }
 
-  bool download(string uri){
-    if (uri.endsWith(".sha1")){
+  bool download(string uri) {
+    if (uri.endsWith(".sha1")) {
       return doDownload(uri);
-    }else {
-      doDownload(uri~".sha1");
+    } else {
+      doDownload(uri ~ ".sha1");
       doDownload(uri);
       int res = verify(uri);
-      if (res<0){
+      if (res < 0) {
         remove(uri);
         return false;
-      }else {
+      } else {
         return true;
       }
     }
   }
 
-  void remove(string uri){
+  void remove(string uri) {
     auto sha1 = this.base ~ uri ~ Sha1Postfix;
     auto artifact = this.base ~ uri;
     if (exists(sha1)) {
@@ -95,28 +99,33 @@ class Config{
   /** verify artifact
    * return 0 is ok. -1 miss match sha1,-2 missing artifact ,-3 missing sha1
    */
-  int verify(string uri){
+  int verify(string uri) {
     auto sha1 = this.base ~ uri ~ Sha1Postfix;
     auto artifact = this.base ~ uri;
 
-    if (!exists(sha1)) return -1;
-    if (!exists(artifact))return -2;
+    if (!exists(sha1))
+      return -1;
+    if (!exists(artifact))
+      return -2;
 
     logInfo("Verify %s against sha1", artifact);
     import std.digest.sha;
+
     File file = File(artifact);
     auto digest = new SHA1Digest();
     foreach (buffer; file.byChunk(4096 * 1024))
       digest.put(buffer);
     ubyte[] result = digest.finish();
-    auto hexCalc=toHexString(result).toLower;
-    auto sha1InFile = readText(sha1);
+    auto hexCalc = toHexString(result).toLower;
+    auto sha1InFile = readText(sha1).toLower;
     import std.algorithm;
-    auto ok = hexCalc.equal(sha1InFile);
-    if (!ok){
-      logWarn("Miss match sha for %s.", artifact);
+
+
+    auto ok = sha1InFile.indexOf(hexCalc) >= 0;
+    if (!ok) {
+      logWarn("Miss match sha for %s. sha1file %s and calculated is %s", artifact, sha1InFile, hexCalc);
       return -1;
-    }else {
+    } else {
       return 0;
     }
   }
@@ -124,29 +133,31 @@ class Config{
   /** try to download file
    * @return true if local exists
    */
-  bool doDownload(string uri){
+  bool doDownload(string uri) {
     auto local = this.base ~ uri;
-    if (exists(local)){
+    if (exists(local)) {
       return true;
     }
     auto part = local ~ ".part";
     import std.path;
+
     mkdirRecurse(dirName(local));
-    foreach (r; this.remoteRepos){
-      auto remote= r ~ uri;
-      try{
+    foreach (r; this.remoteRepos) {
+      auto remote = r ~ uri;
+      try {
         import vibe.inet.urltransfer;
+
         vibe.inet.urltransfer.download(remote, part);
 
-        if (exists(part) && !exists(local)){
+        if (exists(part) && !exists(local)) {
           rename(part, local);
           logInfo("Downloaded %s", remote);
         }
         break;
-      }catch(Exception e){
+      } catch (Exception e) {
         logWarn("Download failure %s %s", remote, e.msg);
-      }finally{
-        if (exists(part)){
+      } finally {
+        if (exists(part)) {
           std.file.remove(part);
         }
       }
@@ -156,13 +167,13 @@ class Config{
 
 }
 
-void add(ref string[] remotes, string remote){
-  remotes.length+=1;
-  remotes[$-1]=remote;
+void add(ref string[] remotes, string remote) {
+  remotes.length += 1;
+  remotes[$ - 1] = remote;
 }
 
-unittest{
-  auto content=`<?xml version="1.0" encoding="UTF-8"?>
+unittest {
+  auto content = `<?xml version="1.0" encoding="UTF-8"?>
 <maven cacheable="true" >
   <remotes>
     <remote url="https://maven.aliyun.com/nexus/content/groups/public"/>
@@ -171,7 +182,6 @@ unittest{
 </maven>`;
 
   auto config = Config.parse("~/.m2/repository", content);
-  assert( config.remoteRepos.length==2);
-  assert( config.remoteRepos[1] == Config.CentralURL);
+  assert(config.remoteRepos.length == 2);
+  assert(config.remoteRepos[1] == Config.CentralURL);
 }
-

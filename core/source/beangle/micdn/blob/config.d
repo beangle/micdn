@@ -6,14 +6,14 @@ import std.stdio;
 import std.conv;
 import beangle.xml.reader;
 
-class Config{
+class Config {
   immutable string hostname;
   /**file base store blobs*/
   immutable string base;
   /**enable dir list*/
   immutable bool publicList;
   /**upload file limit*/
-  ulong maxSize=10*1024*1024; //default 10m
+  ulong maxSize = 10 * 1024 * 1024; //default 10m
   /**url profile for management*/
   Profile[string] profiles;
   /**every key for profile*/
@@ -23,52 +23,53 @@ class Config{
 
   private Profile defaultProfile = new Profile(0, "", null, false, false);
 
-  this(string hostname, string base, bool publicList){
-    this.hostname=hostname;
-    this.base=base;
-    this.publicList=publicList;
+  this(string hostname, string base, bool publicList) {
+    this.hostname = hostname;
+    this.base = base;
+    this.publicList = publicList;
   }
 
-  Profile getProfile(string path){
-    foreach (k, v; profiles){
-      if (path.startsWith(k)){
+  Profile getProfile(string path) {
+    foreach (k, v; profiles) {
+      if (path.startsWith(k)) {
         return v;
       }
     }
     return defaultProfile;
   }
 
-  public static Config parse(string home, string content){
+  public static Config parse(string home, string content) {
     Config config;
     auto dom = parseDOM!simpleXML(content).children[0];
     auto attrs = getAttrs(dom);
-    string sizeLimit=attrs.get("maxSize", "50M");
+    string sizeLimit = attrs.get("maxSize", "50M");
     import std.path;
+
     string base = expandTilde(attrs.get("base", home ~ "/blob"));
-    string hostname=attrs.get("hostname", "localhost");
+    string hostname = attrs.get("hostname", "localhost");
     bool publicList = attrs.get("publicList", "false").to!bool;
     config = new Config(hostname, base, publicList);
-    config.maxSize=parseSize(sizeLimit);
+    config.maxSize = parseSize(sizeLimit);
     auto usersEntry = children(dom, "users");
-    if (!usersEntry.empty){
-      auto userEntries=children(usersEntry.front, "user");
-      foreach (u; userEntries){
-        attrs= getAttrs(u);
-        config.keys[attrs["name"]]= attrs["key"];
+    if (!usersEntry.empty) {
+      auto userEntries = children(usersEntry.front, "user");
+      foreach (u; userEntries) {
+        attrs = getAttrs(u);
+        config.keys[attrs["name"]] = attrs["key"];
       }
     }
-    auto profilesEntry= children(dom, "profiles");
-    if (!profilesEntry.empty){
-      auto profileEntries=children(profilesEntry.front, "profile");
-      foreach (p; profileEntries){
-        attrs= getAttrs(p);
+    auto profilesEntry = children(dom, "profiles");
+    if (!profilesEntry.empty) {
+      auto profileEntries = children(profilesEntry.front, "profile");
+      foreach (p; profileEntries) {
+        attrs = getAttrs(p);
         int id = attrs["id"].to!int;
-        string path =attrs["base"];
+        string path = attrs["base"];
         string users = attrs.get("users", "");
         string[string] profileKeys;
-        if (!users.empty){
-          foreach (u; users.split(",")){
-            profileKeys[u]=config.keys[u];
+        if (!users.empty) {
+          foreach (u; users.split(",")) {
+            profileKeys[u] = config.keys[u];
           }
         }
         bool namedBySha = attrs.get("namedBySha", "false").to!bool;
@@ -77,20 +78,20 @@ class Config{
       }
     }
     auto dataSource = children(dom, "dataSource").front;
-    foreach (p; dataSource.children){
-      config.dataSourceProps[p.name]=p.children[0].text;
+    foreach (p; dataSource.children) {
+      config.dataSourceProps[p.name] = p.children[0].text;
     }
     return config;
   }
 
-  public static ulong parseSize(string size){
-    string s=size.toLower;
-    if (s.endsWith("m")){
-      return s[0..$-1].to!ulong*1024*1024;
-    }else if (s.endsWith("g")){
-      return s[0..$-1].to!ulong*1024*1024*1024;
-    }else {
-      return s[0..$-1].to!ulong;
+  public static ulong parseSize(string size) {
+    string s = size.toLower;
+    if (s.endsWith("m")) {
+      return s[0 .. $ - 1].to!ulong * 1024 * 1024;
+    } else if (s.endsWith("g")) {
+      return s[0 .. $ - 1].to!ulong * 1024 * 1024 * 1024;
+    } else {
+      return s[0 .. $ - 1].to!ulong;
     }
   }
 }
@@ -98,7 +99,8 @@ class Config{
 import std.digest.sha;
 import std.uni;
 import std.datetime.systime;
-class Profile{
+
+class Profile {
   immutable int id;
   /**profile path prefix*/
   immutable string base;
@@ -109,37 +111,38 @@ class Profile{
   /**could download file publicly*/
   immutable bool publicDownload;
 
-  this(int id, string base, string[string] keys, bool namedBySha, bool publicDownload){
-    this.id=id;
-    if (base.endsWith("/")){
-      this.base=base[0..$-1];
-    }else {
-      this.base=base;
+  this(int id, string base, string[string] keys, bool namedBySha, bool publicDownload) {
+    this.id = id;
+    if (base.endsWith("/")) {
+      this.base = base[0 .. $ - 1];
+    } else {
+      this.base = base;
     }
-    this.keys=to!(immutable(string[string]))(keys);
-    this.namedBySha=namedBySha;
-    this.publicDownload=publicDownload;
+    this.keys = to!(immutable(string[string]))(keys);
+    this.namedBySha = namedBySha;
+    this.publicDownload = publicDownload;
   }
 
-  string genToken(string path, string user, string key, SysTime timestamp)   {
+  string genToken(string path, string user, string key, SysTime timestamp) {
     string content = path ~ user ~ key ~ timestamp.toISOString;
     return toHexString!(LetterCase.lower)(sha1Of(content)).idup;
   }
 
-  bool verifyToken(string path, string user, string key, string token, SysTime timestamp)   {
+  bool verifyToken(string path, string user, string key, string token, SysTime timestamp) {
     SysTime today = Clock.currTime();
     import core.time;
+
     immutable auto duration = abs(today - timestamp);
-    if (duration > dur!"minutes"(15)){
+    if (duration > dur!"minutes"(15)) {
       return false;
-    }else {
+    } else {
       string content = path ~ user ~ key ~ timestamp.toISOString;
       return toHexString(sha1Of(content)).toLower == token;
     }
   }
 }
 
-class BlobMeta{
+class BlobMeta {
   string owner;
   string name;
   ulong fileSize;
@@ -149,29 +152,30 @@ class BlobMeta{
   string filePath;
   SysTime updatedAt;
 
-  string toJson(){
-    return `{owner:"` ~ owner ~ `",profileId:`~ profileId.to!string ~ `,name:"` ~ name ~`",fileSize:` ~
-    fileSize.to!string ~ `,sha:"` ~ sha ~ `",mediaType:"` ~
-    mediaType ~ `",filePath:"` ~ filePath ~ `",updatedAt:"` ~ updatedAt.toISOExtString ~ `"}`;
+  string toJson() {
+    return `{owner:"` ~ owner ~ `",profileId:` ~ profileId.to!string ~ `,name:"` ~ name ~ `",fileSize:`
+      ~ fileSize.to!string ~ `,sha:"` ~ sha ~ `",mediaType:"` ~ mediaType
+      ~ `",filePath:"` ~ filePath ~ `",updatedAt:"` ~ updatedAt.toISOExtString ~ `"}`;
   }
 }
 
-unittest{
+unittest {
   string[string] keys;
   keys["default"] = "--";
-  auto profile= new Profile(0, "", keys, false, false);
-  SysTime now=Clock.currTime();
+  auto profile = new Profile(0, "", keys, false, false);
+  SysTime now = Clock.currTime();
   import core.time;
-  now.fracSecs= msecs(0);
-  string uri="/netinstall.sh";
-  string token=profile.genToken(uri, "default", "--", now);
+
+  now.fracSecs = msecs(0);
+  string uri = "/netinstall.sh";
+  string token = profile.genToken(uri, "default", "--", now);
   //import std.stdio;
   //writeln( "token="~token~"&t="~now.toISOString);
   assert(profile.verifyToken(uri, "default", "--", token, now));
 }
 
-unittest{
-  auto content=`<?xml version="1.0"?>
+unittest {
+  auto content = `<?xml version="1.0"?>
 <blob port="9080" context="/micdn" base="/home/chaostone/tmp">
   <users>
     <user name="default" key="--"/>
@@ -189,9 +193,9 @@ unittest{
 </blob>`;
   auto config = Config.parse("~/tmp", content);
   import std.stdio;
-  assert(config.profiles.length ==1 );
+
+  assert(config.profiles.length == 1);
   assert("/group/test" in config.profiles);
   assert("databaseName" in config.dataSourceProps);
-  assert(10L*1024*1024*1024 == config.parseSize("10g"));
+  assert(10L * 1024 * 1024 * 1024 == config.parseSize("10g"));
 }
-

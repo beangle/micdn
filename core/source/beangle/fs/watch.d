@@ -12,41 +12,44 @@ import std.string;
 import beangle.fs.inotify;
 
 public struct Watch {
-  Event[] read(Duration timeout){
-    return readImpl(cast(int)timeout.total!"msecs");
+  Event[] read(Duration timeout) {
+    return readImpl(cast(int) timeout.total!"msecs");
   }
 
-  Event[] read(){
+  Event[] read() {
     return readImpl(-1);
   }
 
-  public @property int descriptor(){
+  public @property int descriptor() {
     return queuefd;
   }
-  private void addDir(string root){
+
+  private void addDir(string root) {
     enforce(exists(root));
     add(root, this.mask | IN_CREATE | IN_DELETE_SELF);
     foreach (d; dirEntries(root, SpanMode.breadth)) {
-      if (d.isDir && !d.isSymlink) add(d.name, this.mask| IN_CREATE | IN_DELETE_SELF);
+      if (d.isDir && !d.isSymlink)
+        add(d.name, this.mask | IN_CREATE | IN_DELETE_SELF);
     }
   }
 
-  private int add(string path, uint mask){
+  private int add(string path, uint mask) {
     import std.conv;
+
     auto zpath = toStringz(path);
-    auto wd =  inotify_add_watch(this.queuefd, zpath, mask);
-    if (wd>0){
+    auto wd = inotify_add_watch(this.queuefd, zpath, mask);
+    if (wd > 0) {
       paths[wd] = path;
     }
     return wd;
   }
 
-  private void remove(int wd){
+  private void remove(int wd) {
     paths.remove(wd);
     enforce(inotify_rm_watch(this.queuefd, wd) == 0, "failed to remove inotify watch");
   }
 
-  private const (char)[] name(ref inotify_event e) {
+  private const(char)[] name(ref inotify_event e) {
     auto ptr = cast(const(char)*)(&e.name);
     return fromStringz(ptr);
   }
@@ -56,20 +59,21 @@ public struct Watch {
     pfd.fd = queuefd;
     pfd.events = POLLIN;
 
-    if (poll(&pfd, 1, timeout) <= 0) return null;
-    long len = .read(queuefd, buffer.ptr, buffer.length);// why .
+    if (poll(&pfd, 1, timeout) <= 0)
+      return null;
+    long len = .read(queuefd, buffer.ptr, buffer.length); // why .
     enforce(len > 0, "failed to read inotify event"); // test why len >0 when no event happen.
     ubyte* head = buffer.ptr;
     events.length = 0;
     events.assumeSafeAppend();
     while (len > 0) {
-      auto eptr = cast(inotify_event*)head;
+      auto eptr = cast(inotify_event*) head;
       auto size = (*eptr).sizeof + eptr.len;
       head += size;
       len -= size;
       string path = paths[eptr.wd];
       path ~= "/" ~ name(*eptr);
-      auto e = Event(eptr.wd, eptr.mask, eptr.cookie, path );
+      auto e = Event(eptr.wd, eptr.mask, eptr.cookie, path);
       if (e.mask & IN_ISDIR) {
         if (e.mask & IN_CREATE) {
           add(path, this.mask | IN_CREATE | IN_DELETE_SELF);
@@ -94,18 +98,20 @@ public struct Watch {
   this(int queuefd, string[] roots, int mask) {
     enforce(queuefd >= 0, "failed to init inotify");
     this.queuefd = queuefd;
-    this.mask=mask;
+    this.mask = mask;
     //see http://man7.org/linux/man-pages/man7/inotify.7.html
-    buffer = new ubyte[1024*(inotify_event.sizeof + 256)];
-    this.roots=roots;
-    foreach (string root; roots){
+    buffer = new ubyte[1024 * (inotify_event.sizeof + 256)];
+    this.roots = roots;
+    foreach (string root; roots) {
       this.addDir(root);
     }
   }
-  ~this(){
+
+  ~this() {
     stop();
   }
-  void stop(){
+
+  void stop() {
     if (queuefd >= 0) {
       close(queuefd);
       queuefd = -1;
@@ -119,6 +125,7 @@ public auto watch(string base, int mask) {
 
 unittest {
   import std.process;
+
   executeShell("rm -rf temp");
   executeShell("mkdir temp");
   auto monitor = watch("temp", IN_CREATE | IN_DELETE);
@@ -159,7 +166,8 @@ unittest {
   assert(evs.length == 0);
 
   import core.thread;
-  auto t = new Thread((){
+
+  auto t = new Thread(() {
     Thread.sleep(1000.msecs);
     executeShell("touch temp/dir1/c.temp");
   }).start();

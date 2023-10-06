@@ -17,11 +17,12 @@ import std.algorithm;
 import std.exception;
 import std.ascii : isWhite;
 
-string encodeAttachmentName(string name) @safe{
+string encodeAttachmentName(string name) @safe {
   import std.array;
   import vibe.textfilter.urlencode;
-  auto filename=name.urlEncode();
-  auto n=`attachment; filename="{filename}"; filename*=utf-8''{filename}`;
+
+  auto filename = name.urlEncode();
+  auto n = `attachment; filename="{filename}"; filename*=utf-8''{filename}`;
   return n.replace("{filename}", filename);
 }
 
@@ -29,7 +30,7 @@ string encodeAttachmentName(string name) @safe{
  * https://tools.ietf.org/html/rfc7233
  * Range can be in form "-\d", "\d-" or "\d-\d"
  */
-ulong[2] parseRange(string range, ulong maxSize) @safe{
+ulong[2] parseRange(string range, ulong maxSize) @safe {
   if (range.canFind(','))
     throw new HTTPStatusException(HTTPStatus.notImplemented);
   auto s = range.split("-");
@@ -40,38 +41,43 @@ ulong[2] parseRange(string range, ulong maxSize) @safe{
   try {
     if (s[0].length) {
       start = s[0].to!ulong;
-      end = s[1].length ? s[1].to!ulong : (maxSize-1);
+      end = s[1].length ? s[1].to!ulong : (maxSize - 1);
     } else if (s[1].length) {
-      end = (maxSize-1);
+      end = (maxSize - 1);
       auto len = s[1].to!ulong;
-      if (len >= end) start = 0;
-      else start = end - len + 1;
+      if (len >= end)
+        start = 0;
+      else
+        start = end - len + 1;
     } else {
       throw new HTTPStatusException(HTTPStatus.badRequest);
     }
   } catch (ConvException) {
     throw new HTTPStatusException(HTTPStatus.badRequest);
   }
-  if (end >= maxSize)   end = maxSize-1;
-  if (start > end)  start = end;
+  if (end >= maxSize)
+    end = maxSize - 1;
+  if (start > end)
+    start = end;
   return [start, end];
 }
 
-unittest{
+unittest {
   auto s = encodeAttachmentName("早上 好.txt");
-  assert( s ==`attachment; filename="%E6%97%A9%E4%B8%8A%20%E5%A5%BD.txt"; filename*=utf-8''%E6%97%A9%E4%B8%8A%20%E5%A5%BD.txt`);
-  auto r1= parseRange("0-1", 2);
-  assert(r1 ==[0, 1]);
+  assert(
+      s == `attachment; filename="%E6%97%A9%E4%B8%8A%20%E5%A5%BD.txt"; filename*=utf-8''%E6%97%A9%E4%B8%8A%20%E5%A5%BD.txt`);
+  auto r1 = parseRange("0-1", 2);
+  assert(r1 == [0, 1]);
 
-  auto r2= parseRange("9500-", 10000);
-  auto r3= parseRange("-500", 10000);
+  auto r2 = parseRange("9500-", 10000);
+  auto r3 = parseRange("-500", 10000);
   assert(r2 == r3);
 
-  auto r4= parseRange("9500-100002", 10000);
-  assert( r2 == r4);
+  auto r4 = parseRange("9500-100002", 10000);
+  assert(r2 == r4);
 
-  auto r5= parseRange("10000-100002", 10000);
-  assert(r5 ==[9999, 9999]);
+  auto r5 = parseRange("10000-100002", 10000);
+  assert(r5 == [9999, 9999]);
 }
 
 class CacheSetting {
@@ -83,36 +89,43 @@ class CacheSetting {
 }
 
 CacheSetting default_settings;
-static this(){
+static this() {
   default_settings = new CacheSetting();
 }
 
 import vibe.http.fileserver;
-void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res, string path, const CacheSetting settings = null){
+
+void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
+    string path, const CacheSetting settings = null) {
   if (settings) {
     sendFileImpl(req, res, NativePath(path), settings);
-  }else {
+  } else {
     sendFileImpl(req, res, NativePath(path), default_settings);
   }
 }
 
-void sendFiles(scope HTTPServerRequest req, scope HTTPServerResponse res, string[] paths, const CacheSetting settings = null){
+void sendFiles(scope HTTPServerRequest req, scope HTTPServerResponse res,
+    string[] paths, const CacheSetting settings = null) {
   auto npaths = array(paths.map!(p => NativePath(p)));
   if (settings) {
     sendFilesImpl(req, res, npaths, settings);
-  }else {
+  } else {
     sendFilesImpl(req, res, npaths, default_settings);
   }
 }
 
-private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse res, NativePath path, const CacheSetting settings = null){
+private void sendFileImpl(scope HTTPServerRequest req,
+    scope HTTPServerResponse res, NativePath path, const CacheSetting settings = null) {
   auto pathstr = path.toNativeString();
-  if (!existsFile(pathstr))  throw new HTTPStatusException(HTTPStatus.notFound);
+  if (!existsFile(pathstr))
+    throw new HTTPStatusException(HTTPStatus.notFound);
 
   FileInfo dirent;
-  try dirent = getFileInfo(pathstr);
-  catch(Exception){
-    throw new HTTPStatusException(HTTPStatus.internalServerError, "Failed to get information for the file due to a file system error.");
+  try
+    dirent = getFileInfo(pathstr);
+  catch (Exception) {
+    throw new HTTPStatusException(HTTPStatus.internalServerError,
+        "Failed to get information for the file due to a file system error.");
   }
 
   if (dirent.isDirectory) {
@@ -123,7 +136,7 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
     return;
   }
 
-  if (!("Content-Type" in res.headers)){
+  if (!("Content-Type" in res.headers)) {
     res.headers["Content-Type"] = res.headers.get("Content-Type", getMimeTypeForFile(pathstr));
   }
   res.headers.addField("Accept-Ranges", "bytes");
@@ -133,28 +146,31 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
 
   if (prange) {
     auto range = (*prange).chompPrefix("bytes=");
-    auto startend=parseRange(range, dirent.size);
-    rangeStart =startend[0];
+    auto startend = parseRange(range, dirent.size);
+    rangeStart = startend[0];
     rangeEnd = startend[1];
     res.headers["Content-Length"] = to!string(rangeEnd - rangeStart + 1);
-    res.headers["Content-Range"] = "bytes %s-%s/%s".format(rangeStart < rangeEnd ? rangeStart : rangeEnd, rangeEnd, dirent.size);
+    res.headers["Content-Range"] = "bytes %s-%s/%s".format(rangeStart < rangeEnd
+        ? rangeStart : rangeEnd, rangeEnd, dirent.size);
     res.statusCode = HTTPStatus.partialContent;
   } else
     res.headers["Content-Length"] = dirent.size.to!string;
 
-  if (settings.preWriteCallback) settings.preWriteCallback(req, res, pathstr);
+  if (settings.preWriteCallback)
+    settings.preWriteCallback(req, res, pathstr);
 
-  if ( res.isHeadResponse() ){
+  if (res.isHeadResponse()) {
     res.writeVoidBody();
     return;
   }
   FileStream fil;
   try {
     fil = openFile(path);
-  } catch( Exception e ){
+  } catch (Exception e) {
     return;
   }
-  scope(exit) fil.close();
+  scope (exit)
+    fil.close();
 
   if (prange) {
     fil.seek(rangeStart);
@@ -164,47 +180,50 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
   }
 }
 
-private void sendFilesImpl(scope HTTPServerRequest req, scope HTTPServerResponse res, NativePath[] paths, const CacheSetting settings = null){
+private void sendFilesImpl(scope HTTPServerRequest req,
+    scope HTTPServerResponse res, NativePath[] paths, const CacheSetting settings = null) {
   auto firstPath = paths[0].toNativeString();
   auto infos = paths.map!(p => getFileInfo(p.toNativeString()));
   if (handleCacheFile(req, res, infos[0], settings.cacheControl, settings.maxAge)) {
     return;
   }
-  ulong size=infos.map!(i=> i.size).sum;
-  size += infos.length-1;
+  ulong size = infos.map!(i => i.size).sum;
+  size += infos.length - 1;
 
-  if (!("Content-Type" in res.headers)){
+  if (!("Content-Type" in res.headers)) {
     res.headers["Content-Type"] = res.headers.get("Content-Type", getMimeTypeForFile(firstPath));
   }
   res.headers["Content-Length"] = size.to!string;
 
-  if (settings.preWriteCallback) settings.preWriteCallback(req, res, firstPath);
+  if (settings.preWriteCallback)
+    settings.preWriteCallback(req, res, firstPath);
 
-  if ( res.isHeadResponse() ){
+  if (res.isHeadResponse()) {
     res.writeVoidBody();
     return;
   }
 
   import std.range;
+
   FileStream[] fss;
   try {
-    fss =  array(paths.map!(p => openFile(p)));
-  } catch( Exception e ){
+    fss = array(paths.map!(p => openFile(p)));
+  } catch (Exception e) {
     return;
   }
 
-  scope(exit) {
-    if (null!=fss){
-      foreach (fs; fss){
+  scope (exit) {
+    if (null != fss) {
+      foreach (fs; fss) {
         fs.close();
       }
     }
   }
-  int processed=0;
-  foreach (fs; fss){
+  int processed = 0;
+  foreach (fs; fss) {
     fs.pipe(res.bodyWriter);
     processed += 1;
-    if (processed < fss.length){
+    if (processed < fss.length) {
       res.writeBody("\n");
     }
   }
