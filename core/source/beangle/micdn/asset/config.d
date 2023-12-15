@@ -10,7 +10,7 @@ import beangle.xml.reader;
 import std.array : appender;
 
 struct Repo {
-  immutable string remote;
+  immutable string[] remotes;
   immutable string local;
   private string path(string gav) immutable {
     auto parts = split(gav, ":");
@@ -20,8 +20,8 @@ struct Repo {
       ~ parts[2] ~ ".jar";
   }
 
-  string remoteUrl(string gav) immutable {
-    return remote ~ path(gav);
+  string[] remoteUrls(string gav) immutable {
+    return remotes.map!(r=> remote ~ path(gav));
   }
 
   string localFile(string gav) immutable {
@@ -57,12 +57,16 @@ class Config {
     string base = attrs.get("base", home ~ "/static");
     bool publicList = attrs.get("publicList", "false").to!bool;
     auto repoEntry = children(dom, "repository");
-    auto remote = "https://repo1.maven.org/maven2";
+    auto defaultRemote = "https://repo1.maven.org/maven2";
+    auto remotes = [defaultRemote];
     auto local = "~/.m2/repository";
     if (!repoEntry.empty) {
       attrs = getAttrs(repoEntry.front);
       if ("remote" in attrs) {
-        remote = attrs["remote"];
+        auto remote = attrs["remote"];
+        if(remote != defaultRemote){
+          remotes = [remote,defaultRemote];
+        }
       }
       if ("local" in attrs) {
         local = attrs["local"];
@@ -72,7 +76,7 @@ class Config {
 
     base = expandTilde(base);
 
-    Config config = new Config(base, Repo(remote, expandTilde(local)), publicList);
+    Config config = new Config(base, Repo(remotes, expandTilde(local)), publicList);
     auto contextsEntry = children(dom, "contexts");
     if (!contextsEntry.empty) {
       auto contextEntries = children(contextsEntry.front, "context");

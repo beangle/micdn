@@ -83,16 +83,20 @@ class Repository {
           if (exists(local)) {
             mount(config, local, c.base, location);
           } else if (!local.endsWith("SNAPSHOT.jar")) {
-            string remote = repo.remoteUrl(gap.gav);
+            string[] remotes = repo.remoteUrls(gap.gav);
             mkdirRecurse(dirName(local));
             import vibe.inet.urltransfer;
 
-            logInfo("Downloading %s", remote);
-            try {
-              download(remote, local);
-              mount(config, local, c.base, location);
-            } catch (Exception e) {
-              logWarn("Download failure %s", remote);
+            foreach (remote; remotes) {
+              logInfo("Downloading %s", remote);
+              try {
+                download(remote, local);
+                if(exists(local)){
+                  mount(config, local, c.base, location);
+                }
+              } catch (Exception e) {
+                logWarn("Download failure %s", remote);
+              }
             }
           } else {
             logWarn("Cannot resolve %s,ignore it.", gap.gav);
@@ -133,7 +137,7 @@ unittest {
 unittest {
   auto content = `<?xml version="1.0" encoding="UTF-8"?>
 <assets>
-  <repository remote="https://repo1.maven.org/maven2"/>
+  <repository remote="https://maven.aliyun.com/repository/public"/>
   <contexts>
     <context base="/urp/">
        <dir location="~/.openurp/static"/>
@@ -152,6 +156,5 @@ unittest {
 </assets>`;
   auto config = Config.parse("~/tmp", content);
   assert(config.base == expandTilde("~/tmp/static"));
-  //auto repo=Repository.build( config);
-
+  assert(config.repo.remotes.length==2);
 }
