@@ -1,7 +1,7 @@
 name "asset"
 description "Beangle Micdn Static Assets"
 
-dependency "vibe-d:web" version = "~>0.9.5"
+dependency "vibe-d:web" version = "~>0.9.8-beta.1"
 dependency "beangle-micdn:core" version = "*"
 
 targetType "executable"

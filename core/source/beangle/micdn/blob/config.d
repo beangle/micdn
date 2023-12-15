@@ -13,7 +13,7 @@ class Config {
   /**enable dir list*/
   immutable bool publicList;
   /**upload file limit*/
-  ulong maxSize = 10 * 1024 * 1024; //default 10m
+  ulong maxSize = 50 * 1024 * 1024; //default 50m
   /**url profile for management*/
   Profile[string] profiles;
   /**every key for profile*/
