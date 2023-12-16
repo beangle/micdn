@@ -93,6 +93,7 @@ class Repository {
                 download(remote, local);
                 if(exists(local)){
                   mount(config, local, c.base, location);
+                  break;
                 }
               } catch (Exception e) {
                 logWarn("Download failure %s", remote);

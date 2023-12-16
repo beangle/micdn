@@ -18,4 +18,4 @@ targetType "none"
 targetPath "target"
 
 sourceFiles "source/beangle/cdn/d.d"
-toolchainRequirements dub=">=1.33.0" frontend=">=2.105.0" ldc=">=1.35.0"
+toolchainRequirements dub=">=1.33.0" frontend=">=2.103.0" ldc=">=1.33.0"

@@ -12,16 +12,26 @@ import std.array : appender;
 struct Repo {
   immutable string[] remotes;
   immutable string local;
+
   private string path(string gav) immutable {
     auto parts = split(gav, ":");
     assert(parts.length == 3);
     parts[0] = replace(parts[0], ".", "/");
-    return "/" ~ parts[0] ~ "/" ~ parts[1] ~ "/" ~ parts[2] ~ "/" ~ parts[1] ~ "-"
-      ~ parts[2] ~ ".jar";
+    return "/" ~ parts[0] ~ "/" ~ parts[1] ~ "/" ~ parts[2] ~ "/" ~ parts[1] ~ "-" ~ parts[2] ~ ".jar";
+  }
+
+  this(string[] remotes,string local) {
+    this.remotes = remotes.idup;
+    this.local = local;
+  }
+
+  this(string remote,string local){
+    this.remotes = [remote];
+    this.local = local;
   }
 
   string[] remoteUrls(string gav) immutable {
-    return remotes.map!(r=> remote ~ path(gav));
+    return remotes.map!(r=> r ~ path(gav)).array();
   }
 
   string localFile(string gav) immutable {
@@ -58,7 +68,7 @@ class Config {
     bool publicList = attrs.get("publicList", "false").to!bool;
     auto repoEntry = children(dom, "repository");
     auto defaultRemote = "https://repo1.maven.org/maven2";
-    auto remotes = [defaultRemote];
+    string[] remotes = [defaultRemote];
     auto local = "~/.m2/repository";
     if (!repoEntry.empty) {
       attrs = getAttrs(repoEntry.front);
@@ -117,7 +127,7 @@ class Config {
     app.put(`<?xml version="1.0" encoding="UTF-8"?>`);
     app.put("\n");
     app.put("<asset base=\"" ~ base ~ "\">\n");
-    app.put("  <repository remote=\"" ~ repo.remote ~ "\" local=\"" ~ repo.local ~ "\" />\n");
+    app.put("  <repository remote=\"" ~ repo.remotes.join(",") ~ "\" local=\"" ~ repo.local ~ "\" />\n");
     app.put("  <contexts>\n");
     auto contextList = contexts.values;
     contextList.sort!((a, b) => a.base < b.base);
@@ -221,7 +231,7 @@ class GavJarProvider : Provider {
 unittest {
   immutable(Repo) repo = Repo("https://repo1.maven.org/maven2", "~/.m2/repository");
   auto remoteBui = "https://repo1.maven.org/maven2/org/beangle/bundles/beangle-bundles-bui/0.1.7/beangle-bundles-bui-0.1.7.jar";
-  assert(remoteBui == repo.remoteUrl("org.beangle.bundles:beangle-bundles-bui:0.1.7"));
+  assert(remoteBui == repo.remoteUrls("org.beangle.bundles:beangle-bundles-bui:0.1.7")[0]);
 }
 
 unittest {
