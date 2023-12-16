@@ -41,7 +41,7 @@ void main(string[] args){
   settings.serverString=null;
 
   listenHTTP(settings, router);
-  logInfo("Please open http://" ~ server.listenAddr ~ server.contextPath~" in your browser.");
+  logInfo("Beangle Micdn Asset was started,Please open http://" ~ server.listenAddr ~ server.contextPath~" in your browser.");
   runApplication(&args);
 }
 
@@ -49,7 +49,7 @@ void index(HTTPServerRequest req, HTTPServerResponse res){
   auto uri =getPath(server.contextPath, req);
   if (uri =="/config.xml"){
     res.statusCode=200;
-    res.headers["Content-Type"] ="application/xml";
+    res.headers["Content-Type"] = "application/xml";
     res.writeBody(config.toXml());
   }else {
     auto rs = repository.get(uri);
@@ -73,7 +73,7 @@ void index(HTTPServerRequest req, HTTPServerResponse res){
         void setCORS(scope HTTPServerRequest req, scope HTTPServerResponse res, ref string physicalPath)@safe{
           res.headers["Access-Control-Allow-Origin"]="*";
         }
-        auto settings=new CacheSetting;
+        auto settings = new CacheSetting;
         settings.preWriteCallback = &setCORS;
 
         if (rs.length==1){
