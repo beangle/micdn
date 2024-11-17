@@ -1,9 +1,10 @@
 name "asset"
 description "Beangle Micdn Static Assets"
 
-dependency "vibe-d:web" version = "~>0.9.7"
+dependency "vibe-d:web" version = "~>0.10.1"
 dependency "beangle-micdn:core" version = "*"
-
+dependency "vibe-stream:tls" version="~>1.1.0"
+subConfiguration "vibe-stream:tls" "notls"
 targetType "executable"
 targetName "beangle-micdn-asset"
 targetPath "target"

@@ -20,7 +20,6 @@ class Server {
   public static Server parse(string content) {
     import std.conv;
 
-    Server server;
     auto dom = parseDOM!simpleXML(content).children[0];
     auto attrs = getAttrs(dom);
     string hosts;
