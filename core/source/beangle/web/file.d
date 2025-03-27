@@ -140,6 +140,8 @@ private void sendFileImpl(scope HTTPServerRequest req,
     res.headers["Content-Type"] = res.headers.get("Content-Type", getMimeTypeForFile(pathstr));
   }
   res.headers.addField("Accept-Ranges", "bytes");
+  res.headers.addField("Access-Control-Allow-Origin", "*");
+
   ulong rangeStart = 0;
   ulong rangeEnd = 0;
   auto prange = "Range" in req.headers;
