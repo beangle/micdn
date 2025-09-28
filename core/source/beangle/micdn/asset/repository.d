@@ -96,7 +96,7 @@ class Repository {
                   break;
                 }
               } catch (Exception e) {
-                logWarn("Download failure %s", remote);
+                logWarn("Download failure %s due to %s", remote, e.msg);
               }
             }
           } else {
