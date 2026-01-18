@@ -87,14 +87,10 @@ class Repository {
             mkdirRecurse(dirName(local));
             foreach (remote; remotes) {
               logInfo("Downloading %s", remote);
-              try {
-                import beangle.web.file;
-                if(curlDownload(remote, local)){
-                  mount(config, local, c.base, location);
-                  break;
-                }
-              } catch (Exception e) {
-                logWarn("Download failure %s due to %s", remote, e.msg);
+              import beangle.web.file;
+              if(curlDownload(remote, local)){
+                mount(config, local, c.base, location);
+                break;
               }
             }
           } else {
