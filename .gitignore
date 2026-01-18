@@ -12,5 +12,3 @@ classes
 *.ipr
 *.iws
 
-dub.selections.json
-

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 PRGDIR=`dirname "$0"`
 export MICDN_HOME=`cd "$PRGDIR" >/dev/null; pwd`
 version=`grep "version " -R dub.sdl |awk 'NR==1{gsub(/"/,"");print $2}'`
