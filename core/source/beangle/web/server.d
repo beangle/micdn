@@ -105,15 +105,10 @@ string getConfigFile(string home, string defaultPath, bool checkRemote) {
       auto hasRemote = readOption!string("remote", &remoteUrl, "specify remote params");
       if (hasRemote) {
         auto newxml = serverxml ~ ".new";
-        try {
-          logInfo("Downloading %s", remoteUrl ~ defaultPath);
-          import vibe.inet.urltransfer;
-
-          download(remoteUrl ~ defaultPath, newxml);
-          if (exists(newxml))
-            rename(newxml, serverxml);
-        } catch (Exception e) {
-          logWarn("Cannot fetch %s", remoteUrl ~ defaultPath ~ " for " ~ e.toString());
+        import beangle.web.file;
+        if(curlDownload(remoteUrl ~ defaultPath,newxml)){
+          logInfo("Downloaded %s", remoteUrl ~ defaultPath);
+          rename(newxml, serverxml);
         }
       }
     }

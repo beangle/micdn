@@ -85,13 +85,11 @@ class Repository {
           } else if (!local.endsWith("SNAPSHOT.jar")) {
             string[] remotes = repo.remoteUrls(gap.gav);
             mkdirRecurse(dirName(local));
-            import vibe.inet.urltransfer;
-
             foreach (remote; remotes) {
               logInfo("Downloading %s", remote);
               try {
-                download(remote, local);
-                if(exists(local)){
+                import beangle.web.file;
+                if(curlDownload(remote, local)){
                   mount(config, local, c.base, location);
                   break;
                 }

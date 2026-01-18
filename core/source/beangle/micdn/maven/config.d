@@ -67,7 +67,7 @@ class Config {
     return new Config(base, cacheable, publicList, remoteRepos);
   }
 
-  bool download(string uri) {
+  bool fetchArtifact(string uri) {
     if (uri.endsWith(".sha1")) {
       return doDownload(uri);
     } else {
@@ -138,28 +138,15 @@ class Config {
     if (exists(local)) {
       return true;
     }
-    auto part = local ~ ".part";
     import std.path;
 
     mkdirRecurse(dirName(local));
     foreach (r; this.remoteRepos) {
       auto remote = r ~ uri;
-      try {
-        import vibe.inet.urltransfer;
-
-        vibe.inet.urltransfer.download(remote, part);
-
-        if (exists(part) && !exists(local)) {
-          rename(part, local);
-          logInfo("Downloaded %s", remote);
-        }
+      import beangle.web.file;
+      if(curlDownload(remote, local)){
+        logInfo("Downloaded %s", remote);
         break;
-      } catch (Exception e) {
-        logWarn("Download failure %s %s", remote, e.msg);
-      } finally {
-        if (exists(part)) {
-          std.file.remove(part);
-        }
       }
     }
     return exists(local);

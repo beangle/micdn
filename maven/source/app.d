@@ -64,7 +64,7 @@ void index(HTTPServerRequest req, HTTPServerResponse res){
       throw new HTTPStatusException(HTTPStatus.notFound);
     }
     if (config.cacheable){
-      if (config.download(uri)){
+      if (config.fetchArtifact(uri)){
         sendFile(req, res, file);
       }else {
         throw new HTTPStatusException(HTTPStatus.notFound);

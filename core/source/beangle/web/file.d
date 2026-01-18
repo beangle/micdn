@@ -27,6 +27,32 @@ string encodeAttachmentName(string name) @safe {
 }
 
 /**
+ * Fetch url,and store at local
+ */
+bool curlDownload(string url,string local){
+  import std.process,std.file,std.path;
+
+  mkdirRecurse(dirName(local));
+
+  auto cmd = execute(["curl","--silent","-o",local,url]);
+  import vibe.core.log;
+  if(cmd.status == 0){
+    if(exists(local)){
+      return true;
+    }else{
+      logWarn("Download failure %s due to %s", url, cmd.output);
+      return false;
+    }
+  }else{
+    if(exists(local)){
+      remove(local);
+    }
+    logWarn("Download failure %s due to %s", url, cmd.output);
+    return false;
+  }
+}
+
+/**
  * https://tools.ietf.org/html/rfc7233
  * Range can be in form "-\d", "\d-" or "\d-\d"
  */

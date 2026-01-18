@@ -17,6 +17,12 @@ mk_artifact(){
   cd ..
 }
 
+cd $MICDN_HOME
+rm -rf core/target
+rm -rf asset/target
+rm -rf maven/target
+rm -rf blob/target
+
 dub clean
 dub build --build=release-nobounds --compiler=ldc2
 mk_artifact "asset"
