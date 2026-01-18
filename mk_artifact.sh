@@ -18,6 +18,21 @@ mk_artifact(){
   cd ..
 }
 
+system_version() {
+  if [ ! -f "/etc/os-release" ]; then
+    echo "Error: /etc/os-release file not found."
+    return 1
+  fi
+  local os_id os_version_id
+  os_id=$(source /etc/os-release && echo "$ID")
+  os_version_id=$(source /etc/os-release && echo "$VERSION_ID")
+  if [ -z "$os_id" ] || [ -z "$os_version_id" ]; then
+    echo "Error: Failed to extract ID or VERSION_ID from /etc/os-release."
+    return 1
+  fi
+  export SYSTEM_ID="${os_id}-${os_version_id}"
+}
+
 cd $MICDN_HOME
 rm -rf core/target
 rm -rf asset/target
@@ -34,12 +49,13 @@ cd $MICDN_HOME
 rm -rf target
 mkdir -p target
 
+system_version
 cd ~/.m2/repository
-zip  $MICDN_HOME/target/beangle-micdn-$version.$arch.zip org/beangle/micdn/beangle-micdn-asset/$version/beangle-micdn-asset-$version-$arch.bin \
+zip  $MICDN_HOME/target/beangle-micdn-$version.$SYSTEM_ID.$arch.zip org/beangle/micdn/beangle-micdn-asset/$version/beangle-micdn-asset-$version-$arch.bin \
 org/beangle/micdn/beangle-micdn-asset/$version/beangle-micdn-asset-$version-$arch.bin.sha1 \
 org/beangle/micdn/beangle-micdn-blob/$version/beangle-micdn-blob-$version-$arch.bin \
 org/beangle/micdn/beangle-micdn-blob/$version/beangle-micdn-blob-$version-$arch.bin.sha1 \
 org/beangle/micdn/beangle-micdn-maven/$version/beangle-micdn-maven-$version-$arch.bin \
 org/beangle/micdn/beangle-micdn-maven/$version/beangle-micdn-maven-$version-$arch.bin.sha1
 
-gpg -ab $MICDN_HOME/target/beangle-micdn-$version.$arch.zip
+gpg -ab $MICDN_HOME/target/beangle-micdn-$version.$SYSTEM_ID.$arch.zip
