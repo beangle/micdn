@@ -3,6 +3,7 @@ import std.file;
 import std.string;
 import std.exception;
 import std.datetime.systime;
+import std.conv;
 import vibe.core.core;
 import vibe.core.log;
 import vibe.core.file;
@@ -351,17 +352,17 @@ void s3Handle(HTTPServerRequest req, HTTPServerResponse res) {
   if (s3Auth(req, res)) {
     // Handle S3 request based on HTTP method
     switch (req.method) {
-    case HTTPMethod.get:
+    case HTTPMethod.GET:
       if (actualUri.endsWith("/")) {
         s3ListObjects(req, res, actualUri);
       } else {
         s3GetObject(req, res, actualUri);
       }
-    case HTTPMethod.put:
+    case HTTPMethod.PUT:
       s3PutObject(req, res, actualUri);
-    case HTTPMethod.delete_:
+    case HTTPMethod.DELETE:
       s3DeleteObject(req, res, actualUri);
-    case HTTPMethod.head:
+    case HTTPMethod.HEAD:
       s3HeadObject(req, res, actualUri);
     default:
       res.statusCode = HTTPStatus.methodNotAllowed;
