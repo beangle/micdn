@@ -117,11 +117,8 @@ void upload(HTTPServerRequest req, HTTPServerResponse res) {
       import vibe.inet.mimetypes;
 
       auto mediaType = getMimeTypeForFile(pf.toString);
-      auto meta = repository.create(profile, pf.tempPath.toNativeString,
-        pf.toString, uri, owner, mediaType);
-      logInfo(
-        "upload " ~ profile.base ~ meta.filePath ~ " at "
-          ~ meta.updatedAt.toISOExtString ~ "(" ~ meta.owner ~ ")");
+      auto meta = repository.create(profile, pf.tempPath.toNativeString, pf.toString, uri, owner, mediaType);
+      logInfo("upload " ~ profile.base ~ meta.filePath ~ " at " ~ meta.updatedAt.toISOExtString ~ "(" ~ meta.owner ~ ")");
       res.writeBody(meta.toJson(), "application/json");
     } catch (Exception e) {
       logInfo("Performing copy failed.Cause %s", e.msg);
@@ -160,8 +157,7 @@ void download(Profile profile, HTTPServerRequest req, HTTPServerResponse res, st
   } else {
     auto realname = repository.getRealname(profile, path[profile.base.length .. $]);
     if (realname.length > 0) {
-      void setContextDisposition(scope HTTPServerRequest req,
-        scope HTTPServerResponse res, ref string physicalPath) @safe {
+      void setContextDisposition(scope HTTPServerRequest req, scope HTTPServerResponse res, ref string physicalPath) @safe {
         res.headers["Content-Disposition"] = encodeAttachmentName(realname);
       }
 
@@ -244,8 +240,8 @@ bool s3Auth(HTTPServerRequest req, HTTPServerResponse res) {
             string stringToSign = generateStringToSign(req, canonicalRequest, credentialScope);
 
             // Generate signature
-            string expectedSignature = beangle.micdn.blob.s3.generateSignature(stringToSign,
-              secretKey, credentialParts[1], credentialParts[2]);
+            string expectedSignature = beangle.micdn.blob.s3.generateSignature(stringToSign, secretKey,
+              credentialParts[1], credentialParts[2]);
 
             // Verify signature
             if (signature == expectedSignature) {
@@ -309,8 +305,7 @@ string generateCanonicalRequest(HTTPServerRequest req, string uri) {
   // In a real implementation, we would hash the request body
 
   // Combine all parts
-  return method ~ "\n" ~ canonicalUri ~ "\n" ~ canonicalQueryString ~ "\n"
-    ~ canonicalHeaders ~ "\n" ~ signedHeaders ~ "\n" ~ payloadHash;
+  return method ~ "\n" ~ canonicalUri ~ "\n" ~ canonicalQueryString ~ "\n" ~ canonicalHeaders ~ "\n" ~ signedHeaders ~ "\n" ~ payloadHash;
 }
 
 string generateStringToSign(HTTPServerRequest req, string canonicalRequest, string credentialScope) {
@@ -329,7 +324,7 @@ string generateStringToSign(HTTPServerRequest req, string canonicalRequest, stri
 
   // Generate scope from credential scope
   auto scopeParts = credentialScope.split("/");
-  string scope = scopeParts[1]~"/" ~ scopeParts[2] ~ "/s3/aws4_request";
+  string s = scopeParts[1] ~ "/" ~ scopeParts[2] ~ "/s3/aws4_request";
 
   // Hash canonical request
   import std.digest.sha;
@@ -338,7 +333,7 @@ string generateStringToSign(HTTPServerRequest req, string canonicalRequest, stri
   auto canonicalRequestHash = toHexString!(LetterCase.lower)(sha256Of(canonicalRequest)).idup;
 
   // Combine all parts
-  return "AWS4-HMAC-SHA256\n" ~ timestamp ~ "\n" ~ scope ~ "\n" ~ canonicalRequestHash;
+  return "AWS4-HMAC-SHA256\n" ~ timestamp ~ "\n" ~ s ~ "\n" ~ canonicalRequestHash;
 }
 
 void s3Handle(HTTPServerRequest req, HTTPServerResponse res) {
