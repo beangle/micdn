@@ -17,7 +17,7 @@ class MetaDao {
     import std.conv;
 
     auto url = format("host=%s dbname=%s user=%s password=%s",
-        props["serverName"], props["databaseName"], props["user"], props["password"]);
+      props["serverName"], props["databaseName"], props["user"], props["password"]);
     auto maximumPoolSize = props.get("maximumPoolSize", "7").to!ushort;
     schema = props["schema"];
     client = new PostgresClient(url, maximumPoolSize);

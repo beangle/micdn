@@ -44,7 +44,7 @@ class Repository {
   }
 
   public BlobMeta create(Profile profile, string tmpfile, string filename,
-      string dir, string owner, string mediaType) {
+    string dir, string owner, string mediaType) {
     auto meta = new BlobMeta();
     import std.digest, std.digest.sha;
 

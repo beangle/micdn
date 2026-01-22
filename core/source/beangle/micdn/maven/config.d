@@ -49,14 +49,14 @@ class Config {
           remoteRepos.add(attrs["url"]);
         } else if ("alias" in attrs) {
           switch (attrs["alias"]) {
-            case "central":
-              remoteRepos.add(CentralURL);
-              break;
-            case "aliyun":
-              remoteRepos.add(AliyunURL);
-              break;
-            default:
-              throw new Exception("unknown named repo " ~ attrs["alias"]);
+          case "central":
+            remoteRepos.add(CentralURL);
+            break;
+          case "aliyun":
+            remoteRepos.add(AliyunURL);
+            break;
+          default:
+            throw new Exception("unknown named repo " ~ attrs["alias"]);
           }
         }
       }
@@ -120,7 +120,6 @@ class Config {
     auto sha1InFile = readText(sha1).toLower;
     import std.algorithm;
 
-
     auto ok = sha1InFile.indexOf(hexCalc) >= 0;
     if (!ok) {
       logWarn("Miss match sha for %s. sha1file %s and calculated is %s", artifact, sha1InFile, hexCalc);
@@ -144,7 +143,8 @@ class Config {
     foreach (r; this.remoteRepos) {
       auto remote = r ~ uri;
       import beangle.web.file;
-      if(curlDownload(remote, local)){
+
+      if (curlDownload(remote, local)) {
         logInfo("Downloaded %s", remote);
         break;
       }

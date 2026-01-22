@@ -79,12 +79,14 @@ class Config {
     }
     auto dataSource = children(dom, "dataSource").front;
     foreach (p; dataSource.children) {
+      //FIXME check p.children.size
       config.dataSourceProps[p.name] = p.children[0].text;
     }
     return config;
   }
 
   public static ulong parseSize(string size) {
+    assert(size.length > 0, "size cannot be empty.");
     string s = size.toLower;
     if (s.endsWith("m")) {
       return s[0 .. $ - 1].to!ulong * 1024 * 1024;
@@ -153,9 +155,10 @@ class BlobMeta {
   SysTime updatedAt;
 
   string toJson() {
+    //FIXME 不规范的JSON生成方式，可能导致注入攻击
     return `{owner:"` ~ owner ~ `",profileId:` ~ profileId.to!string ~ `,name:"` ~ name ~ `",fileSize:`
-      ~ fileSize.to!string ~ `,sha:"` ~ sha ~ `",mediaType:"` ~ mediaType
-      ~ `",filePath:"` ~ filePath ~ `",updatedAt:"` ~ updatedAt.toISOExtString ~ `"}`;
+      ~ fileSize.to!string ~ `,sha:"` ~ sha ~ `",mediaType:"` ~ mediaType ~ `",filePath:"` ~ filePath ~ `",updatedAt:"`
+      ~ updatedAt.toISOExtString ~ `"}`;
   }
 }
 

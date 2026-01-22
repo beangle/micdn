@@ -20,18 +20,18 @@ struct Repo {
     return "/" ~ parts[0] ~ "/" ~ parts[1] ~ "/" ~ parts[2] ~ "/" ~ parts[1] ~ "-" ~ parts[2] ~ ".jar";
   }
 
-  this(string[] remotes,string local) {
+  this(string[] remotes, string local) {
     this.remotes = remotes.idup;
     this.local = local;
   }
 
-  this(string remote,string local){
+  this(string remote, string local) {
     this.remotes = [remote];
     this.local = local;
   }
 
   string[] remoteUrls(string gav) immutable {
-    return remotes.map!(r=> r ~ path(gav)).array();
+    return remotes.map!(r => r ~ path(gav)).array();
   }
 
   string localFile(string gav) immutable {
@@ -74,8 +74,8 @@ class Config {
       attrs = getAttrs(repoEntry.front);
       if ("remote" in attrs) {
         auto remote = attrs["remote"];
-        if(remote != defaultRemote){
-          remotes = [remote,defaultRemote];
+        if (remote != defaultRemote) {
+          remotes = [remote, defaultRemote];
         }
       }
       if ("local" in attrs) {

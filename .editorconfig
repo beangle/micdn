@@ -3,14 +3,30 @@ root = true
 [*]
 end_of_line = lf
 insert_final_newline = true
-trim_trailing_whitespace =true
+trim_trailing_whitespace = true
 tab_width = 2
 
-[*.{d,js,scala,java,html,md,css,xml,ftl}]
-charset = utf-8
+# space indentation
+[*.{scala,xml,json,js,sh}]
 indent_style = space
 indent_size = 2
+charset = utf-8
 
-[*.d]
-dfmt_brace_style=otbs
+# dt
+[*.dt]
+indent_style = tab
+indent_size = 1
+charset = utf-8
 
+[*.{d,di}]
+indent_style = space
+indent_size = 2
+max_line_length = 120
+dfmt_brace_style = otbs
+dfmt_space_after_cast = true
+dfmt_space_after_comma = true
+dfmt_space_around_operators = true
+dfmt_align_switch_cases = true
+dfmt_max_empty_lines = 1
+dfmt_trim_trailing_whitespace = true
+dfmt_align_switch_statements = true

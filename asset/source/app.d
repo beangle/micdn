@@ -1,13 +1,13 @@
+import std.stdio;
+import std.file;
+import std.string;
+import std.exception;
 import vibe.core.core;
 import vibe.core.log;
 import vibe.core.file;
 import vibe.http.router;
 import vibe.http.server;
 import vibe.web.web;
-import std.stdio;
-import std.file;
-import std.string;
-import std.exception;
 import beangle.web;
 import beangle.web.file;
 import beangle.web.filebrowser;
@@ -15,12 +15,11 @@ import beangle.web.server;
 import beangle.micdn.asset.repository;
 import beangle.micdn.asset.config;
 
-//Config config;
 Repository repository;
 Server server;
 Config config;
-void main(string[] args){
-  if (args.length<3){
+void main(string[] args) {
+  if (args.length < 3) {
     writeln("Usage: " ~ args[0] ~ " --server path/to/server.xml --config path/to/config.xml");
     return;
   }
@@ -36,53 +35,53 @@ void main(string[] args){
   router.get("*", &index);
 
   auto settings = new HTTPServerSettings;
-  settings.bindAddresses= server.ips;
+  settings.bindAddresses = server.ips;
   settings.port = server.port;
-  settings.serverString=null;
+  settings.serverString = null;
 
   listenHTTP(settings, router);
-  logInfo("Beangle Micdn Asset was started,Please open http://" ~ server.listenAddr ~ server.contextPath~" in your browser.");
+  logInfo("Beangle Micdn Asset was started,Please open http://" ~ server.listenAddr ~ server.contextPath ~ " in your browser.");
   runApplication(&args);
 }
 
-void index(HTTPServerRequest req, HTTPServerResponse res){
-  auto uri =getPath(server.contextPath, req);
-  if (uri =="/config.xml"){
-    res.statusCode=200;
+void index(HTTPServerRequest req, HTTPServerResponse res) {
+  auto uri = getPath(server.contextPath, req);
+  if (uri == "/config.xml") {
+    res.statusCode = 200;
     res.headers["Content-Type"] = "application/xml";
     res.writeBody(config.toXml());
-  }else {
+  } else {
     auto rs = repository.get(uri);
-    if (null==rs){
+    if (null == rs) {
       throw new HTTPStatusException(HTTPStatus.notFound);
-    }else {
+    } else {
       // dir
-      if (isDir(rs[0])){
-        if (config.publicList){
-          if (uri.endsWith("/")){
-            auto content=genListContents(repository.base ~ uri, server.contextPath, uri);
+      if (isDir(rs[0])) {
+        if (config.publicList) {
+          if (uri.endsWith("/")) {
+            auto content = genListContents(repository.base ~ uri, server.contextPath, uri);
             render!("index.dt", uri, content)(res);
-          }else {
-            uri=server.contextPath ~ uri;
-            res.redirect(req.requestURI.replace(uri, uri ~"/"));
+          } else {
+            uri = server.contextPath ~ uri;
+            res.redirect(req.requestURI.replace(uri, uri ~ "/"));
           }
-        }else {
+        } else {
           throw new HTTPStatusException(HTTPStatus.notFound);
         }
-      }else {
-        void setCORS(scope HTTPServerRequest req, scope HTTPServerResponse res, ref string physicalPath)@safe{
-          res.headers["Access-Control-Allow-Origin"]="*";
+      } else {
+        void setCORS(scope HTTPServerRequest req, scope HTTPServerResponse res, ref string physicalPath) @safe {
+          res.headers["Access-Control-Allow-Origin"] = "*";
         }
+
         auto settings = new CacheSetting;
         settings.preWriteCallback = &setCORS;
 
-        if (rs.length==1){
+        if (rs.length == 1) {
           sendFile(req, res, rs[0], settings);
-        }else {
+        } else {
           sendFiles(req, res, rs, settings);
         }
       }
     }
   }
 }
-

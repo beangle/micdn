@@ -76,7 +76,7 @@ class FileEntry {
       return leftJustify(href, padding, ' ') ~ lastModified.toString() ~ rightJustify("-", 30, ' ');
     } else {
       return leftJustify(href, padding, ' ') ~ lastModified.toString() ~ rightJustify(size.to!string,
-          30, ' ');
+        30, ' ');
     }
   }
 

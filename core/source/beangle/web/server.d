@@ -106,7 +106,8 @@ string getConfigFile(string home, string defaultPath, bool checkRemote) {
       if (hasRemote) {
         auto newxml = serverxml ~ ".new";
         import beangle.web.file;
-        if(curlDownload(remoteUrl ~ defaultPath,newxml)){
+
+        if (curlDownload(remoteUrl ~ defaultPath, newxml)) {
           logInfo("Downloaded %s", remoteUrl ~ defaultPath);
           rename(newxml, serverxml);
         }

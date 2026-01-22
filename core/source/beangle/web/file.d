@@ -91,7 +91,7 @@ ulong[2] parseRange(string range, ulong maxSize) @safe {
 unittest {
   auto s = encodeAttachmentName("早上 好.txt");
   assert(
-      s == `attachment; filename="%E6%97%A9%E4%B8%8A%20%E5%A5%BD.txt"; filename*=utf-8''%E6%97%A9%E4%B8%8A%20%E5%A5%BD.txt`);
+    s == `attachment; filename="%E6%97%A9%E4%B8%8A%20%E5%A5%BD.txt"; filename*=utf-8''%E6%97%A9%E4%B8%8A%20%E5%A5%BD.txt`);
   auto r1 = parseRange("0-1", 2);
   assert(r1 == [0, 1]);
 
@@ -122,7 +122,7 @@ static this() {
 import vibe.http.fileserver;
 
 void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
-    string path, const CacheSetting settings = null) {
+  string path, const CacheSetting settings = null) {
   if (settings) {
     sendFileImpl(req, res, NativePath(path), settings);
   } else {
@@ -131,7 +131,7 @@ void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
 }
 
 void sendFiles(scope HTTPServerRequest req, scope HTTPServerResponse res,
-    string[] paths, const CacheSetting settings = null) {
+  string[] paths, const CacheSetting settings = null) {
   auto npaths = array(paths.map!(p => NativePath(p)));
   if (settings) {
     sendFilesImpl(req, res, npaths, settings);
@@ -141,7 +141,7 @@ void sendFiles(scope HTTPServerRequest req, scope HTTPServerResponse res,
 }
 
 private void sendFileImpl(scope HTTPServerRequest req,
-    scope HTTPServerResponse res, NativePath path, const CacheSetting settings = null) {
+  scope HTTPServerResponse res, NativePath path, const CacheSetting settings = null) {
   auto pathstr = path.toNativeString();
   if (!existsFile(pathstr))
     throw new HTTPStatusException(HTTPStatus.notFound);
@@ -151,7 +151,7 @@ private void sendFileImpl(scope HTTPServerRequest req,
     dirent = getFileInfo(pathstr);
   catch (Exception) {
     throw new HTTPStatusException(HTTPStatus.internalServerError,
-        "Failed to get information for the file due to a file system error.");
+      "Failed to get information for the file due to a file system error.");
   }
 
   if (dirent.isDirectory) {
@@ -209,7 +209,7 @@ private void sendFileImpl(scope HTTPServerRequest req,
 }
 
 private void sendFilesImpl(scope HTTPServerRequest req,
-    scope HTTPServerResponse res, NativePath[] paths, const CacheSetting settings = null) {
+  scope HTTPServerResponse res, NativePath[] paths, const CacheSetting settings = null) {
   auto firstPath = paths[0].toNativeString();
   auto infos = paths.map!(p => getFileInfo(p.toNativeString()));
   if (handleCacheFile(req, res, infos[0], settings.cacheControl, settings.maxAge)) {

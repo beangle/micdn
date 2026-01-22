@@ -88,7 +88,8 @@ class Repository {
             foreach (remote; remotes) {
               logInfo("Downloading %s", remote);
               import beangle.web.file;
-              if(curlDownload(remote, local)){
+
+              if (curlDownload(remote, local)) {
                 mount(config, local, c.base, location);
                 break;
               }
@@ -151,5 +152,5 @@ unittest {
 </assets>`;
   auto config = Config.parse("~/tmp", content);
   assert(config.base == expandTilde("~/tmp/static"));
-  assert(config.repo.remotes.length==2);
+  assert(config.repo.remotes.length == 2);
 }
