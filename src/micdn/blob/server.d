@@ -55,7 +55,7 @@ void blobStart(string home, ServerOptions options, string configFile) {
   router.get("/s3/*", &s3Handle);
   router.put("/s3/*", &s3Handle);
   router.delete_("/s3/*", &s3Handle);
-  router.match(HTTPMethod.HEAD,"/s3/*", &s3Handle);
+  router.match(HTTPMethod.HEAD, "/s3/*", &s3Handle);
 
   auto settings = new HTTPServerSettings;
   settings.maxRequestSize = config.maxSize;
@@ -64,8 +64,6 @@ void blobStart(string home, ServerOptions options, string configFile) {
   settings.serverString = null;
 
   listenHTTP(settings, router);
-  logInfo("Micdn maven was started on http://" ~ server.options.listenAddr ~ server.options.contextPath ~ " in your browser.");
-  runApplication(&args);
 }
 
 void index(HTTPServerRequest req, HTTPServerResponse res) {
@@ -394,15 +392,15 @@ void s3GetObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
   <Code>NoSuchKey</Code>
   <Message>The specified key does not exist.</Message>
   <Key>` ~ uri ~ `</Key>
-  <RequestId>` ~ beangle.micdn.blob.s3.generateUuid() ~ `</RequestId>
-  <HostId>` ~ beangle.micdn.blob.s3.generateAmzId2() ~ `</HostId>
+  <RequestId>` ~ micdn.blob.s3.generateUuid() ~ `</RequestId>
+  <HostId>` ~ micdn.blob.s3.generateAmzId2() ~ `</HostId>
 </Error>`, "application/xml");
   }
 }
 
 void s3PutObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
   // Implement S3 PutObject
-  auto profile = config.getProfile(uri);
+  auto profile = server.config.getProfile(uri);
   try {
     import vibe.core.path;
     import std.file;
@@ -414,8 +412,9 @@ void s3PutObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
     // Read request body to temp file
     ubyte[] buffer = new ubyte[4096];
     size_t read;
-    import eventcore.driver:IOMode;
-    while ((read = req.bodyReader.read(buffer,IOMode.all)) > 0) {
+    import eventcore.driver : IOMode;
+
+    while ((read = req.bodyReader.read(buffer, IOMode.all)) > 0) {
       tempFile.rawWrite(buffer[0 .. read]);
     }
     tempFile.close();
@@ -431,14 +430,14 @@ void s3PutObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
     auto mediaType = getMimeTypeForFile(filename);
     string owner = "s3-user";
 
-    auto meta = repository.create(profile, tempPath, filename, uri.dirName(), owner, mediaType);
+    auto meta = server.repository.create(profile, tempPath, filename, uri.dirName(), owner, mediaType);
 
     // Clean up temp file
     std.file.remove(tempPath);
 
     // Add S3-specific response headers
-    string requestId = beangle.micdn.blob.s3.generateUuid();
-    string amzId2 = beangle.micdn.blob.s3.generateAmzId2();
+    string requestId = micdn.blob.s3.generateUuid();
+    string amzId2 = micdn.blob.s3.generateAmzId2();
     res.headers["x-amz-request-id"] = requestId;
     res.headers["x-amz-id-2"] = amzId2;
     res.headers["ETag"] = "\"" ~ meta.sha ~ "\"";
@@ -453,19 +452,19 @@ void s3PutObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
 <Error>
   <Code>InternalError</Code>
   <Message>We encountered an internal error. Please try again.</Message>
-  <RequestId>` ~ beangle.micdn.blob.s3.generateUuid() ~ `</RequestId>
-  <HostId>` ~ beangle.micdn.blob.s3.generateAmzId2() ~ `</HostId>
+  <RequestId>` ~ micdn.blob.s3.generateUuid() ~ `</RequestId>
+  <HostId>` ~ micdn.blob.s3.generateAmzId2() ~ `</HostId>
 </Error>`, "application/xml");
   }
 }
 
 void s3DeleteObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
   // Implement S3 DeleteObject
-  auto profile = config.getProfile(uri);
-  if (repository.remove(profile, uri)) {
+  auto profile = server.config.getProfile(uri);
+  if (server.repository.remove(profile, uri)) {
     // Add S3-specific response headers
-    string requestId = beangle.micdn.blob.s3.generateUuid();
-    string amzId2 = beangle.micdn.blob.s3.generateAmzId2();
+    string requestId = micdn.blob.s3.generateUuid();
+    string amzId2 = micdn.blob.s3.generateAmzId2();
     res.headers["x-amz-request-id"] = requestId;
     res.headers["x-amz-id-2"] = amzId2;
 
@@ -480,26 +479,26 @@ void s3DeleteObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
   <Code>NoSuchKey</Code>
   <Message>The specified key does not exist.</Message>
   <Key>` ~ uri ~ `</Key>
-  <RequestId>` ~ beangle.micdn.blob.s3.generateUuid() ~ `</RequestId>
-  <HostId>` ~ beangle.micdn.blob.s3.generateAmzId2() ~ `</HostId>
+  <RequestId>` ~ micdn.blob.s3.generateUuid() ~ `</RequestId>
+  <HostId>` ~ micdn.blob.s3.generateAmzId2() ~ `</HostId>
 </Error>`, "application/xml");
   }
 }
 
 void s3HeadObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
   // Implement S3 HeadObject
-  auto rs = repository.check(uri);
+  auto rs = server.repository.check(uri);
   if (rs == 2) {
-    auto profile = config.getProfile(uri);
+    auto profile = server.config.getProfile(uri);
     import std.file;
 
-    auto filePath = repository.base ~ uri;
+    auto filePath = server.repository.base ~ uri;
     auto fileSize = getSize(filePath);
 
     // Add S3-specific response headers
-    string requestId = beangle.micdn.blob.s3.generateUuid();
-    string amzId2 = beangle.micdn.blob.s3.generateAmzId2();
-    string etag = beangle.micdn.blob.s3.generateEtag(filePath);
+    string requestId = micdn.blob.s3.generateUuid();
+    string amzId2 = micdn.blob.s3.generateAmzId2();
+    string etag = micdn.blob.s3.generateEtag(filePath);
     res.headers["x-amz-request-id"] = requestId;
     res.headers["x-amz-id-2"] = amzId2;
     res.headers["Content-Length"] = fileSize.to!string;
@@ -517,28 +516,27 @@ void s3HeadObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
   <Code>NoSuchKey</Code>
   <Message>The specified key does not exist.</Message>
   <Key>` ~ uri ~ `</Key>
-  <RequestId>` ~ beangle.micdn.blob.s3.generateUuid() ~ `</RequestId>
-  <HostId>` ~ beangle.micdn.blob.s3.generateAmzId2() ~ `</HostId>
+  <RequestId>` ~ micdn.blob.s3.generateUuid() ~ `</RequestId>
+  <HostId>` ~ micdn.blob.s3.generateAmzId2() ~ `</HostId>
 </Error>`, "application/xml");
   }
 }
 
 void s3ListObjects(HTTPServerRequest req, HTTPServerResponse res, string uri) {
   // Implement S3 ListObjects
-  auto profile = config.getProfile(uri);
+  auto profile = server.config.getProfile(uri);
   import std.file;
 
-  auto basePath = repository.base ~ uri;
+  auto basePath = server.repository.base ~ uri;
   if (exists(basePath) && isDir(basePath)) {
     // Add S3-specific response headers
-    string requestId = beangle.micdn.blob.s3.generateUuid();
-    string amzId2 = beangle.micdn.blob.s3.generateAmzId2();
+    string requestId = micdn.blob.s3.generateUuid();
+    string amzId2 = micdn.blob.s3.generateAmzId2();
     res.headers["x-amz-request-id"] = requestId;
     res.headers["x-amz-id-2"] = amzId2;
 
     // Generate XML response using core function
-    string xmlResponse = beangle.micdn.blob.s3.generateListObjectsXml(basePath, uri);
-
+    string xmlResponse = micdn.blob.s3.generateListObjectsXml(basePath, uri);
     res.contentType = "application/xml";
     res.writeBody(xmlResponse, "application/xml");
   } else {
@@ -550,8 +548,8 @@ void s3ListObjects(HTTPServerRequest req, HTTPServerResponse res, string uri) {
   <Code>NoSuchBucket</Code>
   <Message>The specified bucket does not exist.</Message>
   <BucketName>` ~ uri ~ `</BucketName>
-  <RequestId>` ~ beangle.micdn.blob.s3.generateUuid() ~ `</RequestId>
-  <HostId>` ~ beangle.micdn.blob.s3.generateAmzId2() ~ `</HostId>
+  <RequestId>` ~ micdn.blob.s3.generateUuid() ~ `</RequestId>
+  <HostId>` ~ micdn.blob.s3.generateAmzId2() ~ `</HostId>
 </Error>`, "application/xml");
   }
 }

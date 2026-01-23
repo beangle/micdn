@@ -41,20 +41,19 @@ void mavenStart(string home, ServerOptions options, string configFile) {
   settings.serverString = null;
 
   listenHTTP(settings, router);
-  logInfo("Micdn maven was started on http://" ~ server.options.listenAddr ~ server.options.contextPath);
-  runApplication(&args);
 }
 
 void index(HTTPServerRequest req, HTTPServerResponse res) {
   auto uri = getPath(server.options.contextPath, req);
+  auto config = server.config;
   if (uri.indexOf("..") > -1)
     throw new HTTPStatusException(HTTPStatus.notFound);
-  auto file = server.config.base ~ uri;
+  auto file = config.base ~ uri;
   if (exists(file)) {
     if (isDir(file)) {
-      if (server.config.publicList) {
+      if (config.publicList) {
         if (uri.endsWith("/")) {
-          auto content = genListContents(server.config.base ~ uri, server.options.contextPath, uri);
+          auto content = genListContents(config.base ~ uri, server.options.contextPath, uri);
           render!("index.dt", uri, content)(res);
         } else {
           uri = server.options.contextPath ~ uri;

@@ -5,6 +5,7 @@ import std.algorithm;
 import std.file;
 import std.path;
 import vibe.core.log;
+import micdn.web.file;
 
 class ServerOptions {
   string[] ips;
@@ -92,8 +93,6 @@ string getConfigFile(string home, string defaultPath, bool checkRemote) {
       auto hasRemote = readOption!string("remote", &remoteUrl, "specify remote params");
       if (hasRemote) {
         auto newxml = serverxml ~ ".new";
-        import beangle.web.file;
-
         if (curlDownload(remoteUrl ~ defaultPath, newxml)) {
           logInfo("Downloaded %s", remoteUrl ~ defaultPath);
           rename(newxml, serverxml);

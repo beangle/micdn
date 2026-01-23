@@ -67,7 +67,7 @@ class Config {
     return new Config(base, cacheable, publicList, remoteRepos);
   }
 
-  bool fetchArtifact(string uri) {
+  bool fetchArtifact(string uri) const {
     if (uri.endsWith(".sha1")) {
       return doDownload(uri);
     } else {
@@ -83,7 +83,7 @@ class Config {
     }
   }
 
-  void remove(string uri) {
+  void remove(string uri) const {
     auto sha1 = this.base ~ uri ~ Sha1Postfix;
     auto artifact = this.base ~ uri;
     if (exists(sha1)) {
@@ -99,7 +99,7 @@ class Config {
   /** verify artifact
    * return 0 is ok. -1 miss match sha1,-2 missing artifact ,-3 missing sha1
    */
-  int verify(string uri) {
+  int verify(string uri) const {
     auto sha1 = this.base ~ uri ~ Sha1Postfix;
     auto artifact = this.base ~ uri;
 
@@ -132,7 +132,7 @@ class Config {
   /** try to download file
    * @return true if local exists
    */
-  bool doDownload(string uri) {
+  bool doDownload(string uri) const {
     auto local = this.base ~ uri;
     if (exists(local)) {
       return true;

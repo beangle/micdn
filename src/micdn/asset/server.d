@@ -32,7 +32,7 @@ private class AssetServer {
 
 AssetServer server;
 
-void assertStart(string home, ServerOptions options, string configFile) {
+void assetStart(string home, ServerOptions options, string configFile) {
   auto config = Config.parse(home, readXml(configFile));
   auto repository = Repository.build(config);
   server = new AssetServer(home, options, config, repository);
@@ -46,8 +46,6 @@ void assertStart(string home, ServerOptions options, string configFile) {
   settings.serverString = null;
 
   listenHTTP(settings, router);
-  logInfo("Micdn asset was started on http://" ~ server.options.listenAddr ~ server.options.contextPath);
-  runApplication(&args);
 }
 
 void index(HTTPServerRequest req, HTTPServerResponse res) {

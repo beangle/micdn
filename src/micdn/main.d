@@ -1,4 +1,12 @@
 module micdn.main;
+import std.stdio;
+import micdn.web.server;
+import vibe.core.args;
+import vibe.core.core;
+import vibe.core.log;
+import micdn.maven.server : mavenStart;
+import micdn.asset.server : assetStart;
+import micdn.blob.server : blobStart;
 
 void main(string[] args) {
   if (args.length < 5) {
@@ -18,21 +26,23 @@ void main(string[] args) {
   } else {
     switch (serverType) {
     case "maven":
-      import micdn.maven.server : mavenStart;
-
-      mavenStart(getHome("~/.m2/repository"), serverOptions, getConfigFile(home, "/maven.xml", true));
+      auto home = getHome("~/.m2/repository");
+      mavenStart(home, serverOptions, getConfigFile(home, "/maven.xml", true));
+      break;
     case "asset":
-      import micdn.asset.server : assetStart;
-
-      assetStart(getHome(), serverOptions, getConfigFile(home, "/asset.xml", true));
+      auto home = getHome();
+      assetStart(home, serverOptions, getConfigFile(home, "/asset.xml", true));
+      break;
     case "blob":
-      import micdn.blob.server : blobStart;
-
-      blobStart(getHome(), serverOptions, getConfigFile(home, "/blob.xml", true));
+      auto home = getHome();
+      blobStart(home, serverOptions, getConfigFile(home, "/blob.xml", true));
+      break;
     default:
       writeln("Unsupported --as params[" ~ serverType ~ "],only support[maven|asset|blob]");
       return;
     }
+    logInfo("Micdn " ~ serverType ~ " was started on http://" ~ serverOptions.listenAddr ~ serverOptions.contextPath);
+    runApplication(&args);
   }
 
 }
