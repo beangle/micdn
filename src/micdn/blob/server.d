@@ -55,7 +55,7 @@ void blobStart(string home, ServerOptions options, string configFile) {
   router.get("/s3/*", &s3Handle);
   router.put("/s3/*", &s3Handle);
   router.delete_("/s3/*", &s3Handle);
-  router.head("/s3/*", &s3Handle);
+  router.match(HTTPMethod.HEAD,"/s3/*", &s3Handle);
 
   auto settings = new HTTPServerSettings;
   settings.maxRequestSize = config.maxSize;
@@ -271,33 +271,27 @@ string generateCanonicalRequest(HTTPServerRequest req, string uri) {
 
   // Handle query parameters
   if (!req.query.empty) {
-    import std.algorithm.sorting;
-
-    auto params = req.query.keys.sort();
     bool first = true;
-    foreach (key; params) {
+    foreach (kv; req.query.byKeyValue()) {
       if (!first)
         canonicalQueryString ~= "&";
-      canonicalQueryString ~= key ~ "=" ~ req.query[key];
+      canonicalQueryString ~= kv.key ~ "=" ~ kv.value;
       first = false;
     }
   }
 
   // Generate canonical headers
   string canonicalHeaders = "";
-  import std.algorithm.sorting;
-
-  auto headers = req.headers.keys.sort();
-  foreach (key; headers) {
-    auto lowerKey = key.toLower();
-    canonicalHeaders ~= lowerKey ~ ":" ~ req.headers[key].strip() ~ "\n";
+  foreach (e; req.headers.byKeyValue()) {
+    auto lowerKey = e.key.toLower();
+    canonicalHeaders ~= lowerKey ~ ":" ~ e.value.strip() ~ "\n";
   }
 
   // Generate signed headers
   string signedHeaders = "";
   bool first = true;
-  foreach (key; headers) {
-    auto lowerKey = key.toLower();
+  foreach (e; req.headers.byKeyValue()) {
+    auto lowerKey = e.key.toLower();
     if (!first)
       signedHeaders ~= ";";
     signedHeaders ~= lowerKey;
@@ -322,7 +316,7 @@ string generateStringToSign(HTTPServerRequest req, string canonicalRequest, stri
     import std.datetime.systime;
     import std.datetime.timezone;
 
-    auto now = SysTime(UTC());
+    auto now = Clock.currTime();
     timestamp = now.format("yyyyMMdd'T'HHmmss'Z'");
   }
 
@@ -361,12 +355,16 @@ void s3Handle(HTTPServerRequest req, HTTPServerResponse res) {
       } else {
         s3GetObject(req, res, actualUri);
       }
+      break;
     case HTTPMethod.PUT:
       s3PutObject(req, res, actualUri);
+      break;
     case HTTPMethod.DELETE:
       s3DeleteObject(req, res, actualUri);
+      break;
     case HTTPMethod.HEAD:
       s3HeadObject(req, res, actualUri);
+      break;
     default:
       res.statusCode = HTTPStatus.methodNotAllowed;
       res.writeBody("Method not allowed", "text/plain");
@@ -416,7 +414,8 @@ void s3PutObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
     // Read request body to temp file
     ubyte[] buffer = new ubyte[4096];
     size_t read;
-    while ((read = req.bodyReader.read(buffer)) > 0) {
+    import eventcore.driver:IOMode;
+    while ((read = req.bodyReader.read(buffer,IOMode.all)) > 0) {
       tempFile.rawWrite(buffer[0 .. read]);
     }
     tempFile.close();
