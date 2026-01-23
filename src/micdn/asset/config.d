@@ -45,20 +45,13 @@ class Config {
   /**enable dir list*/
   immutable bool publicList;
 
-  Context[string] contexts;
+  const Context[string] contexts;
 
-  this(string base, Repo repo, bool publicList) {
+  this(string base, Repo repo, bool publicList, Context[string] contexts) {
     this.base = base;
     this.repo = repo;
     this.publicList = publicList;
-  }
-
-  void addContext(Context context) {
-    contexts[context.base] = context;
-  }
-
-  void build() {
-    this.contexts = this.contexts.rehash();
+    this.contexts = contexts;
   }
 
   public static Config parse(string home, string content) {
@@ -85,8 +78,7 @@ class Config {
     import std.path;
 
     base = expandTilde(base);
-
-    Config config = new Config(base, Repo(remotes, expandTilde(local)), publicList);
+    Context[string] ctxs;
     auto contextsEntry = children(dom, "contexts");
     if (!contextsEntry.empty) {
       auto contextEntries = children(contextsEntry.front, "context");
@@ -115,11 +107,10 @@ class Config {
           string location = attrs["location"];
           context.addProvider(new ZipProvider(file, location));
         }
-        config.addContext(context);
+        ctxs[context.base] = context;
       }
     }
-    config.build();
-    return config;
+    return new Config(base, Repo(remotes, expandTilde(local)), publicList, ctxs.rehash());
   }
 
   string toXml() const {
