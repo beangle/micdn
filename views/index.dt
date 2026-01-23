@@ -1,0 +1,9 @@
+doctype 5
+html
+	head
+		title Index of #{uri}
+	body
+		h1 Index of #{uri}
+		hr
+		pre !{content}
+		hr
