@@ -120,7 +120,7 @@ class Config {
     app.put("<asset base=\"" ~ base ~ "\">\n");
     app.put("  <repository remote=\"" ~ repo.remotes.join(",") ~ "\" local=\"" ~ repo.local ~ "\" />\n");
     app.put("  <contexts>\n");
-    auto contextList = contexts.values;
+    auto contextList = contexts.values.dup;
     contextList.sort!((a, b) => a.base < b.base);
     foreach (c; contextList) {
       app.put(c.toXml("    "));
@@ -133,7 +133,7 @@ class Config {
 }
 
 class Context {
-  string base;
+  const string base;
   Provider[] providers = new Provider[0];
   this(string base) {
     if (base.endsWith("/")) {
