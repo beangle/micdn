@@ -1,0 +1,15 @@
+{
+  "editor.rulers": [
+    120
+  ],
+  "editor.wordWrap": "off",
+  "files.trimTrailingWhitespace": true,
+  "editor.formatOnSave": true,
+  "files.insertFinalNewline": true,
+  "[d]": {
+    "editor.defaultFormatter": "webfreak.code-d",
+    "editor.formatOnSave": true
+  },
+  "d.forceUpdateServeD": true,
+  "d.forceCompileServeD": true
+}
