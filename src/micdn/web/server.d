@@ -64,70 +64,54 @@ unittest {
 }
 
 import vibe.core.args;
+import std.typecons;
 
-string getHome(string defaultPath = "~") {
+auto readConfig(string defaultHome, string defaultConfigFileName) {
   string home;
-  auto success = readOption!string("home", &home, "specify home params");
-  if (success) {
+  string config;
+  string remoteDir;
+  auto hasHome = readOption!string("home", &home, "specify home params");
+  auto hasConfig = readOption!string("config", &config, "specify config params");
+  auto hasRemote = readOption!string("remote", &remoteDir, "specify remote params");
+
+  if (hasHome && hasConfig) {
+    return tuple(home, config);
+  } else if (hasHome) {
     if (home.endsWith("/"))
       home = home[0 .. $ - 1];
-    return expandTilde(home);
-  } else {
-    string serverxml;
-    success = readOption!string("config", &serverxml, "specify config params");
-    if (success) {
-      return (std.file.exists(serverxml)) ? std.path.dirName(serverxml) : defaultPath;
-    } else {
-      return defaultPath;
-    }
-  }
-}
-
-string getConfigFile(string home, string defaultPath, bool checkRemote) {
-  string serverxml;
-  auto success = readOption!string("config", &serverxml, "specify config params");
-  if (!success) {
-    serverxml = expandTilde(home ~ defaultPath);
-    if (checkRemote) {
-      string remoteUrl;
-      auto hasRemote = readOption!string("remote", &remoteUrl, "specify remote params");
-      if (hasRemote) {
-        auto newxml = serverxml ~ ".new";
-        if (curlDownload(remoteUrl ~ defaultPath, newxml)) {
-          logInfo("Downloaded %s", remoteUrl ~ defaultPath);
-          rename(newxml, serverxml);
-        }
+    home = expandTilde(home);
+    config = expandTilde(home ~ "/" ~ defaultConfigFileName);
+    if (hasRemote) {
+      auto newxml = config ~ ".new";
+      auto remoteUrl = remoteDir ~ "/" ~ defaultConfigFileName;
+      if (curlDownload(remoteUrl, newxml)) {
+        logInfo("Downloaded %s", remoteUrl);
+        rename(newxml, config);
       }
     }
+    return tuple(home, config);
+  } else if (hasConfig) {
+    home = (std.file.exists(config)) ? std.path.dirName(config) : defaultHome;
+    return tuple(defaultHome, config);
+  } else {
+    return tuple(defaultHome, defaultHome ~ "/" ~ defaultConfigFileName);
   }
-  return serverxml;
 }
 
 import std.file;
 
-string readXml(string xmlfile) {
-  auto fullPath = expandTilde(xmlfile);
-  if (exists(fullPath)) {
-    return cast(string) read(fullPath);
-  } else {
-    throw new Exception(xmlfile ~ " is not exists!");
-  }
-}
-
-ServerOptions getServerOptions() {
-  string serverxml;
-  auto success = readOption!string("server", &serverxml, "specify server params");
+ServerOptions getServerOptions(string serverType) {
+  string serverFile;
+  auto success = readOption!string("server", &serverFile, "specify server params");
   if (success) {
-    return parseServerOptions(expandTilde(serverxml));
+    if (exists(serverFile)) {
+      return ServerOptions.parse(cast(string) read(serverFile));
+    } else {
+      throw new Exception(serverFile ~ " is not exists!");
+    }
   } else {
-    throw new Exception("Missing server params");
-  }
-}
-
-ServerOptions parseServerOptions(string serverxml) {
-  if (exists(serverxml)) {
-    return ServerOptions.parse(cast(string) read(serverxml));
-  } else {
-    throw new Exception(serverxml ~ " is not exists!");
+    auto defaultConfig = `<?xml version="1.0" encoding="UTF-8"?><Server ips="127.0.0.1" port="8080">` ~
+      `<Context path="/` ~ serverType ~ `"/></Server>`;
+    return ServerOptions.parse(defaultConfig);
   }
 }

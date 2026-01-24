@@ -1,5 +1,8 @@
 module micdn.main;
 import std.stdio;
+import std.file : getcwd, exists;
+import std.algorithm : canFind;
+
 import micdn.web.server;
 import vibe.core.args;
 import vibe.core.core;
@@ -9,39 +12,46 @@ import micdn.asset.server : assetStart;
 import micdn.blob.server : blobStart;
 
 void main(string[] args) {
-  if (args.length < 5) {
+  if (args.length < 3) {
     writeln("Usage: " ~ args[0] ~ " --as maven --server path/to/server.xml --config path/to/config.xml");
     writeln("Usage: " ~ args[0] ~ " --as asset --server path/to/server.xml --config path/to/config.xml");
     writeln("Usage: " ~ args[0] ~ " --as blob --server path/to/server.xml --config path/to/config.xml");
     return;
   }
 
-  auto serverOptions = getServerOptions();
-
   string serverType;
-  auto success = readOption!string("as", &serverType, "Please specify --as params[maven|asset|blob]");
-  if (!success) {
+  auto hasServer = readOption!string("as", &serverType, "Please specify --as params[maven|asset|blob]");
+  auto servers = ["maven", "asset", "blob"];
+
+  if (!hasServer || !(servers.canFind(serverType))) {
     writeln("Please specify --as params[maven|asset|blob]");
     return;
   } else {
+    auto options = getServerOptions(serverType);
+    auto hc = readConfig(getcwd(), serverType ~ ".xml");
+    auto home = hc[0];
+    auto config = hc[1];
+
+    if (!exists(config)) {
+      logError("Config file[" ~ config ~ "] not exists!");
+      return;
+    }
+    writefln("Find config: %s", config);
     switch (serverType) {
     case "maven":
-      auto home = getHome("~/.m2/repository");
-      mavenStart(home, serverOptions, getConfigFile(home, "/maven.xml", true));
+      mavenStart(options, config);
       break;
     case "asset":
-      auto home = getHome();
-      assetStart(home, serverOptions, getConfigFile(home, "/asset.xml", true));
+      assetStart(home, options, config);
       break;
     case "blob":
-      auto home = getHome();
-      blobStart(home, serverOptions, getConfigFile(home, "/blob.xml", true));
+      blobStart(home, options, config);
       break;
     default:
       writeln("Unsupported --as params[" ~ serverType ~ "],only support[maven|asset|blob]");
       return;
     }
-    logInfo("Micdn " ~ serverType ~ " was started on http://" ~ serverOptions.listenAddr ~ serverOptions.contextPath);
+    logInfo("Micdn " ~ serverType ~ " was started on http://" ~ options.listenAddr ~ options.contextPath);
     runApplication(&args);
   }
 

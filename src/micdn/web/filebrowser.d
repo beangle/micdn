@@ -62,10 +62,13 @@ class FileEntry {
     buf.put("<a href=\"");
     buf.put(name);
     if (isDir) {
-      buf.put("\\");
+      buf.put("/");
     }
     buf.put("\" >");
     buf.put(name);
+    if (isDir) {
+      buf.put("/");
+    }
     buf.put("</a>");
     auto href = buf.data;
     ulong padding = 0;

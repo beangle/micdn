@@ -21,6 +21,7 @@ import micdn.web;
 import micdn.web.server;
 import micdn.web.file;
 import micdn.web.filebrowser;
+import micdn.xml.reader;
 
 private class BlobServer {
   const string home;
@@ -243,7 +244,7 @@ bool s3Auth(HTTPServerRequest req, HTTPServerResponse res) {
             string stringToSign = generateStringToSign(req, canonicalRequest, credentialScope);
 
             // Generate signature
-            string expectedSignature = micdn.blob.s3.generateSignature(stringToSign, secretKey, credentialParts[1], credentialParts[2]);
+            string expectedSignature = generateSignature(stringToSign, secretKey, credentialParts[1], credentialParts[2]);
 
             // Verify signature
             if (signature == expectedSignature) {
@@ -315,7 +316,7 @@ string generateStringToSign(HTTPServerRequest req, string canonicalRequest, stri
     import std.datetime.timezone;
 
     auto now = Clock.currTime();
-    timestamp = now.toCustomString("yyyyMMdd'T'HHmmss'Z'");
+    timestamp = now.toISOString();
   }
 
   // Generate scope from credential scope
@@ -377,8 +378,8 @@ void s3GetObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
     auto profile = server.config.getProfile(uri);
 
     // Add S3-specific response headers
-    string requestId = micdn.blob.s3.generateUuid();
-    string amzId2 = micdn.blob.s3.generateAmzId2();
+    string requestId = generateUuid();
+    string amzId2 = generateAmzId2();
     res.headers["x-amz-request-id"] = requestId;
     res.headers["x-amz-id-2"] = amzId2;
 
@@ -391,9 +392,12 @@ void s3GetObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
 <Error>
   <Code>NoSuchKey</Code>
   <Message>The specified key does not exist.</Message>
-  <Key>` ~ uri ~ `</Key>
-  <RequestId>` ~ micdn.blob.s3.generateUuid() ~ `</RequestId>
-  <HostId>` ~ micdn.blob.s3.generateAmzId2() ~ `</HostId>
+  <Key>`
+        ~ uri ~ `</Key>f
+  <RequestId>`
+        ~ generateUuid() ~ `</RequestId>
+  <HostId>`
+        ~ generateAmzId2() ~ `</HostId>
 </Error>`, "application/xml");
   }
 }
@@ -406,7 +410,7 @@ void s3PutObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
     import std.file;
 
     // Create temp file
-    auto tempPath = std.file.tempDir() ~ "/" ~ std.file.tempName();
+    auto tempPath = std.file.tempDir() ~ "/" ~ generateUuid();
     auto tempFile = File(tempPath, "wb");
 
     // Read request body to temp file
@@ -436,8 +440,8 @@ void s3PutObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
     std.file.remove(tempPath);
 
     // Add S3-specific response headers
-    string requestId = micdn.blob.s3.generateUuid();
-    string amzId2 = micdn.blob.s3.generateAmzId2();
+    string requestId = generateUuid();
+    string amzId2 = generateAmzId2();
     res.headers["x-amz-request-id"] = requestId;
     res.headers["x-amz-id-2"] = amzId2;
     res.headers["ETag"] = "\"" ~ meta.sha ~ "\"";
@@ -452,8 +456,10 @@ void s3PutObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
 <Error>
   <Code>InternalError</Code>
   <Message>We encountered an internal error. Please try again.</Message>
-  <RequestId>` ~ micdn.blob.s3.generateUuid() ~ `</RequestId>
-  <HostId>` ~ micdn.blob.s3.generateAmzId2() ~ `</HostId>
+  <RequestId>`
+        ~ generateUuid() ~ `</RequestId>
+  <HostId>`
+        ~ generateAmzId2() ~ `</HostId>
 </Error>`, "application/xml");
   }
 }
@@ -463,8 +469,8 @@ void s3DeleteObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
   auto profile = server.config.getProfile(uri);
   if (server.repository.remove(profile, uri)) {
     // Add S3-specific response headers
-    string requestId = micdn.blob.s3.generateUuid();
-    string amzId2 = micdn.blob.s3.generateAmzId2();
+    string requestId = generateUuid();
+    string amzId2 = generateAmzId2();
     res.headers["x-amz-request-id"] = requestId;
     res.headers["x-amz-id-2"] = amzId2;
 
@@ -478,9 +484,12 @@ void s3DeleteObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
 <Error>
   <Code>NoSuchKey</Code>
   <Message>The specified key does not exist.</Message>
-  <Key>` ~ uri ~ `</Key>
-  <RequestId>` ~ micdn.blob.s3.generateUuid() ~ `</RequestId>
-  <HostId>` ~ micdn.blob.s3.generateAmzId2() ~ `</HostId>
+  <Key>`
+        ~ uri ~ `</Key>
+  <RequestId>`
+        ~ generateUuid() ~ `</RequestId>
+  <HostId>`
+        ~ generateAmzId2() ~ `</HostId>
 </Error>`, "application/xml");
   }
 }
@@ -496,9 +505,9 @@ void s3HeadObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
     auto fileSize = getSize(filePath);
 
     // Add S3-specific response headers
-    string requestId = micdn.blob.s3.generateUuid();
-    string amzId2 = micdn.blob.s3.generateAmzId2();
-    string etag = micdn.blob.s3.generateEtag(filePath);
+    string requestId = generateUuid();
+    string amzId2 = generateAmzId2();
+    string etag = generateEtag(filePath);
     res.headers["x-amz-request-id"] = requestId;
     res.headers["x-amz-id-2"] = amzId2;
     res.headers["Content-Length"] = fileSize.to!string;
@@ -515,9 +524,12 @@ void s3HeadObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
 <Error>
   <Code>NoSuchKey</Code>
   <Message>The specified key does not exist.</Message>
-  <Key>` ~ uri ~ `</Key>
-  <RequestId>` ~ micdn.blob.s3.generateUuid() ~ `</RequestId>
-  <HostId>` ~ micdn.blob.s3.generateAmzId2() ~ `</HostId>
+  <Key>`
+        ~ uri ~ `</Key>
+  <RequestId>`
+        ~ generateUuid() ~ `</RequestId>
+  <HostId>`
+        ~ generateAmzId2() ~ `</HostId>
 </Error>`, "application/xml");
   }
 }
@@ -530,13 +542,13 @@ void s3ListObjects(HTTPServerRequest req, HTTPServerResponse res, string uri) {
   auto basePath = server.repository.base ~ uri;
   if (exists(basePath) && isDir(basePath)) {
     // Add S3-specific response headers
-    string requestId = micdn.blob.s3.generateUuid();
-    string amzId2 = micdn.blob.s3.generateAmzId2();
+    string requestId = generateUuid();
+    string amzId2 = generateAmzId2();
     res.headers["x-amz-request-id"] = requestId;
     res.headers["x-amz-id-2"] = amzId2;
 
     // Generate XML response using core function
-    string xmlResponse = micdn.blob.s3.generateListObjectsXml(basePath, uri);
+    string xmlResponse = generateListObjectsXml(basePath, uri);
     res.contentType = "application/xml";
     res.writeBody(xmlResponse, "application/xml");
   } else {
@@ -547,9 +559,12 @@ void s3ListObjects(HTTPServerRequest req, HTTPServerResponse res, string uri) {
 <Error>
   <Code>NoSuchBucket</Code>
   <Message>The specified bucket does not exist.</Message>
-  <BucketName>` ~ uri ~ `</BucketName>
-  <RequestId>` ~ micdn.blob.s3.generateUuid() ~ `</RequestId>
-  <HostId>` ~ micdn.blob.s3.generateAmzId2() ~ `</HostId>
+  <BucketName>`
+        ~ uri ~ `</BucketName>
+  <RequestId>`
+        ~ generateUuid() ~ `</RequestId>
+  <HostId>`
+        ~ generateAmzId2() ~ `</HostId>
 </Error>`, "application/xml");
   }
 }

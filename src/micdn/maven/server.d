@@ -15,13 +15,12 @@ import micdn.web.file;
 import micdn.web.filebrowser;
 import micdn.web.server;
 import micdn.maven.config;
+import micdn.xml.reader;
 
 private class MavenServer {
-  const string home;
   const ServerOptions options;
   const Config config;
-  this(string home, ServerOptions options, Config config) {
-    this.home = home;
+  this(ServerOptions options, Config config) {
     this.options = options;
     this.config = config;
   }
@@ -29,9 +28,10 @@ private class MavenServer {
 
 MavenServer server;
 
-void mavenStart(string home, ServerOptions options, string configFile) {
-  auto config = Config.parse(home, readXml(configFile));
-  server = new MavenServer(home, options, config);
+void mavenStart(ServerOptions options, string configFile) {
+  auto config = Config.parse("~/.m2/repository", readXml(configFile));
+  mkdirRecurse(config.base);
+  server = new MavenServer(options, config);
   auto router = new URLRouter(server.options.contextPath);
   router.get("*", &index);
 
@@ -60,7 +60,7 @@ void index(HTTPServerRequest req, HTTPServerResponse res) {
           res.redirect(req.requestURI.replace(uri, uri ~ "/"));
         }
       } else {
-        throw new HTTPStatusException(HTTPStatus.notFound);
+        throw new HTTPStatusException(HTTPStatus.forbidden);
       }
     } else {
       sendFile(req, res, file);

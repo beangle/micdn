@@ -3,19 +3,19 @@ set -e
 PRGDIR=`dirname "$0"`
 export MICDN_HOME=`cd "$PRGDIR" >/dev/null; pwd`
 version=`grep "version " -R dub.sdl |awk 'NR==1{gsub(/"/,"");print $2}'`
+groupPath="~/.m2/repository/org/beangle/micdn"
 
 mk_artifact(){
-  cd $1
   arch=`arch`
   targetName=`grep "targetName " -R dub.sdl |awk 'NR==1{gsub(/"/,"");print $2}'`
   rm -rf target/$targetName-$version-$arch.bin
-  mv target/$targetName target/$targetName-$version-$arch.bin
-  sha1sum target/$targetName-$version-$arch.bin|awk 'NR==1{gsub(/"/,"");print $1}'>> target/$targetName-$version-$arch.bin.sha1
-  mkdir -p ~/.m2/repository/org/beangle/micdn/$targetName/$version/
-  rm -rf ~/.m2/repository/org/beangle/micdn/$targetName/$version/$targetName-$version-$arch.bin
-  cp target/$targetName-$version-$arch.bin ~/.m2/repository/org/beangle/micdn/$targetName/$version/$targetName-$version-$arch.bin
-  cp target/$targetName-$version-$arch.bin.sha1 ~/.m2/repository/org/beangle/micdn/$targetName/$version/$targetName-$version-$arch.bin.sha1
-  cd ..
+  cp target/$targetName target/$targetName-$version-$arch.bin
+  sha1sum target/$targetName-$version-$arch.bin|awk 'NR==1{gsub(/"/,"");print $1}' > target/$targetName-$version-$arch.bin.sha1
+
+  mkdir -p $groupPath/$targetName/$version/
+  rm -rf $groupPath/$targetName/$version/$targetName-$version-$arch.bin
+  mv target/$targetName-$version-$arch.bin $groupPath/$targetName/$version/$targetName-$version-$arch.bin
+  mv target/$targetName-$version-$arch.bin.sha1 $groupPath/$targetName/$version/$targetName-$version-$arch.bin.sha1
 }
 
 system_version() {
@@ -34,28 +34,19 @@ system_version() {
 }
 
 cd $MICDN_HOME
-rm -rf core/target
-rm -rf asset/target
-rm -rf maven/target
-rm -rf blob/target
+mkdir -p target
+rm -rf target/*
 
 dub clean
 dub build --build=release-nobounds --compiler=ldc2
-mk_artifact "asset"
-mk_artifact "blob"
-mk_artifact "maven"
+mk_artifact
 
 cd $MICDN_HOME
-rm -rf target
-mkdir -p target
 
 system_version
 cd ~/.m2/repository
-zip  $MICDN_HOME/target/beangle-micdn-$version.$SYSTEM_ID.$arch.zip org/beangle/micdn/beangle-micdn-asset/$version/beangle-micdn-asset-$version-$arch.bin \
-org/beangle/micdn/beangle-micdn-asset/$version/beangle-micdn-asset-$version-$arch.bin.sha1 \
-org/beangle/micdn/beangle-micdn-blob/$version/beangle-micdn-blob-$version-$arch.bin \
-org/beangle/micdn/beangle-micdn-blob/$version/beangle-micdn-blob-$version-$arch.bin.sha1 \
-org/beangle/micdn/beangle-micdn-maven/$version/beangle-micdn-maven-$version-$arch.bin \
-org/beangle/micdn/beangle-micdn-maven/$version/beangle-micdn-maven-$version-$arch.bin.sha1
+zip  $MICDN_HOME/target/beangle-micdn-$version.$SYSTEM_ID.$arch.zip org/beangle/micdn/micdn/$version/micdn-$version-$arch.bin \
+org/beangle/micdn/micdn/$version/micdn-$version-$arch.bin.sha1
 
+cd $MICDN_HOME
 gpg -ab $MICDN_HOME/target/beangle-micdn-$version.$SYSTEM_ID.$arch.zip

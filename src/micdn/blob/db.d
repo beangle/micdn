@@ -38,7 +38,7 @@ class MetaDao {
     client.pickConnection((scope conn) {
       QueryParams query;
       query.sqlCommand = "insert into " ~ schema ~
-      ".blb_blob_metas(id,owner,name,file_size,sha,media_type,profile_id,file_path,updated_at,domain_id) values(datetime_id(),$1,$2,$3,$4,$5,$6,$7,now(),$8)";
+        ".blb_blob_metas(id,owner,name,file_size,sha,media_type,profile_id,file_path,updated_at,domain_id) values(datetime_id(),$1,$2,$3,$4,$5,$6,$7,now(),$8)";
       import std.conv;
 
       query.argsVariadic(m.owner, m.name, m.fileSize.to!long, m.sha, m.mediaType, m.profileId, m.filePath, this.domainId);
@@ -77,13 +77,13 @@ class MetaDao {
       }
       import std.conv;
 
-      auto r = conn.execStatement("select name,key from " ~ schema ~ ".blb_users where domain_id=" ~ domainId.to!string);
+      auto r = conn.exec("select name,key from " ~ schema ~ ".blb_users where domain_id=" ~ domainId.to!string);
       for (auto row = 0; row < r.length; row++) {
         string name = r[row]["name"].as!PGtext;
         string key = r[row]["key"].as!PGtext;
         config.keys[name] = key;
       }
-      auto r2 = conn.execStatement("select id,base,users,named_by_sha,public_download from " ~ schema
+      auto r2 = conn.exec("select id,base,users,named_by_sha,public_download from " ~ schema
         ~ ".blb_profiles where domain_id=" ~ this.domainId.to!string);
       for (auto row = 0; row < r2.length; row++) {
         int id = r2[row]["id"].as!PGinteger;

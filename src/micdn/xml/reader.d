@@ -15,3 +15,15 @@ auto children(T)(ref DOMEntity!T dom, string path) {
 
   return dom.children.filter!(c => c.name == path);
 }
+
+import std.path : expandTilde;
+import std.file : exists, read;
+
+string readXml(string xmlfile) {
+  auto fullPath = expandTilde(xmlfile);
+  if (exists(fullPath)) {
+    return cast(string) read(fullPath);
+  } else {
+    throw new Exception(xmlfile ~ " is not exists!");
+  }
+}

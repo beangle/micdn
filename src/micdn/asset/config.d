@@ -57,7 +57,7 @@ class Config {
   public static Config parse(string home, string content) {
     auto dom = parseDOM!simpleXML(content).children[0];
     auto attrs = getAttrs(dom);
-    string base = attrs.get("base", home ~ "/static");
+    string base = attrs.get("base", "~/.micdn/asset");
     bool publicList = attrs.get("publicList", "false").to!bool;
     auto repoEntry = children(dom, "repository");
     auto defaultRemote = "https://repo1.maven.org/maven2";
@@ -121,7 +121,8 @@ class Config {
     app.put("  <repository remote=\"" ~ repo.remotes.join(",") ~ "\" local=\"" ~ repo.local ~ "\" />\n");
     app.put("  <contexts>\n");
     import std.array;
-    auto ctx = cast(Context[])array(contexts.values);
+
+    auto ctx = cast(Context[]) array(contexts.values);
     ctx.sort!((a, b) => a.base < b.base);
     foreach (c; ctx) {
       app.put(c.toXml("    "));

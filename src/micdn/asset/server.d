@@ -16,14 +16,13 @@ import micdn.web.filebrowser;
 import micdn.web.server;
 import micdn.asset.repository;
 import micdn.asset.config;
+import micdn.xml.reader;
 
 private class AssetServer {
-  const string home;
   const ServerOptions options;
   const Config config;
   const Repository repository;
-  this(string home, ServerOptions options, Config config, Repository repository) {
-    this.home = home;
+  this(ServerOptions options, Config config, Repository repository) {
     this.options = options;
     this.config = config;
     this.repository = repository;
@@ -34,8 +33,9 @@ AssetServer server;
 
 void assetStart(string home, ServerOptions options, string configFile) {
   auto config = Config.parse(home, readXml(configFile));
+  mkdirRecurse(config.base);
   auto repository = Repository.build(config);
-  server = new AssetServer(home, options, config, repository);
+  server = new AssetServer(options, config, repository);
 
   auto router = new URLRouter(server.options.contextPath);
   router.get("*", &index);

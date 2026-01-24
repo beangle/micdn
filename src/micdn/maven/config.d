@@ -31,14 +31,14 @@ class Config {
     this.defaultRepo = remoteRepos[$ - 1];
   }
 
-  public static Config parse(string home, string content) {
+  public static Config parse(string defaultBase, string content) {
     auto dom = parseDOM!simpleXML(content).children[0];
     auto attrs = getAttrs(dom);
     immutable bool cacheable = attrs.get("cacheable", "true").to!bool;
     immutable bool publicList = attrs.get("publicList", "false").to!bool;
     import std.path;
 
-    string base = expandTilde(attrs.get("base", home));
+    string base = expandTilde(attrs.get("base", defaultBase));
     string[] remoteRepos = [];
     auto remotesEntries = children(dom, "remotes");
     if (!remotesEntries.empty) {
