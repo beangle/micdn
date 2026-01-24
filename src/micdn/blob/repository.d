@@ -35,7 +35,7 @@ class Repository {
     }
   }
 
-  public string getRealname(const(Profile) profile, string path) const {
+  public string getRealname(const(Profile) profile, string path)  {
     if (metaDao !is null) {
       return metaDao.getFilename(profile, path);
     } else {

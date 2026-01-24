@@ -120,9 +120,10 @@ class Config {
     app.put("<asset base=\"" ~ base ~ "\">\n");
     app.put("  <repository remote=\"" ~ repo.remotes.join(",") ~ "\" local=\"" ~ repo.local ~ "\" />\n");
     app.put("  <contexts>\n");
-    auto contextList = contexts.values.dup;
-    contextList.sort!((a, b) => a.base < b.base);
-    foreach (c; contextList) {
+    import std.array;
+    auto ctx = cast(Context[])array(contexts.values);
+    ctx.sort!((a, b) => a.base < b.base);
+    foreach (c; ctx) {
       app.put(c.toXml("    "));
       app.put("\n");
     }

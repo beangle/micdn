@@ -37,7 +37,8 @@ class MetaDao {
     bool success = false;
     client.pickConnection((scope conn) {
       QueryParams query;
-      query.sqlCommand = "insert into " ~ schema ~ ".blb_blob_metas(id,owner,name,file_size,sha,media_type,profile_id,file_path,updated_at,domain_id) values(datetime_id(),$1,$2,$3,$4,$5,$6,$7,now(),$8)";
+      query.sqlCommand = "insert into " ~ schema ~
+      ".blb_blob_metas(id,owner,name,file_size,sha,media_type,profile_id,file_path,updated_at,domain_id) values(datetime_id(),$1,$2,$3,$4,$5,$6,$7,now(),$8)";
       import std.conv;
 
       query.argsVariadic(m.owner, m.name, m.fileSize.to!long, m.sha, m.mediaType, m.profileId, m.filePath, this.domainId);
@@ -47,7 +48,7 @@ class MetaDao {
     return success;
   }
 
-  public string getFilename(const(Profile) profile, string path) const {
+  public string getFilename(const(Profile) profile, string path) {
     string filename = "";
     client.pickConnection((scope conn) {
       QueryParams query;

@@ -315,7 +315,7 @@ string generateStringToSign(HTTPServerRequest req, string canonicalRequest, stri
     import std.datetime.timezone;
 
     auto now = Clock.currTime();
-    timestamp = now.format("yyyyMMdd'T'HHmmss'Z'");
+    timestamp = now.toCustomString("yyyyMMdd'T'HHmmss'Z'");
   }
 
   // Generate scope from credential scope
