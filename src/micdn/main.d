@@ -13,11 +13,11 @@ import micdn.blob.server : blobStart;
 
 void main(string[] args) {
   // Check for help request
-  if( args.canFind("--help") || args.canFind("-h")){
+  if (args.canFind("--help") || args.canFind("-h")) {
     showHelpInfo(args[0]);
     return;
   }
-  if( args.canFind("--version") || args.canFind("-v")){
+  if (args.canFind("--version") || args.canFind("-v")) {
     writeln("Micdn " ~ getVersion());
     return;
   }
