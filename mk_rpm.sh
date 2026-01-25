@@ -68,6 +68,30 @@ fi
     DEPEND="ldc libpq curl unzip"
     # create micdn.spec file
     cd ..
+    # Generate changelog
+    CHANGELOG_CONTENT=
+    if [ -f "$MICDN_HOME/CHANGELOG.md" ]; then
+        # Read changelog from file
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^#\ v ]]; then
+                # Extract version and date
+                VERSION_LINE=$(echo "$line" | sed 's/# v//')
+                DATE=$(date '+%a %b %d %Y')
+                CHANGELOG_CONTENT+="* $DATE $MAINTAINER - ${VERSION}-${REVISION}\n"
+            elif [[ "$line" =~ ^- ]]; then
+                # Add changelog entry
+                CHANGELOG_CONTENT+="  ${line}\n"
+            fi
+        done < "$MICDN_HOME/CHANGELOG.md"
+    else
+        # Default changelog
+        DATE=$(date '+%a %b %d %Y')
+        CHANGELOG_CONTENT="* $DATE $MAINTAINER - ${VERSION}-${REVISION}\n"
+        CHANGELOG_CONTENT+="  - Initial release of micdn\n"
+        CHANGELOG_CONTENT+="  - Supports maven, asset, and blob services\n"
+        CHANGELOG_CONTENT+="  - Provides S3 protocol support for blob service\n"
+    fi
+
     echo -e 'Name: micdn
     Version: '$VERSION'
     Release: '1.fc43'
@@ -86,7 +110,9 @@ fi
     ldconfig || :
     %postun
     ldconfig || :
-    %files' | sed 's/^    //' > micdn.spec
+    %files
+    %changelog
+'$CHANGELOG_CONTENT | sed 's/^    //' > micdn.spec
 
     find $DESTDIR/$CDNDIR/ ! -type d | sed 's:'$DESTDIR'/'$CDNDIR':":' | sed 's:$:":' >> micdn.spec
 
