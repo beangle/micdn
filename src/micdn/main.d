@@ -68,19 +68,17 @@ void showHelpInfo(string programName) {
   writeln("  --as TYPE          Service type (maven|asset|blob)");
   writeln();
   writeln("Optional Options:");
-  writeln("  --server FILE      Server configuration file path");
+  writeln("  --server FILE      Server startup file path, default: listen on localhost:8080/[maven|asset|blob]");
   writeln("  --config FILE      Service configuration file path");
   writeln("  --remote URL       Remote update URL for configuration file");
-  writeln("  --home DIR         Service home directory");
-  writeln("                     Default: config file directory, or current directory if config not specified");
   writeln();
   writeln("Help Options:");
   writeln("  --help             Show this help message and exit");
   writeln("  --version          Show version information and exit");
   writeln();
   writeln("Examples:");
-  writeln("  " ~ programName ~ " --as maven --server server.xml --config maven.xml");
-  writeln("  " ~ programName ~ " --as asset --server server.xml --config asset.xml --home /opt/micdn");
+  writeln("  " ~ programName ~ " --as maven --config maven.xml");
+  writeln("  " ~ programName ~ " --as asset --server server.xml --config asset.xml");
   writeln("  " ~ programName ~ " --as blob --server server.xml --config blob.xml --remote http://example.com/config");
 }
 

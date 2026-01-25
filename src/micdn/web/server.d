@@ -67,20 +67,25 @@ import vibe.core.args;
 import std.typecons;
 
 auto readConfig(string defaultHome, string defaultConfigFileName) {
-  string home;
   string config;
   string remoteDir;
-  auto hasHome = readOption!string("home", &home, "specify home params");
   auto hasConfig = readOption!string("config", &config, "specify config params");
   auto hasRemote = readOption!string("remote", &remoteDir, "specify remote params");
 
-  if (hasHome && hasConfig) {
-    return tuple(home, config);
-  } else if (hasHome) {
-    if (home.endsWith("/"))
-      home = home[0 .. $ - 1];
-    home = expandTilde(home);
-    config = expandTilde(home ~ "/" ~ defaultConfigFileName);
+  if (hasConfig) {
+    if (!exists(config)) {
+      return tuple(defaultHome, config);
+    }
+    if (config.endsWith("/"))
+      config = config[0 .. $ - 1];
+
+    string home;
+    if (isDir(config)) {
+      home = expandTilde(config);
+      config = expandTilde(home ~ "/" ~ defaultConfigFileName);
+    } else {
+      home = std.path.dirName(config);
+    }
     if (hasRemote) {
       auto newxml = config ~ ".new";
       auto remoteUrl = remoteDir ~ "/" ~ defaultConfigFileName;
@@ -90,9 +95,6 @@ auto readConfig(string defaultHome, string defaultConfigFileName) {
       }
     }
     return tuple(home, config);
-  } else if (hasConfig) {
-    home = (std.file.exists(config)) ? std.path.dirName(config) : defaultHome;
-    return tuple(defaultHome, config);
   } else {
     return tuple(defaultHome, defaultHome ~ "/" ~ defaultConfigFileName);
   }
