@@ -11,7 +11,7 @@ ferror(){
   echo "==========================================================" >&2
   exit 1
 }
-dub build --build=release --compiler=ldc2
+dub build --build=release-nobounds --compiler=ldc2
 
 # needed commands function
 E=0
@@ -36,17 +36,16 @@ fi
   RELEASE=$(awk -F. '{ print $3 +0 }' <<<$VERSION)
   if [ "$REVISION" == "" ]
   then
-    REVISION="1.fc32"
+    REVISION="1.fc43"
   fi
   DESTDIR="$MICDN_HOME/target"
   VERSION=$(sed 's/-/~/' <<<$VERSION) # replace dash by tilde
   ARCH="x86_64"
 
-  CDNDIR="beangle-micdn-"$VERSION"-"$REVISION"."$ARCH
-  RPMFILE="beangle-micdn-"$VERSION"-"$REVISION"."$ARCH".rpm"
+  CDNDIR="micdn-"$VERSION"-"$REVISION"."$ARCH
+  RPMFILE="micdn-"$VERSION"-"$REVISION"."$ARCH".rpm"
   RPMDIR=$DESTDIR"/rpmbuild"
 
-echo $MICDN_HOME
   # check if destination rpm file already exist
   if [ -f $DESTDIR"/"$RPMFILE ] && `rpm -qip $DESTDIR"/"$RPMFILE &>/dev/null` && test "$1" != "-f" ;then
     echo -e "$RPMFILE - already exist"
@@ -58,38 +57,28 @@ echo $MICDN_HOME
     # switch to temp dir
     pushd $DESTDIR"/"$CDNDIR
     mkdir -p usr/bin
-    cp -f $MICDN_HOME/asset/target/beangle-micdn-asset usr/bin/micdn-asset
-    cp -f $MICDN_HOME/blob/target/beangle-micdn-blob usr/bin/micdn-blob
-    cp -f $MICDN_HOME/maven/target/beangle-micdn-maven usr/bin/micdn-maven
-
-    # install libraries
-    A_LIB="libbeangle-micdn-core.a"
-    mkdir -p usr/lib64
-    cp -f $MICDN_HOME/core/target/libbeangle-micdn-core.a usr/lib64
-
-    mkdir -p usr/share/doc/micdn
-    cat $MICDN_HOME/LICENSE | sed 's/\r//' >> usr/share/doc/micdn/copyright
+    cp -f $MICDN_HOME/target/micdn usr/bin/micdn
 
     # change folders and files permissions
     chmod -R 0755 *
     chmod 0644 $(find . ! -type d)
-    chmod 0755 usr/bin/{micdn-asset,micdn-blob,micdn-maven}
+    chmod 0755 usr/bin/micdn
 
     # find deb package dependencies
-    DEPEND="ldc($ARCH)"
+    DEPEND="ldc libpq curl unzip"
     # create micdn.spec file
     cd ..
-    echo -e 'Name: beangle-micdn
+    echo -e 'Name: micdn
     Version: '$VERSION'
-    Release: '1.fc32'
+    Release: '1.fc43'
     Summary: Beangle Minimal CDN Server
     Group: Development/System
-    License: see /usr/share/doc/micdn/copyright
+    License: GPLv3+
     URL: http://github.io/beangle/micdn
     Packager: '$MAINTAINER'
     ExclusiveArch: '$ARCH'
     Requires: '$DEPEND'
-    Provides: micdn-asset('$ARCH') = '$VERSION-$REVISION', micdn-blob('$ARCH') = '$VERSION-$REVISION', micdn-maven('$ARCH') = '$VERSION-$REVISION'
+    Provides: micdn('$ARCH') = '$VERSION-$REVISION'
     %description
     Mini cdn,serve static resource, maven artifacts and binary file storage.
     Main designer: Duan TiHua
@@ -109,10 +98,13 @@ echo $MICDN_HOME
 
     # disable pushd
     popd
-
     # place rpm package
-    mv $RPMDIR/$ARCH/beangle-micdn-$VERSION-$REVISION.$ARCH.rpm $DESTDIR"/"$RPMFILE
+    mv $RPMDIR/$ARCH/micdn-$VERSION-$REVISION.$ARCH.rpm $DESTDIR"/"$RPMFILE
 
     # delete temp dir
     rm -Rf $RPMDIR
+    rm -Rf $DESTDIR"/"$CDNDIR
+    rm -Rf $DESTDIR/micdn.spec
+
+    #rm micdn.spec
   fi

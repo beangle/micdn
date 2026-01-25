@@ -8,7 +8,7 @@ groupPath=~/.m2/repository/org/beangle/micdn
 write_script(){
   scirptFile=$groupPath/$targetName/$version/micdn-$1-$version-$arch.sh
   echo -e '#!/bin/bash\nprgdir=$(cd "$(dirname "$0")" && pwd)' > $scirptFile
-  echo \$prgdir/$targetName-$version-$arch.bin --as $1 \$@ >> $scirptFile
+  echo exec \$prgdir/$targetName-$version-$arch.bin --as $1 \$@ >> $scirptFile
   more $scirptFile
   ls $scirptFile
   chmod +x $scirptFile
