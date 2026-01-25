@@ -12,10 +12,13 @@ import micdn.asset.server : assetStart;
 import micdn.blob.server : blobStart;
 
 void main(string[] args) {
-  if (args.length < 3) {
-    writeln("Usage: " ~ args[0] ~ " --as maven --server path/to/server.xml --config path/to/config.xml");
-    writeln("Usage: " ~ args[0] ~ " --as asset --server path/to/server.xml --config path/to/config.xml");
-    writeln("Usage: " ~ args[0] ~ " --as blob --server path/to/server.xml --config path/to/config.xml");
+  // Check for help request
+  if( args.canFind("--help") || args.canFind("-h")){
+    showHelpInfo(args[0]);
+    return;
+  }
+  if( args.canFind("--version") || args.canFind("-v")){
+    writeln("Micdn " ~ getVersion());
     return;
   }
 
@@ -25,6 +28,7 @@ void main(string[] args) {
 
   if (!hasServer || !(servers.canFind(serverType))) {
     writeln("Please specify --as params[maven|asset|blob]");
+    writeln("Run '" ~ args[0] ~ " --help' for detailed help.");
     return;
   } else {
     auto options = getServerOptions(serverType);
@@ -49,10 +53,38 @@ void main(string[] args) {
       break;
     default:
       writeln("Unsupported --as params[" ~ serverType ~ "],only support[maven|asset|blob]");
+      writeln("Run '" ~ args[0] ~ " --help' for detailed help.");
       return;
     }
     logInfo("Micdn " ~ serverType ~ " was started on http://" ~ options.listenAddr ~ options.contextPath);
     runApplication(&args);
   }
 
+}
+
+void showHelpInfo(string programName) {
+  writeln("Usage: " ~ programName ~ " [OPTIONS]");
+  writeln();
+  writeln("Required Options:");
+  writeln("  --as TYPE          Service type (maven|asset|blob)");
+  writeln();
+  writeln("Optional Options:");
+  writeln("  --server FILE      Server configuration file path");
+  writeln("  --config FILE      Service configuration file path");
+  writeln("  --remote URL       Remote update URL for configuration file");
+  writeln("  --home DIR         Service home directory");
+  writeln("                     Default: config file directory, or current directory if config not specified");
+  writeln();
+  writeln("Help Options:");
+  writeln("  --help, -h         Show this help message and exit");
+  writeln("  --version, -v      Show version information and exit");
+  writeln();
+  writeln("Examples:");
+  writeln("  " ~ programName ~ " --as maven --server server.xml --config maven.xml");
+  writeln("  " ~ programName ~ " --as asset --server server.xml --config asset.xml --home /opt/micdn");
+  writeln("  " ~ programName ~ " --as blob --server server.xml --config blob.xml --remote http://example.com/config");
+}
+
+string getVersion() {
+  return "0.2.0";
 }
