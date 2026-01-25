@@ -73,23 +73,38 @@ fi
     if [ -f "$MICDN_HOME/CHANGELOG.md" ]; then
         # Read changelog from file
         while IFS= read -r line; do
-            if [[ "$line" =~ ^#\ v ]]; then
+            if [[ "$line" =~ ^##\ v ]]; then
                 # Extract version and date
-                VERSION_LINE=$(echo "$line" | sed 's/# v//')
-                DATE=$(date '+%a %b %d %Y')
-                CHANGELOG_CONTENT+="* $DATE $MAINTAINER - ${VERSION}-${REVISION}\n"
+                VERSION_INFO=$(echo "$line" | sed 's/## v//')
+                VERSION_PART=$(echo "$VERSION_INFO" | cut -d ' ' -f 1)
+                DATE_PART=$(echo "$VERSION_INFO" | cut -d ' ' -f 2 | sed 's/[()]//g')
+                # Convert date format to rpm format (Mon Jan 01 2024)
+                if [ -n "$DATE_PART" ]; then
+                    RPM_DATE=$(date -d "$DATE_PART" '+%a %b %d %Y' 2>/dev/null || date '+%a %b %d %Y')
+                else
+                    RPM_DATE=$(date '+%a %b %d %Y')
+                fi
+                # Add changelog header with * prefix
+                CHANGELOG_CONTENT+="* $RPM_DATE $MAINTAINER - ${VERSION}-${REVISION}\n"
             elif [[ "$line" =~ ^- ]]; then
-                # Add changelog entry
+                # Add changelog entry with proper indentation
                 CHANGELOG_CONTENT+="  ${line}\n"
             fi
         done < "$MICDN_HOME/CHANGELOG.md"
     else
-        # Default changelog
+        # Default changelog with * prefix
         DATE=$(date '+%a %b %d %Y')
         CHANGELOG_CONTENT="* $DATE $MAINTAINER - ${VERSION}-${REVISION}\n"
         CHANGELOG_CONTENT+="  - Initial release of micdn\n"
         CHANGELOG_CONTENT+="  - Supports maven, asset, and blob services\n"
         CHANGELOG_CONTENT+="  - Provides S3 protocol support for blob service\n"
+    fi
+
+    # Ensure changelog is not empty and starts with *
+    if [ -z "$CHANGELOG_CONTENT" ]; then
+        DATE=$(date '+%a %b %d %Y')
+        CHANGELOG_CONTENT="* $DATE $MAINTAINER - ${VERSION}-${REVISION}\n"
+        CHANGELOG_CONTENT+="  - No changelog available\n"
     fi
 
     echo -e 'Name: micdn
