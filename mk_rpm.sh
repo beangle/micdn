@@ -55,7 +55,7 @@ fi
     # create temp dir
     mkdir -p $DESTDIR"/"$CDNDIR
     # switch to temp dir
-    pushd $DESTDIR"/"$CDNDIR
+    pushd $DESTDIR"/"$CDNDIR > /dev/null
     mkdir -p usr/bin
     cp -f $MICDN_HOME/target/micdn usr/bin/micdn
 
@@ -97,7 +97,7 @@ fi
     fakeroot rpmbuild --quiet --buildroot=$DESTDIR/$CDNDIR -bb --target $ARCH --define '_binary_payload w9.xzdio' micdn.spec
 
     # disable pushd
-    popd
+    popd > /dev/null
     # place rpm package
     mv $RPMDIR/$ARCH/micdn-$VERSION-$REVISION.$ARCH.rpm $DESTDIR"/"$RPMFILE
 
