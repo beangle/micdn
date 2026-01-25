@@ -10,6 +10,6 @@
     "editor.defaultFormatter": "webfreak.code-d",
     "editor.formatOnSave": true
   },
-  "workbench.tree.indent": 12,
+  "workbench.tree.indent": 10,
   "workbench.tree.renderIndentGuides": "onHover"
 }
