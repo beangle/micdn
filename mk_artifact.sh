@@ -58,7 +58,7 @@ cd $MICDN_HOME
 
 system_version
 cd ~/.m2/repository
-zip  $MICDN_HOME/target/beangle-micdn-$version.$SYSTEM_ID.$arch.zip org/beangle/micdn/micdn/$version/*
+zip  $MICDN_HOME/target/micdn-$version.$SYSTEM_ID.$arch.zip org/beangle/micdn/micdn/$version/*
 
 cd $MICDN_HOME
-gpg -ab $MICDN_HOME/target/beangle-micdn-$version.$SYSTEM_ID.$arch.zip
+gpg -ab $MICDN_HOME/target/micdn-$version.$SYSTEM_ID.$arch.zip
