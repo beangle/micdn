@@ -3,7 +3,16 @@ set -e
 PRGDIR=`dirname "$0"`
 export MICDN_HOME=`cd "$PRGDIR" >/dev/null; pwd`
 version=`grep "version " -R dub.sdl |awk 'NR==1{gsub(/"/,"");print $2}'`
-groupPath="~/.m2/repository/org/beangle/micdn"
+groupPath=~/.m2/repository/org/beangle/micdn
+
+write_script(){
+  scirptFile=$groupPath/$targetName/$version/micdn-$1-$version-$arch.sh
+  echo -e '#!/bin/bash\nprgdir=$(cd "$(dirname "$0")" && pwd)' > $scirptFile
+  echo \$prgdir/$targetName-$version-$arch.bin --as $1 \$@ >> $scirptFile
+  more $scirptFile
+  ls $scirptFile
+  chmod +x $scirptFile
+}
 
 mk_artifact(){
   arch=`arch`
@@ -16,7 +25,11 @@ mk_artifact(){
   rm -rf $groupPath/$targetName/$version/$targetName-$version-$arch.bin
   mv target/$targetName-$version-$arch.bin $groupPath/$targetName/$version/$targetName-$version-$arch.bin
   mv target/$targetName-$version-$arch.bin.sha1 $groupPath/$targetName/$version/$targetName-$version-$arch.bin.sha1
+  write_script "maven"
+  write_script "asset"
+  write_script "blob"
 }
+
 
 system_version() {
   if [ ! -f "/etc/os-release" ]; then
@@ -45,8 +58,7 @@ cd $MICDN_HOME
 
 system_version
 cd ~/.m2/repository
-zip  $MICDN_HOME/target/beangle-micdn-$version.$SYSTEM_ID.$arch.zip org/beangle/micdn/micdn/$version/micdn-$version-$arch.bin \
-org/beangle/micdn/micdn/$version/micdn-$version-$arch.bin.sha1
+zip  $MICDN_HOME/target/beangle-micdn-$version.$SYSTEM_ID.$arch.zip org/beangle/micdn/micdn/$version/*
 
 cd $MICDN_HOME
 gpg -ab $MICDN_HOME/target/beangle-micdn-$version.$SYSTEM_ID.$arch.zip
