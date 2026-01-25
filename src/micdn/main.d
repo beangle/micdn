@@ -12,13 +12,12 @@ import micdn.asset.server : assetStart;
 import micdn.blob.server : blobStart;
 
 void main(string[] args) {
-  // Check for help request
-  if (args.canFind("--help") || args.canFind("-h")) {
-    showHelpInfo(args[0]);
+  if (args.canFind("--version")) {
+    writeln("Micdn " ~ getVersion());
     return;
   }
-  if (args.canFind("--version") || args.canFind("-v")) {
-    writeln("Micdn " ~ getVersion());
+  if (args.canFind("--help")) {
+    showHelpInfo(args[0]);
     return;
   }
 
@@ -76,8 +75,8 @@ void showHelpInfo(string programName) {
   writeln("                     Default: config file directory, or current directory if config not specified");
   writeln();
   writeln("Help Options:");
-  writeln("  --help, -h         Show this help message and exit");
-  writeln("  --version, -v      Show version information and exit");
+  writeln("  --help             Show this help message and exit");
+  writeln("  --version          Show version information and exit");
   writeln();
   writeln("Examples:");
   writeln("  " ~ programName ~ " --as maven --server server.xml --config maven.xml");
