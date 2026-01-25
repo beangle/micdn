@@ -9,5 +9,6 @@
   "[d]": {
     "editor.defaultFormatter": "webfreak.code-d",
     "editor.formatOnSave": true
-  }
+  },
+  "explorer.indentationSize": 20
 }
