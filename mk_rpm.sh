@@ -11,6 +11,16 @@ ferror(){
   echo "==========================================================" >&2
   exit 1
 }
+sys_release_version(){
+  local os_id
+  os_id=$(source /etc/os-release && echo "$ID")
+  if [ "$os_id" == "fedora" ]; then
+    REVISION="1.fc$(source /etc/os-release && echo "$VERSION_ID")"
+  else
+    REVISION="1.el$(source /etc/os-release && echo "$VERSION_ID")"
+  fi
+}
+
 dub build --build=release-nobounds --compiler=ldc2
 
 # needed commands function
@@ -36,7 +46,7 @@ fi
   RELEASE=$(awk -F. '{ print $3 +0 }' <<<$VERSION)
   if [ "$REVISION" == "" ]
   then
-    REVISION="1.fc43"
+    sys_release_version
   fi
   DESTDIR="$MICDN_HOME/target"
   VERSION=$(sed 's/-/~/' <<<$VERSION) # replace dash by tilde
@@ -71,45 +81,45 @@ fi
     # Generate changelog
     changes=""
     if [ -f "$MICDN_HOME/CHANGELOG.md" ]; then
-        # Read changelog from file
-        while IFS= read -r line; do
-          if [[ "$line" =~ ^##\ v ]]; then
-              # Extract version and date
-              VERSION_INFO=$(echo "$line" | sed 's/## v//')
-              VERSION_PART=$(echo "$VERSION_INFO" | cut -d ' ' -f 1)
-              DATE_PART=$(echo "$VERSION_INFO" | cut -d ' ' -f 2 | sed 's/[()]//g')
-              # Convert date format to rpm format (Mon Jan 01 2024)
-              if [ -n "$DATE_PART" ]; then
-                  RPM_DATE=$(date -d "$DATE_PART" '+%a %b %d %Y' 2>/dev/null || date '+%a %b %d %Y')
-              else
-                  RPM_DATE=$(date '+%a %b %d %Y')
-              fi
-              # Add changelog header with * prefix
-              changes+="* $RPM_DATE $MAINTAINER - ${VERSION_PART}\n"
+      # Read changelog from file
+      while IFS= read -r line; do
+        if [[ "$line" =~ ^##\ v ]]; then
+            # Extract version and date
+            VERSION_INFO=$(echo "$line" | sed 's/## v//')
+            VERSION_PART=$(echo "$VERSION_INFO" | cut -d ' ' -f 1)
+            DATE_PART=$(echo "$VERSION_INFO" | cut -d ' ' -f 2 | sed 's/[()]//g')
+            # Convert date format to rpm format (Mon Jan 01 2024)
+            if [ -n "$DATE_PART" ]; then
+              RPM_DATE=$(date -d "$DATE_PART" '+%a %b %d %Y' 2>/dev/null || date '+%a %b %d %Y')
+            else
+              RPM_DATE=$(date '+%a %b %d %Y')
+            fi
+            # Add changelog header with * prefix
+            changes+="* $RPM_DATE $MAINTAINER - ${VERSION_PART}\n"
 
-          elif [[ "$line" =~ ^- ]]; then
-              # Add changelog entry with proper indentation
-              changes+="  ${line}\n"
-          fi
-        done < "$MICDN_HOME/CHANGELOG.md"
+        elif [[ "$line" =~ ^- ]]; then
+            # Add changelog entry with proper indentation
+            changes+="  ${line}\n"
+        fi
+      done < "$MICDN_HOME/CHANGELOG.md"
     else
-        # Default changelog with * prefix
-        DATE=$(date '+%a %b %d %Y')
-        changes="* $DATE $MAINTAINER - ${VERSION}-${REVISION}\n"
-        changes+="  - Initial release of micdn\n"
-        changes+="  - Supports maven, asset, and blob services\n"
-        changes+="  - Provides S3 protocol support for blob service\n"
+      # Default changelog with * prefix
+      DATE=$(date '+%a %b %d %Y')
+      changes="* $DATE $MAINTAINER - ${VERSION}-${REVISION}\n"
+      changes+="  - Initial release of micdn\n"
+      changes+="  - Supports maven, asset, and blob services\n"
+      changes+="  - Provides S3 protocol support for blob service\n"
     fi
     # Ensure changelog is not empty and starts with *
     if [ -z "$changes" ]; then
-        DATE=$(date '+%a %b %d %Y')
-        changes="* $DATE $MAINTAINER - ${VERSION}-${REVISION}\n"
-        changes+="  - No changelog available\n"
+      DATE=$(date '+%a %b %d %Y')
+      changes="* $DATE $MAINTAINER - ${VERSION}-${REVISION}\n"
+      changes+="  - No changelog available\n"
     fi
 
     echo -e 'Name: micdn
     Version: '$VERSION'
-    Release: '1.fc43'
+    Release: '$REVISION'
     Summary: Beangle Minimal CDN Server
     Group: Development/System
     License: GPLv3+
@@ -147,5 +157,4 @@ fi
     rm -Rf $DESTDIR"/"$CDNDIR
     rm -Rf $DESTDIR/micdn.spec
 
-    #rm micdn.spec
   fi
