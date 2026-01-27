@@ -48,7 +48,10 @@ void index(HTTPServerRequest req, HTTPServerResponse res) {
   auto config = server.config;
   if (uri.indexOf("..") > -1)
     throw new HTTPStatusException(HTTPStatus.notFound);
-  auto file = config.base ~ uri;
+
+  import vibe.textfilter.urlencode;
+
+  auto file = urlDecode(config.base ~ uri);
   if (exists(file)) {
     if (isDir(file)) {
       if (config.publicList) {
