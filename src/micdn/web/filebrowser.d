@@ -1,4 +1,5 @@
 module micdn.web.filebrowser;
+/// 生成目录浏览列表的辅助逻辑，用于展示文件与子目录。
 
 import std.file;
 import std.datetime.date;
@@ -78,7 +79,8 @@ class FileEntry {
     if (isDir) {
       return leftJustify(href, padding, ' ') ~ lastModified.toString() ~ rightJustify("-", 30, ' ');
     } else {
-      return leftJustify(href, padding, ' ') ~ lastModified.toString() ~ rightJustify(size.to!string, 30, ' ');
+      return leftJustify(href, padding, ' ') ~ lastModified.toString() ~ rightJustify(size.to!string,
+          30, ' ');
     }
   }
 
@@ -87,6 +89,7 @@ class FileEntry {
   }
 }
 
+@("web filebrowser sort entries")
 unittest {
   auto entries = new FileEntry[2];
   entries[0] = new FileEntry();

@@ -1,4 +1,5 @@
 module micdn.asset.config;
+/// 静态资源仓库与上下文的配置解析、归一化与 XML 生成。
 
 import std.file;
 import std.algorithm;
@@ -17,7 +18,8 @@ struct Repo {
     auto parts = split(gav, ":");
     assert(parts.length == 3);
     parts[0] = replace(parts[0], ".", "/");
-    return "/" ~ parts[0] ~ "/" ~ parts[1] ~ "/" ~ parts[2] ~ "/" ~ parts[1] ~ "-" ~ parts[2] ~ ".jar";
+    return "/" ~ parts[0] ~ "/" ~ parts[1] ~ "/" ~ parts[2] ~ "/" ~ parts[1] ~ "-"
+      ~ parts[2] ~ ".jar";
   }
 
   this(string[] remotes, string local) {
@@ -41,6 +43,7 @@ struct Repo {
 
 class Config {
   immutable Repo repo;
+  /*本地资源存储路径，默认是~/.micdn/asset*/
   immutable string base;
   /**enable dir list*/
   immutable bool publicList;
@@ -78,12 +81,14 @@ class Config {
     import std.path;
 
     base = expandTilde(base);
-    Context[string] ctxs;
-    auto contextsEntry = children(dom, "contexts");
-    if (!contextsEntry.empty) {
-      auto contextEntries = children(contextsEntry.front, "context");
+    Context[string] ctxMap;
+    auto contextsEntries = children(dom, "contexts");
+
+    foreach (contextsNode; contextsEntries) {
+      auto ctxBase = normalize(getAttrs(contextsNode).get("base", ""));
+      auto contextEntries = children(contextsNode, "context");
       foreach (c; contextEntries) {
-        auto context = new Context(getAttrs(c)["base"]);
+        auto context = new Context(ctxBase ~ normalize(getAttrs(c).get("base", "")));
         auto jars = children(c, "jar");
         foreach (jar; jars) {
           attrs = getAttrs(jar);
@@ -107,42 +112,83 @@ class Config {
           string location = attrs["location"];
           context.addProvider(new ZipProvider(file, location));
         }
-        ctxs[context.base] = context;
+        ctxMap[context.base] = context;
       }
     }
-    return new Config(base, Repo(remotes, expandTilde(local)), publicList, ctxs.rehash());
+    return new Config(base, Repo(remotes, expandTilde(local)), publicList, ctxMap.rehash());
+  }
+
+  static string normalize(string base) {
+    if (base == null || base == "/") {
+      return "";
+    } else if (base.endsWith("/")) {
+      return base[0 .. $ - 1];
+    } else {
+      return base;
+    }
+  }
+
+  /// 取 base 的第一段路径作为分组键。
+  /// - 若有两段或以上（例如 "/lib/foo"），返回第一段 "/lib"
+  /// - 否则（例如 ""、"/"、"/lib"），返回根路径 "/"
+  private static string firstSegment(string base) {
+    size_t slashCount = 0;
+    foreach (i, ch; base) {
+      if (ch == '/') {
+        ++slashCount;
+        // 第二个斜杠，说明至少有两段，返回第一段
+        if (slashCount == 2) {
+          return base[0 .. i];
+        }
+      }
+    }
+    return "/"; // 只有 0 或 1 个斜杠，归到根分组
   }
 
   string toXml() const {
+    import std.array;
+
     auto app = appender!string();
     app.put(`<?xml version="1.0" encoding="UTF-8"?>`);
     app.put("\n");
     app.put("<asset base=\"" ~ base ~ "\">\n");
-    app.put("  <repository remote=\"" ~ repo.remotes.join(",") ~ "\" local=\"" ~ repo.local ~ "\" />\n");
-    app.put("  <contexts>\n");
-    import std.array;
-
-    auto ctx = cast(Context[]) array(contexts.values);
-    ctx.sort!((a, b) => a.base < b.base);
-    foreach (c; ctx) {
-      app.put(c.toXml("    "));
-      app.put("\n");
+    app.put("  <repository remote=\"" ~ repo.remotes.join(
+        ",") ~ "\" local=\"" ~ repo.local ~ "\" />\n");
+    // 在 toXml 内按第一段路径分组，输出多个 <contexts>
+    string[][string] groupKeys; // segment -> [context.base, ...]
+    foreach (c; contexts.values) {
+      auto seg = firstSegment(c.base);
+      groupKeys[seg] ~= c.base;
     }
-    app.put("  </contexts>\n");
+    auto segments = array(groupKeys.keys);
+    segments.sort;
+    foreach (seg; segments) {
+      auto bases = groupKeys[seg];
+      bases.sort;
+      if (seg.length > 0) {
+        app.put("  <contexts base=\"" ~ seg ~ "\">\n");
+      } else {
+        app.put("  <contexts>\n");
+      }
+      foreach (b; bases) {
+        app.put(contexts[b].toXml("    ", seg));
+        app.put("\n");
+      }
+      app.put("  </contexts>\n");
+    }
     app.put("</asset>\n");
     return app.data;
   }
+
 }
 
 class Context {
+  //不能为空,也不能是/结尾
   const string base;
   Provider[] providers = new Provider[0];
   this(string base) {
-    if (base.endsWith("/")) {
-      this.base = base[0 .. $ - 1];
-    } else {
-      this.base = base;
-    }
+    assert(!base.endsWith("/"), "base cannot be ended with /");
+    this.base = base;
   }
 
   void addProvider(Provider p) {
@@ -150,15 +196,23 @@ class Context {
     providers[providers.length - 1] = p;
   }
 
-  string toXml(string indent) const {
+  string toXml(string indent, string groupBase) const {
     auto app = appender!string();
-    app.put(indent ~ "<context base=\"" ~ base ~ "\">\n");
+    app.put(indent ~ "<context base=\"" ~ innerBase(groupBase) ~ "\">\n");
     foreach (p; providers) {
       app.put(p.toXml(indent ~ "  "));
       app.put("\n");
     }
     app.put(indent ~ "</context>");
     return app.data;
+  }
+
+  private string innerBase(string groupBase) const {
+    if (groupBase == "/") {
+      return base;
+    } else {
+      return base[groupBase.length .. $];
+    }
   }
 }
 
@@ -221,12 +275,14 @@ class GavJarProvider : Provider {
   }
 }
 
+@("asset repo remote url")
 unittest {
   immutable(Repo) repo = Repo("https://repo1.maven.org/maven2", "~/.m2/repository");
   auto remoteBui = "https://repo1.maven.org/maven2/org/beangle/bundles/beangle-bundles-bui/0.1.7/beangle-bundles-bui-0.1.7.jar";
   assert(remoteBui == repo.remoteUrls("org.beangle.bundles:beangle-bundles-bui:0.1.7")[0]);
 }
 
+@("asset config parse toXml")
 unittest {
   auto content = `<?xml version="1.0" encoding="UTF-8"?>
 <assets>
@@ -250,4 +306,51 @@ unittest {
 
   auto config = Config.parse("~/tmp", content);
   assert(config.toXml().canFind("https://repo1.maven.org/maven2"));
+}
+
+/// 验证 toXml 按第一段路径分组，输出多个 <contexts> 块
+@("asset toXml multiple contexts")
+unittest {
+  auto content = `<?xml version="1.0" encoding="UTF-8"?>
+<asset base="~/.micdn/asset">
+  <repository remote="https://repo1.maven.org/maven2"/>
+  <contexts>
+    <context base="/urp/">
+      <dir location="~/.openurp/static"/>
+    </context>
+    <context base="/my97/">
+      <jar gav="org.beangle.bundles:beangle-bundles-my97:4.8"/>
+    </context>
+    <context base="/bui/">
+      <jar gav="org.beangle.bundles:beangle-bundles-bui:0.1.7"/>
+    </context>
+  </contexts>
+</asset>`;
+
+  auto config = Config.parse("~/tmp", content);
+  auto xml = config.toXml();
+
+  // 只有一段路径时（/urp、/my97、/bui），都归到根分组 "/"
+  assert(count(xml, "</contexts>") == 1, "应只包含 1 个 </contexts> 闭合标签");
+  assert(xml.canFind("<contexts base=\"/\">"), "应包含 <contexts base=\"/\"> 分组");
+
+  // 该分组内应有对应的 <context base=\"...\">
+  assert(xml.canFind("<context base=\"/urp\">"), "应包含 context /urp");
+  assert(xml.canFind("<context base=\"/my97\">"), "应包含 context /my97");
+  assert(xml.canFind("<context base=\"/bui\">"), "应包含 context /bui");
+
+  // 同一段路径下多个 context 应归在同一 <contexts> 内
+  auto content2 = `<?xml version="1.0" encoding="UTF-8"?>
+<asset base="~/.micdn/asset">
+  <repository remote="https://repo1.maven.org/maven2"/>
+  <contexts base="/lib">
+    <context base="/foo"/>
+    <context base="/bar"/>
+  </contexts>
+</asset>`;
+  auto config2 = Config.parse("~/tmp", content2);
+  auto xml2 = config2.toXml();
+  assert(count(xml2, "</contexts>") == 1, "同一段路径 /lib 应只输出一个 <contexts>");
+  assert(xml2.canFind("<contexts base=\"/lib\">"), "应包含 <contexts base=\"/lib\">");
+  assert(xml2.canFind("<context base=\"/bar\">"), "应包含 <context base=\"/bar\">");
 }

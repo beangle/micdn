@@ -1,4 +1,5 @@
 module micdn.fs.inotify;
+/// 对 Linux inotify 事件与常量的轻量封装，供 fs.watch 使用。
 
 version (Linux) {
   import core.sys.linux.sys.inotify;

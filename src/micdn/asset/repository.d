@@ -1,4 +1,5 @@
 module micdn.asset.repository;
+/// 根据配置构建/刷新本地静态资源仓库目录结构。
 
 import micdn.asset.config;
 import micdn.fs.file;
@@ -117,6 +118,7 @@ class Repository {
   }
 }
 
+@("asset Repository resolve")
 unittest {
   auto uri = "/a/b,c.js";
   auto paths = Repository.resolve(uri);
@@ -130,9 +132,10 @@ unittest {
   assert(paths[2] == "/a/c2/c.min.js");
 }
 
+@("asset Repository config parse")
 unittest {
   auto content = `<?xml version="1.0" encoding="UTF-8"?>
-<assets>
+<assets base="~/tmp/static">
   <repository remote="https://maven.aliyun.com/repository/public"/>
   <contexts>
     <context base="/urp/">

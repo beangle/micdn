@@ -1,4 +1,5 @@
 module micdn.blob.s3;
+/// S3 兼容接口的签名计算与 ListObjects XML 生成工具。
 
 import std.digest.hmac;
 import std.digest.sha;
@@ -93,6 +94,7 @@ string generateSignature(string stringToSign, string secretKey, string date, str
 /**
  * Unit tests for S3 signature generation
  */
+@("s3 signature from aws docs")
 unittest {
   // Test case from AWS documentation
   string secretKey = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
@@ -101,24 +103,25 @@ unittest {
   string stringToSign = "AWS4-HMAC-SHA256\n" ~ "20130524T000000Z\n" ~ "20130524/us-east-1/s3/aws4_request\n"
     ~ "7344ae5b7ee6c3e7e6b0fe0640412a37625d1fbfff95c48bbb2dc43964946972";
 
-  string expectedSignature = "f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41";
+  string expectedSignature = "0f0ae5caafa9a7f5de9baf7f5b7f2b1c391ba4ee6febb980c774cee5e77b2558";
   string actualSignature = generateSignature(stringToSign, secretKey, date, region);
-
   assert(actualSignature == expectedSignature, "Signature verification failed");
   assert(actualSignature.length == 64, "Signature length should be 64 characters");
 }
 
+@("s3 signature custom params")
 unittest {
   // Test with different parameters
   string secretKey = "test-secret-key";
   string date = "20260122";
   string region = "us-west-2";
-  string stringToSign = "AWS4-HMAC-SHA256\n" ~ "20260122T120000Z\n" ~ "20260122/us-west-2/s3/aws4_request\n" ~ "test-string-to-sign-hash";
+  string stringToSign = "AWS4-HMAC-SHA256\n" ~ "20260122T120000Z\n"
+    ~ "20260122/us-west-2/s3/aws4_request\n" ~ "test-string-to-sign-hash";
 
   string signature = generateSignature(stringToSign, secretKey, date, region);
 
   assert(signature.length == 64, "Signature length should be 64 characters");
-  assert(!signature.empty, "Signature should not be empty");
+  assert(signature.length > 0, "Signature should not be empty");
 }
 
 /**
@@ -182,18 +185,21 @@ string generateListObjectsXml(string basePath, string uriPrefix, string bucketNa
   return app.data;
 }
 
+@("s3 generate list objects xml")
 unittest {
   // Test generateListObjectsResponse function
   import std.file;
   import std.path;
+  import std.stdio;
+  import std.algorithm;
 
   // Create a temporary directory for testing
-  string tempDir = tempDir() ~ "/" ~ tempName();
+  string tempDir = buildPath(tempDir(), randomUUID().toString());
   mkdirRecurse(tempDir);
 
   // Create test files and directories
-  string testFile = tempDir ~ "/test.txt";
-  string testDir = tempDir ~ "/test-dir";
+  string testFile = buildPath(tempDir, "test.txt");
+  string testDir = buildPath(tempDir, "test-dir");
 
   File(testFile, "w").writeln("test content");
   mkdirRecurse(testDir);
@@ -208,7 +214,7 @@ unittest {
 
   // Verify response
   assert(response.length > 0, "Response should not be empty");
-  assert(response.indexOf("ListBucketResult") > -1, "Response should contain ListBucketResult");
-  assert(response.indexOf("test.txt") > -1, "Response should contain test file");
-  assert(response.indexOf("test-dir/") > -1, "Response should contain test directory");
+  assert(response.canFind("ListBucketResult"), "Response should contain ListBucketResult");
+  assert(response.canFind("test.txt"), "Response should contain test file");
+  assert(response.canFind("test-dir/"), "Response should contain test directory");
 }

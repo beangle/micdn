@@ -1,4 +1,5 @@
 module micdn.xml.reader;
+/// 基于 dxml DOM 的通用 XML 解析辅助函数集合。
 
 import dxml.dom;
 

@@ -6,10 +6,18 @@
   "files.trimTrailingWhitespace": true,
   "editor.formatOnSave": true,
   "files.insertFinalNewline": true,
+  "files.associations": {
+    "*.d": "d"
+  },
   "[d]": {
     "editor.defaultFormatter": "webfreak.code-d",
     "editor.formatOnSave": true
   },
   "workbench.tree.indent": 10,
-  "workbench.tree.renderIndentGuides": "onHover"
+  "workbench.tree.renderIndentGuides": "onHover",
+  "d.overrideDfmtEditorconfig": false,
+  "dfmt.braceStyle": "otbs",
+  "files.watcherExclude": {
+    "**/target": true
+  }
 }

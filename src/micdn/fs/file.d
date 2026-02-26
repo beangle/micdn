@@ -1,4 +1,5 @@
 module micdn.fs.file;
+/// 文件解压、权限调整等与文件系统相关的实用函数。
 
 import std.stdio;
 import std.file;
@@ -128,6 +129,7 @@ private void doSetWritable(string dir) {
   }
 }
 
+@("fs unzip and permissions")
 unittest {
   import std.file : read;
   import std.stdio;

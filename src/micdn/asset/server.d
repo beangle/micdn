@@ -1,4 +1,5 @@
 module micdn.asset.server;
+/// 静态资源服务入口，挂载资源上下文并提供 HTTP 访问。
 
 import std.stdio;
 import std.file;
@@ -31,7 +32,10 @@ private class AssetServer {
 
 AssetServer server;
 
-void assetStart(string home, ServerOptions options, string configFile) {
+void assetStart(ServerOptions options, string configFile) {
+  import std.path : dirName;
+
+  auto home = dirName(configFile);
   auto config = Config.parse(home, readXml(configFile));
   mkdirRecurse(config.base);
   auto repository = Repository.build(config);
@@ -63,7 +67,8 @@ void index(HTTPServerRequest req, HTTPServerResponse res) {
       if (isDir(rs[0])) {
         if (server.config.publicList) {
           if (uri.endsWith("/")) {
-            auto content = genListContents(server.repository.base ~ uri, server.options.contextPath, uri);
+            auto content = genListContents(server.repository.base ~ uri,
+                server.options.contextPath, uri);
             render!("index.dt", uri, content)(res);
           } else {
             uri = server.options.contextPath ~ uri;
@@ -73,7 +78,8 @@ void index(HTTPServerRequest req, HTTPServerResponse res) {
           throw new HTTPStatusException(HTTPStatus.notFound);
         }
       } else {
-        void setCORS(scope HTTPServerRequest req, scope HTTPServerResponse res, ref string physicalPath) @safe {
+        void setCORS(scope HTTPServerRequest req, scope HTTPServerResponse res,
+            ref string physicalPath) @safe {
           res.headers["Access-Control-Allow-Origin"] = "*";
         }
 

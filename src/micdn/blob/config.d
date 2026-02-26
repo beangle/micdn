@@ -1,4 +1,5 @@
 module micdn.blob.config;
+/// Blob 存储服务配置解析与访问辅助。
 
 import std.string;
 import dxml.dom;
@@ -38,14 +39,14 @@ class Config {
     return defaultProfile;
   }
 
-  public static Config parse(string home, string content) {
+  public static Config parse(string content) {
     Config config;
     auto dom = parseDOM!simpleXML(content).children[0];
     auto attrs = getAttrs(dom);
     string sizeLimit = attrs.get("maxSize", "50M");
     import std.path;
 
-    string base = expandTilde(attrs.get("base", home ~ "/blob"));
+    string base = expandTilde(attrs.get("base", "~/.micdn/blob"));
     string hostname = attrs.get("hostname", "localhost");
     bool publicList = attrs.get("publicList", "false").to!bool;
     config = new Config(hostname, base, publicList);
@@ -157,11 +158,12 @@ class BlobMeta {
   string toJson() const {
     //FIXME 不规范的JSON生成方式，可能导致注入攻击
     return `{owner:"` ~ owner ~ `",profileId:` ~ profileId.to!string ~ `,name:"` ~ name ~ `",fileSize:`
-      ~ fileSize.to!string ~ `,sha:"` ~ sha ~ `",mediaType:"` ~ mediaType ~ `",filePath:"` ~ filePath ~ `",updatedAt:"`
-      ~ updatedAt.toISOExtString ~ `"}`;
+      ~ fileSize.to!string ~ `,sha:"` ~ sha ~ `",mediaType:"` ~ mediaType
+      ~ `",filePath:"` ~ filePath ~ `",updatedAt:"` ~ updatedAt.toISOExtString ~ `"}`;
   }
 }
 
+@("blob profile token verify")
 unittest {
   string[string] keys;
   keys["default"] = "--";
@@ -177,6 +179,7 @@ unittest {
   assert(profile.verifyToken(uri, "default", "--", token, now));
 }
 
+@("blob config parse xml")
 unittest {
   auto content = `<?xml version="1.0"?>
 <blob port="9080" context="/micdn" base="/home/chaostone/tmp">
@@ -194,7 +197,7 @@ unittest {
     <tableName>public.blb_blob_metas</tableName>
   </dataSource>
 </blob>`;
-  auto config = Config.parse("~/tmp", content);
+  auto config = Config.parse(content);
   import std.stdio;
 
   assert(config.profiles.length == 1);

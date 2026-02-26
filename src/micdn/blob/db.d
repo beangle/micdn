@@ -1,4 +1,5 @@
 module micdn.blob.db;
+/// 通过 PostgreSQL 访问 blob 元数据表的 DAO 封装。
 
 import vibe.db.postgresql;
 import vibe.core.log;
@@ -16,8 +17,8 @@ class MetaDao {
     import std.format;
     import std.conv;
 
-    auto url = format("host=%s dbname=%s user=%s password=%s", props["serverName"], props["databaseName"],
-      props["user"], props["password"]);
+    auto url = format("host=%s dbname=%s user=%s password=%s",
+        props["serverName"], props["databaseName"], props["user"], props["password"]);
     auto maximumPoolSize = props.get("maximumPoolSize", "7").to!ushort;
     schema = props["schema"];
     client = new PostgresClient(url, maximumPoolSize);
@@ -27,7 +28,8 @@ class MetaDao {
   void remove(const(Profile) profile, string path) {
     client.pickConnection((scope conn) {
       QueryParams query;
-      query.sqlCommand = "delete from " ~ schema ~ ".blb_blob_metas where profile_id=$1 and file_path=$2";
+      query.sqlCommand = "delete from " ~ schema
+        ~ ".blb_blob_metas where profile_id=$1 and file_path=$2";
       query.argsVariadic(profile.id, path);
       conn.execParams(query);
     });
@@ -37,11 +39,11 @@ class MetaDao {
     bool success = false;
     client.pickConnection((scope conn) {
       QueryParams query;
-      query.sqlCommand = "insert into " ~ schema ~
-        ".blb_blob_metas(id,owner,name,file_size,sha,media_type,profile_id,file_path,updated_at,domain_id) values(datetime_id(),$1,$2,$3,$4,$5,$6,$7,now(),$8)";
+      query.sqlCommand = "insert into " ~ schema ~ ".blb_blob_metas(id,owner,name,file_size,sha,media_type,profile_id,file_path,updated_at,domain_id) values(datetime_id(),$1,$2,$3,$4,$5,$6,$7,now(),$8)";
       import std.conv;
 
-      query.argsVariadic(m.owner, m.name, m.fileSize.to!long, m.sha, m.mediaType, m.profileId, m.filePath, this.domainId);
+      query.argsVariadic(m.owner, m.name, m.fileSize.to!long, m.sha,
+        m.mediaType, m.profileId, m.filePath, this.domainId);
       conn.execParams(query);
       success = true;
     });
@@ -52,7 +54,8 @@ class MetaDao {
     string filename = "";
     client.pickConnection((scope conn) {
       QueryParams query;
-      query.sqlCommand = "select name from " ~ schema ~ ".blb_blob_metas where profile_id=$1 and file_path=$2";
+      query.sqlCommand = "select name from " ~ schema
+        ~ ".blb_blob_metas where profile_id=$1 and file_path=$2";
       query.argsVariadic(profile.id, path);
       auto r = conn.execParams(query);
       if (r.length > 0) {
@@ -77,14 +80,15 @@ class MetaDao {
       }
       import std.conv;
 
-      auto r = conn.exec("select name,key from " ~ schema ~ ".blb_users where domain_id=" ~ domainId.to!string);
+      auto r = conn.exec(
+        "select name,key from " ~ schema ~ ".blb_users where domain_id=" ~ domainId.to!string);
       for (auto row = 0; row < r.length; row++) {
         string name = r[row]["name"].as!PGtext;
         string key = r[row]["key"].as!PGtext;
         config.keys[name] = key;
       }
-      auto r2 = conn.exec("select id,base,users,named_by_sha,public_download from " ~ schema
-        ~ ".blb_profiles where domain_id=" ~ this.domainId.to!string);
+      auto r2 = conn.exec("select id,base,users,named_by_sha,public_download from "
+        ~ schema ~ ".blb_profiles where domain_id=" ~ this.domainId.to!string);
       for (auto row = 0; row < r2.length; row++) {
         int id = r2[row]["id"].as!PGinteger;
         string base = r2[row]["base"].as!PGtext;
@@ -110,6 +114,7 @@ class MetaDao {
   }
 }
 
+@("blob db meta dao smoke")
 unittest {
   /*import dpq2.conv.to_d_types;
   toValue(Clock.currTime());*/

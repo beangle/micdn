@@ -1,4 +1,5 @@
 module micdn.web.server;
+/// 通用 HTTP 服务器配置解析（监听地址、端口、上下文路径等）。
 
 import dxml.dom;
 import std.algorithm;
@@ -49,6 +50,7 @@ class ServerOptions {
 
 }
 
+@("web server parse config")
 unittest {
   auto content = `<?xml version="1.0" encoding="UTF-8"?>
 <Server ips="192.168.31.244" port="8081">
@@ -66,25 +68,22 @@ unittest {
 import vibe.core.args;
 import std.typecons;
 
-auto readConfig(string defaultHome, string defaultConfigFileName) {
+string readConfig(string defaultHome, string defaultConfigFileName) {
   string config;
   string remoteDir;
-  auto hasConfig = readOption!string("config", &config, "specify config params");
+  auto hasConfig = readOption!string("f", &config, "specify config params");
   auto hasRemote = readOption!string("remote", &remoteDir, "specify remote params");
 
   if (hasConfig) {
     if (!exists(config)) {
-      return tuple(defaultHome, config);
+      return config;
     }
     if (config.endsWith("/"))
       config = config[0 .. $ - 1];
 
-    string home;
     if (isDir(config)) {
-      home = expandTilde(config);
+      auto home = expandTilde(config);
       config = expandTilde(home ~ "/" ~ defaultConfigFileName);
-    } else {
-      home = std.path.dirName(config);
     }
     if (hasRemote) {
       auto newxml = config ~ ".new";
@@ -94,9 +93,9 @@ auto readConfig(string defaultHome, string defaultConfigFileName) {
         rename(newxml, config);
       }
     }
-    return tuple(home, config);
+    return config;
   } else {
-    return tuple(defaultHome, defaultHome ~ "/" ~ defaultConfigFileName);
+    return defaultHome ~ "/" ~ defaultConfigFileName;
   }
 }
 
@@ -112,8 +111,8 @@ ServerOptions getServerOptions(string serverType) {
       throw new Exception(serverFile ~ " is not exists!");
     }
   } else {
-    auto defaultConfig = `<?xml version="1.0" encoding="UTF-8"?><Server ips="127.0.0.1" port="8080">` ~
-      `<Context path="/` ~ serverType ~ `"/></Server>`;
+    auto defaultConfig = `<?xml version="1.0" encoding="UTF-8"?><Server ips="127.0.0.1" port="8080">`
+      ~ `<Context path="/` ~ serverType ~ `"/></Server>`;
     return ServerOptions.parse(defaultConfig);
   }
 }

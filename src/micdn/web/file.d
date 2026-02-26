@@ -1,4 +1,5 @@
 module micdn.web.file;
+/// 静态文件响应与 Range/缓存控制等 HTTP 输出工具。
 
 import vibe.http.server;
 import vibe.core.path;
@@ -89,9 +90,11 @@ ulong[2] parseRange(string range, ulong maxSize) @safe {
   return [start, end];
 }
 
+@("web file range encode")
 unittest {
   auto s = encodeAttachmentName("早上 好.txt");
-  assert(s == `attachment; filename="%E6%97%A9%E4%B8%8A%20%E5%A5%BD.txt"; filename*=utf-8''%E6%97%A9%E4%B8%8A%20%E5%A5%BD.txt`);
+  assert(
+      s == `attachment; filename="%E6%97%A9%E4%B8%8A%20%E5%A5%BD.txt"; filename*=utf-8''%E6%97%A9%E4%B8%8A%20%E5%A5%BD.txt`);
   auto r1 = parseRange("0-1", 2);
   assert(r1 == [0, 1]);
 
@@ -121,7 +124,8 @@ static this() {
 
 import vibe.http.fileserver;
 
-void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res, string path, const CacheSetting settings = null) {
+void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
+    string path, const CacheSetting settings = null) {
   if (settings) {
     sendFileImpl(req, res, NativePath(path), settings);
   } else {
@@ -129,7 +133,8 @@ void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res, string 
   }
 }
 
-void sendFiles(scope HTTPServerRequest req, scope HTTPServerResponse res, string[] paths, const CacheSetting settings = null) {
+void sendFiles(scope HTTPServerRequest req, scope HTTPServerResponse res,
+    string[] paths, const CacheSetting settings = null) {
   auto npaths = array(paths.map!(p => NativePath(p)));
   if (settings) {
     sendFilesImpl(req, res, npaths, settings);
@@ -138,7 +143,8 @@ void sendFiles(scope HTTPServerRequest req, scope HTTPServerResponse res, string
   }
 }
 
-private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse res, NativePath path, const CacheSetting settings = null) {
+private void sendFileImpl(scope HTTPServerRequest req,
+    scope HTTPServerResponse res, NativePath path, const CacheSetting settings = null) {
   auto pathstr = path.toNativeString();
   if (!existsFile(pathstr))
     throw new HTTPStatusException(HTTPStatus.notFound);
@@ -147,7 +153,8 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
   try
     dirent = getFileInfo(pathstr);
   catch (Exception) {
-    throw new HTTPStatusException(HTTPStatus.internalServerError, "Failed to get information for the file due to a file system error.");
+    throw new HTTPStatusException(HTTPStatus.internalServerError,
+        "Failed to get information for the file due to a file system error.");
   }
 
   if (dirent.isDirectory) {
@@ -174,8 +181,8 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
     rangeStart = startend[0];
     rangeEnd = startend[1];
     res.headers["Content-Length"] = to!string(rangeEnd - rangeStart + 1);
-    res.headers["Content-Range"] = "bytes %s-%s/%s".format(rangeStart < rangeEnd ? rangeStart : rangeEnd, rangeEnd, dirent
-        .size);
+    res.headers["Content-Range"] = "bytes %s-%s/%s".format(rangeStart < rangeEnd
+        ? rangeStart : rangeEnd, rangeEnd, dirent.size);
     res.statusCode = HTTPStatus.partialContent;
   } else
     res.headers["Content-Length"] = dirent.size.to!string;
@@ -204,7 +211,8 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
   }
 }
 
-private void sendFilesImpl(scope HTTPServerRequest req, scope HTTPServerResponse res, NativePath[] paths, const CacheSetting settings = null) {
+private void sendFilesImpl(scope HTTPServerRequest req,
+    scope HTTPServerResponse res, NativePath[] paths, const CacheSetting settings = null) {
   auto firstPath = paths[0].toNativeString();
   auto infos = paths.map!(p => getFileInfo(p.toNativeString()));
   if (handleCacheFile(req, res, infos[0], settings.cacheControl, settings.maxAge)) {

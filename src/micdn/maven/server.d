@@ -1,4 +1,5 @@
 module micdn.maven.server;
+/// Maven 代理 HTTP 服务入口，转发并缓存上游 Maven 仓库。
 
 import std.stdio;
 import std.file;

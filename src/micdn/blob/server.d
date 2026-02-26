@@ -1,4 +1,5 @@
 module micdn.blob.server;
+/// Blob HTTP 服务入口，提供上传、下载与元数据操作接口。
 
 import std.stdio;
 import std.file;
@@ -24,13 +25,11 @@ import micdn.web.filebrowser;
 import micdn.xml.reader;
 
 private class BlobServer {
-  const string home;
   const ServerOptions options;
   const Config config;
   Repository repository;
 
-  this(string home, ServerOptions options, Config config, Repository repository) {
-    this.home = home;
+  this(ServerOptions options, Config config, Repository repository) {
     this.options = options;
     this.config = config;
     this.repository = repository;
@@ -39,14 +38,14 @@ private class BlobServer {
 
 BlobServer server;
 
-void blobStart(string home, ServerOptions options, string configFile) {
-  auto config = Config.parse(home, readXml(configFile));
+void blobStart(ServerOptions options, string configFile) {
+  auto config = Config.parse(readXml(configFile));
   MetaDao metaDao = null;
   if (!config.dataSourceProps.empty) {
     metaDao = new MetaDao(config.dataSourceProps, config);
   }
   auto repository = new Repository(config.base, metaDao);
-  server = new BlobServer(home, options, config, repository);
+  server = new BlobServer(options, config, repository);
   auto router = new URLRouter(options.contextPath);
   router.get("*", &index);
   router.post("*", &upload);
@@ -75,7 +74,8 @@ void index(HTTPServerRequest req, HTTPServerResponse res) {
   } else if (rs == 1) { // dir
     if (server.config.publicList) {
       if (uri.endsWith("/")) {
-        auto content = genListContents(server.repository.base ~ uri, server.options.contextPath, uri);
+        auto content = genListContents(server.repository.base ~ uri,
+            server.options.contextPath, uri);
         render!("index.dt", uri, content)(res);
       } else {
         import std.array;
@@ -121,8 +121,11 @@ void upload(HTTPServerRequest req, HTTPServerResponse res) {
       import vibe.inet.mimetypes;
 
       auto mediaType = getMimeTypeForFile(pf.toString);
-      auto meta = server.repository.create(profile, pf.tempPath.toNativeString, pf.toString, uri, owner, mediaType);
-      logInfo("upload " ~ profile.base ~ meta.filePath ~ " at " ~ meta.updatedAt.toISOExtString ~ "(" ~ meta.owner ~ ")");
+      auto meta = server.repository.create(profile, pf.tempPath.toNativeString,
+          pf.toString, uri, owner, mediaType);
+      logInfo(
+          "upload " ~ profile.base ~ meta.filePath ~ " at "
+          ~ meta.updatedAt.toISOExtString ~ "(" ~ meta.owner ~ ")");
       res.writeBody(meta.toJson(), "application/json");
     } catch (Exception e) {
       logInfo("Performing copy failed.Cause %s", e.msg);
@@ -161,7 +164,8 @@ void download(const(Profile) profile, HTTPServerRequest req, HTTPServerResponse 
   } else {
     auto realname = server.repository.getRealname(profile, path[profile.base.length .. $]);
     if (realname.length > 0) {
-      void setContextDisposition(scope HTTPServerRequest req, scope HTTPServerResponse res, ref string physicalPath) @safe {
+      void setContextDisposition(scope HTTPServerRequest req,
+          scope HTTPServerResponse res, ref string physicalPath) @safe {
         res.headers["Content-Disposition"] = encodeAttachmentName(realname);
       }
 
@@ -174,7 +178,8 @@ void download(const(Profile) profile, HTTPServerRequest req, HTTPServerResponse 
   }
 }
 
-bool checkToken(const(Profile) profile, string uri, string user, string key, string token, string timestamp) {
+bool checkToken(const(Profile) profile, string uri, string user, string key,
+    string token, string timestamp) {
   try {
     return profile.verifyToken(uri, user, key, token, SysTime.fromISOString(timestamp));
   } catch (Exception e) {
@@ -244,7 +249,8 @@ bool s3Auth(HTTPServerRequest req, HTTPServerResponse res) {
             string stringToSign = generateStringToSign(req, canonicalRequest, credentialScope);
 
             // Generate signature
-            string expectedSignature = generateSignature(stringToSign, secretKey, credentialParts[1], credentialParts[2]);
+            string expectedSignature = generateSignature(stringToSign,
+                secretKey, credentialParts[1], credentialParts[2]);
 
             // Verify signature
             if (signature == expectedSignature) {
@@ -302,7 +308,8 @@ string generateCanonicalRequest(HTTPServerRequest req, string uri) {
   // In a real implementation, we would hash the request body
 
   // Combine all parts
-  return method ~ "\n" ~ canonicalUri ~ "\n" ~ canonicalQueryString ~ "\n" ~ canonicalHeaders ~ "\n" ~ signedHeaders ~ "\n" ~ payloadHash;
+  return method ~ "\n" ~ canonicalUri ~ "\n" ~ canonicalQueryString ~ "\n"
+    ~ canonicalHeaders ~ "\n" ~ signedHeaders ~ "\n" ~ payloadHash;
 }
 
 string generateStringToSign(HTTPServerRequest req, string canonicalRequest, string credentialScope) {
@@ -392,12 +399,9 @@ void s3GetObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
 <Error>
   <Code>NoSuchKey</Code>
   <Message>The specified key does not exist.</Message>
-  <Key>`
-        ~ uri ~ `</Key>f
-  <RequestId>`
-        ~ generateUuid() ~ `</RequestId>
-  <HostId>`
-        ~ generateAmzId2() ~ `</HostId>
+  <Key>` ~ uri ~ `</Key>f
+  <RequestId>` ~ generateUuid() ~ `</RequestId>
+  <HostId>` ~ generateAmzId2() ~ `</HostId>
 </Error>`, "application/xml");
   }
 }
@@ -434,7 +438,8 @@ void s3PutObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
     auto mediaType = getMimeTypeForFile(filename);
     string owner = "s3-user";
 
-    auto meta = server.repository.create(profile, tempPath, filename, uri.dirName(), owner, mediaType);
+    auto meta = server.repository.create(profile, tempPath, filename,
+        uri.dirName(), owner, mediaType);
 
     // Clean up temp file
     std.file.remove(tempPath);
@@ -456,10 +461,8 @@ void s3PutObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
 <Error>
   <Code>InternalError</Code>
   <Message>We encountered an internal error. Please try again.</Message>
-  <RequestId>`
-        ~ generateUuid() ~ `</RequestId>
-  <HostId>`
-        ~ generateAmzId2() ~ `</HostId>
+  <RequestId>` ~ generateUuid() ~ `</RequestId>
+  <HostId>` ~ generateAmzId2() ~ `</HostId>
 </Error>`, "application/xml");
   }
 }
@@ -484,12 +487,9 @@ void s3DeleteObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
 <Error>
   <Code>NoSuchKey</Code>
   <Message>The specified key does not exist.</Message>
-  <Key>`
-        ~ uri ~ `</Key>
-  <RequestId>`
-        ~ generateUuid() ~ `</RequestId>
-  <HostId>`
-        ~ generateAmzId2() ~ `</HostId>
+  <Key>` ~ uri ~ `</Key>
+  <RequestId>` ~ generateUuid() ~ `</RequestId>
+  <HostId>` ~ generateAmzId2() ~ `</HostId>
 </Error>`, "application/xml");
   }
 }
@@ -524,12 +524,9 @@ void s3HeadObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
 <Error>
   <Code>NoSuchKey</Code>
   <Message>The specified key does not exist.</Message>
-  <Key>`
-        ~ uri ~ `</Key>
-  <RequestId>`
-        ~ generateUuid() ~ `</RequestId>
-  <HostId>`
-        ~ generateAmzId2() ~ `</HostId>
+  <Key>` ~ uri ~ `</Key>
+  <RequestId>` ~ generateUuid() ~ `</RequestId>
+  <HostId>` ~ generateAmzId2() ~ `</HostId>
 </Error>`, "application/xml");
   }
 }
@@ -559,12 +556,9 @@ void s3ListObjects(HTTPServerRequest req, HTTPServerResponse res, string uri) {
 <Error>
   <Code>NoSuchBucket</Code>
   <Message>The specified bucket does not exist.</Message>
-  <BucketName>`
-        ~ uri ~ `</BucketName>
-  <RequestId>`
-        ~ generateUuid() ~ `</RequestId>
-  <HostId>`
-        ~ generateAmzId2() ~ `</HostId>
+  <BucketName>` ~ uri ~ `</BucketName>
+  <RequestId>` ~ generateUuid() ~ `</RequestId>
+  <HostId>` ~ generateAmzId2() ~ `</HostId>
 </Error>`, "application/xml");
   }
 }

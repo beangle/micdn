@@ -1,4 +1,5 @@
 module micdn.maven.config;
+/// Maven 代理服务配置解析与远程仓库列表管理。
 import std.string;
 import dxml.dom;
 import std.conv;
@@ -122,7 +123,8 @@ class Config {
 
     auto ok = sha1InFile.indexOf(hexCalc) >= 0;
     if (!ok) {
-      logWarn("Miss match sha for %s. sha1file %s and calculated is %s", artifact, sha1InFile, hexCalc);
+      logWarn("Miss match sha for %s. sha1file %s and calculated is %s",
+          artifact, sha1InFile, hexCalc);
       return -1;
     } else {
       return 0;
@@ -159,6 +161,7 @@ void add(ref string[] remotes, string remote) {
   remotes[$ - 1] = remote;
 }
 
+@("maven config parse remotes")
 unittest {
   auto content = `<?xml version="1.0" encoding="UTF-8"?>
 <maven cacheable="true" >

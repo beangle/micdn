@@ -1,4 +1,5 @@
 module micdn.fs.watch;
+/// 目录/文件变动监控封装，Linux 下基于 inotify，其它平台返回空实现。
 
 version (Linux) {
   import std.algorithm;
@@ -124,6 +125,7 @@ version (Linux) {
     return Watch(inotify_init1(IN_NONBLOCK), [base], mask);
   }
 
+  @("fs watch inotify linux")
   unittest {
     import std.process;
 
@@ -168,7 +170,10 @@ version (Linux) {
 
     import core.thread;
 
-    auto t = new Thread(() { Thread.sleep(1000.msecs); executeShell("touch temp/dir1/c.temp"); }).start();
+    auto t = new Thread(() {
+      Thread.sleep(1000.msecs);
+      executeShell("touch temp/dir1/c.temp");
+    }).start();
     evs = monitor.read(10.msecs);
     t.join();
     assert(evs.length == 0);
@@ -203,6 +208,7 @@ version (Linux) {
     throw new Exception("watch not supported on this platform");
   }
 
+  @("fs watch unsupported platform")
   unittest {
     // no-op on non-Linux platforms
   }
