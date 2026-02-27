@@ -1,6 +1,10 @@
 module micdn.xml.reader;
 /// 基于 dxml DOM 的通用 XML 解析辅助函数集合。
 
+import std.algorithm;
+import std.file : exists, read;
+import std.path : expandTilde;
+
 import dxml.dom;
 
 auto getAttrs(T)(ref DOMEntity!T dom) {
@@ -12,13 +16,8 @@ auto getAttrs(T)(ref DOMEntity!T dom) {
 }
 
 auto children(T)(ref DOMEntity!T dom, string path) {
-  import std.algorithm;
-
   return dom.children.filter!(c => c.name == path);
 }
-
-import std.path : expandTilde;
-import std.file : exists, read;
 
 string readXml(string xmlfile) {
   auto fullPath = expandTilde(xmlfile);

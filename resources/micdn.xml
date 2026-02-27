@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<micdn xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:xi="http://www.w3.org/2001/XInclude"
+  xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.0.0.xsd">
+
+  <repo publicList="true" base="~/.m2/repository" endpoint="/repo">
+    <remote url="https://maven.aliyun.com/repository/public" />
+    <remote url="https://repo1.maven.org/maven2/" />
+  </repo>
+
+  <xi:include href="blob.xml" />
+
+  <static endpoint="/static" base="~/.micdn/static">
+    <bundle name="local">
+      <dir location="${micdn.home}/local" />
+      <zip file="${micdn.home}/local.zip" dir="sub/dir" />
+      <jar gav="org.webjars:AdminLTE:3.2.0" />
+    </bundle>
+    <bundle name="AdminLTE">
+      <jar gav="org.webjars:AdminLTE:3.2.0" />
+    </bundle>
+    <bundle name="bootstrap">
+      <jar gav="org.webjars:bootstrap:4.6.1" />
+    </bundle>
+    <bundle name="bootstrap-combobox">
+      <jar gav="org.webjars.bowergithub.danielfarrell:bootstrap-combobox:1.2.0" />
+    </bundle>
+    <bundle name="bui">
+      <jar gav="org.beangle.bundles:beangle-bundles-bui:0.6.7" />
+    </bundle>
+  </static>
+
+  <www>
+    <doc location="/www">
+      <zip file="${micdn.home}/local.zip" dir="sub/dir" />
+    </doc>
+  </www>
+
+</micdn>

@@ -1,11 +1,12 @@
 module micdn.web.filebrowser;
 /// 生成目录浏览列表的辅助逻辑，用于展示文件与子目录。
 
-import std.file;
-import std.datetime.date;
 import std.algorithm;
-import std.string;
+import std.array : appender;
 import std.conv;
+import std.datetime.date;
+import std.file;
+import std.string;
 
 auto list(string path) {
   auto startIdx = path.length;
@@ -33,8 +34,6 @@ auto list(string path) {
 
 auto genListContents(string dir, string prefix, string uri) {
   auto entries = list(dir);
-  import std.array : appender;
-
   auto app = appender!string();
   auto lastSlash = uri[0 .. $ - 1].lastIndexOf("/");
   if (lastSlash > -1) {
@@ -57,8 +56,6 @@ class FileEntry {
   ulong size;
 
   auto toLine() {
-    import std.array : appender;
-
     auto buf = appender!string();
     buf.put("<a href=\"");
     buf.put(name);

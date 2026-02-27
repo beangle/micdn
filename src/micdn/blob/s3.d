@@ -1,18 +1,34 @@
 module micdn.blob.s3;
 /// S3 兼容接口的签名计算与 ListObjects XML 生成工具。
 
-import std.digest.hmac;
-import std.digest.sha;
-import std.digest.md;
-import std.digest : toHexString, LetterCase;
-import std.random;
+import std.algorithm;
 import std.base64;
+import std.stdio;
+import std.conv : to;
 import std.datetime.systime;
+import std.digest : toHexString, LetterCase;
+import std.digest.hmac;
+import std.digest.md;
+import std.digest.sha;
 import std.file;
 import std.path;
+import std.random;
+import std.range;
 import std.uuid;
-import std.conv : to;
+import std.uni : toLower;
+import std.string : strip;
 
+import vibe.core.core;
+import vibe.core.file;
+import vibe.core.log;
+import vibe.http.router;
+import vibe.http.server;
+import vibe.web.web;
+
+import micdn.blob.store;
+import micdn.model;
+import micdn.web;
+import micdn.web.file;
 /**
  * AWS Signature V4 utilities for S3 protocol
  */
@@ -92,39 +108,6 @@ string generateSignature(string stringToSign, string secretKey, string date, str
 }
 
 /**
- * Unit tests for S3 signature generation
- */
-@("s3 signature from aws docs")
-unittest {
-  // Test case from AWS documentation
-  string secretKey = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
-  string date = "20130524";
-  string region = "us-east-1";
-  string stringToSign = "AWS4-HMAC-SHA256\n" ~ "20130524T000000Z\n" ~ "20130524/us-east-1/s3/aws4_request\n"
-    ~ "7344ae5b7ee6c3e7e6b0fe0640412a37625d1fbfff95c48bbb2dc43964946972";
-
-  string expectedSignature = "0f0ae5caafa9a7f5de9baf7f5b7f2b1c391ba4ee6febb980c774cee5e77b2558";
-  string actualSignature = generateSignature(stringToSign, secretKey, date, region);
-  assert(actualSignature == expectedSignature, "Signature verification failed");
-  assert(actualSignature.length == 64, "Signature length should be 64 characters");
-}
-
-@("s3 signature custom params")
-unittest {
-  // Test with different parameters
-  string secretKey = "test-secret-key";
-  string date = "20260122";
-  string region = "us-west-2";
-  string stringToSign = "AWS4-HMAC-SHA256\n" ~ "20260122T120000Z\n"
-    ~ "20260122/us-west-2/s3/aws4_request\n" ~ "test-string-to-sign-hash";
-
-  string signature = generateSignature(stringToSign, secretKey, date, region);
-
-  assert(signature.length == 64, "Signature length should be 64 characters");
-  assert(signature.length > 0, "Signature should not be empty");
-}
-
-/**
  * Generate S3 ListObjects XML response
  *
  * Params:
@@ -185,36 +168,397 @@ string generateListObjectsXml(string basePath, string uriPrefix, string bucketNa
   return app.data;
 }
 
-@("s3 generate list objects xml")
-unittest {
-  // Test generateListObjectsResponse function
-  import std.file;
-  import std.path;
-  import std.stdio;
-  import std.algorithm;
+class S3Service {
+  private const string endpoint;
+  private BlobRepo repo;
 
-  // Create a temporary directory for testing
-  string tempDir = buildPath(tempDir(), randomUUID().toString());
-  mkdirRecurse(tempDir);
+  this(MicdnConfig config, MetaDao metadao) {
+    this.endpoint = config.blob.endpoint;
+    this.repo = BlobRepo.build(config, metadao);
+  }
 
-  // Create test files and directories
-  string testFile = buildPath(tempDir, "test.txt");
-  string testDir = buildPath(tempDir, "test-dir");
 
-  File(testFile, "w").writeln("test content");
-  mkdirRecurse(testDir);
+  void service(HTTPServerRequest req, HTTPServerResponse res) {
+    auto uri = getPath(this.endpoint, req);
 
-  // Generate response
-  string response = generateListObjectsXml(tempDir, "/test-prefix/");
+    // Get the actual URI by removing /s3 prefix
+    string actualUri = uri;
+    if (actualUri.startsWith("/s3")) {
+      actualUri = actualUri[3 .. $];
+      if (actualUri.empty)
+        actualUri = "/";
+    }
 
-  // Clean up
-  remove(testFile);
-  remove(testDir);
-  remove(tempDir);
+    // Authenticate S3 request
+    if (auth(req, res)) {
+      // Handle S3 request based on HTTP method
+      switch (req.method) {
+      case HTTPMethod.GET:
+        if (actualUri.endsWith("/")) {
+          listObjects(req, res, actualUri);
+        } else {
+          getObject(req, res, actualUri);
+        }
+        break;
+      case HTTPMethod.PUT:
+        putObject(req, res, actualUri);
+        break;
+      case HTTPMethod.DELETE:
+        deleteObject(req, res, actualUri);
+        break;
+      case HTTPMethod.HEAD:
+        headObject(req, res, actualUri);
+        break;
+      default:
+        res.statusCode = HTTPStatus.methodNotAllowed;
+        res.writeBody("Method not allowed", "text/plain");
+      }
+    }
+  }
 
-  // Verify response
-  assert(response.length > 0, "Response should not be empty");
-  assert(response.canFind("ListBucketResult"), "Response should contain ListBucketResult");
-  assert(response.canFind("test.txt"), "Response should contain test file");
-  assert(response.canFind("test-dir/"), "Response should contain test directory");
+
+  void getObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
+    // Implement S3 GetObject
+    auto rs = repo.check(uri);
+    if (rs == 2) {
+      auto profile = repo.getProfile(uri);
+
+      // Add S3-specific response headers
+      string requestId = generateUuid();
+      string amzId2 = generateAmzId2();
+      res.headers["x-amz-request-id"] = requestId;
+      res.headers["x-amz-id-2"] = amzId2;
+
+      download(profile, req, res, uri);
+    } else {
+      // S3-style error response
+      res.statusCode = HTTPStatus.notFound;
+      res.contentType = "application/xml";
+      res.writeBody(`<?xml version="1.0" encoding="UTF-8"?>
+  <Error>
+    <Code>NoSuchKey</Code>
+    <Message>The specified key does not exist.</Message>
+    <Key>` ~ uri ~ `</Key>f
+    <RequestId>` ~ generateUuid() ~ `</RequestId>
+    <HostId>` ~ generateAmzId2() ~ `</HostId>
+  </Error>`, "application/xml");
+    }
+  }
+
+  void putObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
+    // Implement S3 PutObject
+    auto profile = repo.getProfile(uri);
+    try {
+      import vibe.core.path;
+      import std.file;
+
+      // Create temp file
+      auto tempPath = std.file.tempDir() ~ "/" ~ generateUuid();
+      auto tempFile = File(tempPath, "wb");
+
+      // Read request body to temp file
+      ubyte[] buffer = new ubyte[4096];
+      size_t read;
+      import eventcore.driver : IOMode;
+
+      while ((read = req.bodyReader.read(buffer, IOMode.all)) > 0) {
+        tempFile.rawWrite(buffer[0 .. read]);
+      }
+      tempFile.close();
+
+      // Get filename from uri
+      import std.path;
+
+      auto filename = uri.baseName();
+
+      // Create blob meta
+      import vibe.inet.mimetypes;
+
+      auto mediaType = getMimeTypeForFile(filename);
+      string owner = "s3-user";
+
+      auto meta = repo.create(profile, tempPath, filename,
+          uri.dirName(), owner, mediaType);
+
+      // Clean up temp file
+      std.file.remove(tempPath);
+
+      // Add S3-specific response headers
+      string requestId = generateUuid();
+      string amzId2 = generateAmzId2();
+      res.headers["x-amz-request-id"] = requestId;
+      res.headers["x-amz-id-2"] = amzId2;
+      res.headers["ETag"] = "\"" ~ meta.sha ~ "\"";
+
+      res.statusCode = HTTPStatus.ok;
+      res.writeBody("", "");
+    } catch (Exception e) {
+      // S3-style error response
+      res.statusCode = HTTPStatus.internalServerError;
+      res.contentType = "application/xml";
+      res.writeBody(`<?xml version="1.0" encoding="UTF-8"?>
+  <Error>
+    <Code>InternalError</Code>
+    <Message>We encountered an internal error. Please try again.</Message>
+    <RequestId>` ~ generateUuid() ~ `</RequestId>
+    <HostId>` ~ generateAmzId2() ~ `</HostId>
+  </Error>`, "application/xml");
+    }
+  }
+
+  void deleteObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
+    // Implement S3 DeleteObject
+    auto profile = repo.getProfile(uri);
+    if (repo.remove(profile, uri)) {
+      // Add S3-specific response headers
+      string requestId = generateUuid();
+      string amzId2 = generateAmzId2();
+      res.headers["x-amz-request-id"] = requestId;
+      res.headers["x-amz-id-2"] = amzId2;
+
+      res.statusCode = HTTPStatus.noContent;
+      res.writeBody("", "");
+    } else {
+      // S3-style error response
+      res.statusCode = HTTPStatus.notFound;
+      res.contentType = "application/xml";
+      res.writeBody(`<?xml version="1.0" encoding="UTF-8"?>
+  <Error>
+    <Code>NoSuchKey</Code>
+    <Message>The specified key does not exist.</Message>
+    <Key>` ~ uri ~ `</Key>
+    <RequestId>` ~ generateUuid() ~ `</RequestId>
+    <HostId>` ~ generateAmzId2() ~ `</HostId>
+  </Error>`, "application/xml");
+    }
+  }
+
+  void headObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
+    // Implement S3 HeadObject
+    auto rs = repo.check(uri);
+    if (rs == 2) {
+      auto profile = repo.getProfile(uri);
+      import std.file;
+
+      auto filePath = repo.base ~ uri;
+      auto fileSize = getSize(filePath);
+
+      // Add S3-specific response headers
+      string requestId = generateUuid();
+      string amzId2 = generateAmzId2();
+      string etag = generateEtag(filePath);
+      res.headers["x-amz-request-id"] = requestId;
+      res.headers["x-amz-id-2"] = amzId2;
+      res.headers["Content-Length"] = fileSize.to!string;
+      res.headers["Content-Type"] = "application/octet-stream";
+      res.headers["ETag"] = etag;
+
+      res.statusCode = HTTPStatus.ok;
+      res.writeBody("", "");
+    } else {
+      // S3-style error response
+      res.statusCode = HTTPStatus.notFound;
+      res.contentType = "application/xml";
+      res.writeBody(`<?xml version="1.0" encoding="UTF-8"?>
+  <Error>
+    <Code>NoSuchKey</Code>
+    <Message>The specified key does not exist.</Message>
+    <Key>` ~ uri ~ `</Key>
+    <RequestId>` ~ generateUuid() ~ `</RequestId>
+    <HostId>` ~ generateAmzId2() ~ `</HostId>
+  </Error>`, "application/xml");
+    }
+  }
+
+  void listObjects(HTTPServerRequest req, HTTPServerResponse res, string uri) {
+    // Implement S3 ListObjects
+    auto profile = repo.getProfile(uri);
+    import std.file;
+
+    auto basePath = repo.base ~ uri;
+    if (exists(basePath) && isDir(basePath)) {
+      // Add S3-specific response headers
+      string requestId = generateUuid();
+      string amzId2 = generateAmzId2();
+      res.headers["x-amz-request-id"] = requestId;
+      res.headers["x-amz-id-2"] = amzId2;
+
+      // Generate XML response using core function
+      string xmlResponse = generateListObjectsXml(basePath, uri);
+      res.contentType = "application/xml";
+      res.writeBody(xmlResponse, "application/xml");
+    } else {
+      // S3-style error response
+      res.statusCode = HTTPStatus.notFound;
+      res.contentType = "application/xml";
+      res.writeBody(`<?xml version="1.0" encoding="UTF-8"?>
+  <Error>
+    <Code>NoSuchBucket</Code>
+    <Message>The specified bucket does not exist.</Message>
+    <BucketName>` ~ uri ~ `</BucketName>
+    <RequestId>` ~ generateUuid() ~ `</RequestId>
+    <HostId>` ~ generateAmzId2() ~ `</HostId>
+  </Error>`, "application/xml");
+    }
+  }
+
+
+  private bool auth(HTTPServerRequest req, HTTPServerResponse res) {
+    // Implement AWS Signature V4 authentication
+    if ("Authorization" in req.headers) {
+      auto authHeader = req.headers["Authorization"];
+      if (authHeader.startsWith("AWS4-HMAC-SHA256 ")) {
+        // Parse Authorization header
+        auto authParts = authHeader[17 .. $].split(", ");
+        string credentialScope, signature;
+
+        foreach (part; authParts) {
+          if (part.startsWith("Credential=")) {
+            credentialScope = part[10 .. $];
+          } else if (part.startsWith("Signature=")) {
+            signature = part[10 .. $];
+          }
+        }
+
+        if (!credentialScope.empty && !signature.empty) {
+          // Extract access key from credential scope
+          auto credentialParts = credentialScope.split("/");
+          if (credentialParts.length >= 5) {
+            auto accessKey = credentialParts[0];
+
+            // Get the profile for the requested URL
+            auto uri = getPath(this.endpoint, req);
+            if (uri.startsWith("/s3")) {
+              uri = uri[3 .. $];
+              if (uri.empty)
+                uri = "/";
+            }
+            auto profile = repo.getProfile(uri);
+
+            // Check if access key exists in profile keys
+            if (accessKey in profile.keys) {
+              // Get secret key
+              auto secretKey = profile.keys[accessKey];
+
+              // Generate canonical request
+              string canonicalRequest = generateCanonicalRequest(req, uri);
+
+              // Generate string to sign
+              string stringToSign = generateStringToSign(req, canonicalRequest, credentialScope);
+
+              // Generate signature
+              string expectedSignature = generateSignature(stringToSign,
+                  secretKey, credentialParts[1], credentialParts[2]);
+
+              // Verify signature
+              if (signature == expectedSignature) {
+                return true;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    res.statusCode = HTTPStatus.unauthorized;
+    res.headers["WWW-Authenticate"] = "AWS4-HMAC-SHA256";
+    res.writeBody("Unauthorized", "text/plain");
+    return false;
+  }
+
+  string generateCanonicalRequest(HTTPServerRequest req, string uri) {
+    // Generate canonical request
+    string method = req.method.to!string;
+    string canonicalUri = uri;
+    string canonicalQueryString = "";
+
+    // Handle query parameters
+    if (!req.query.empty) {
+      bool first = true;
+      foreach (kv; req.query.byKeyValue()) {
+        if (!first)
+          canonicalQueryString ~= "&";
+        canonicalQueryString ~= kv.key ~ "=" ~ kv.value;
+        first = false;
+      }
+    }
+
+    // Generate canonical headers
+    string canonicalHeaders = "";
+    foreach (e; req.headers.byKeyValue()) {
+      auto lowerKey = e.key.toLower();
+      canonicalHeaders ~= lowerKey ~ ":" ~ e.value.strip() ~ "\n";
+    }
+
+    // Generate signed headers
+    string signedHeaders = "";
+    bool first = true;
+    foreach (e; req.headers.byKeyValue()) {
+      auto lowerKey = e.key.toLower();
+      if (!first)
+        signedHeaders ~= ";";
+      signedHeaders ~= lowerKey;
+      first = false;
+    }
+
+    // Generate payload hash
+    string payloadHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    // In a real implementation, we would hash the request body
+
+    // Combine all parts
+    return method ~ "\n" ~ canonicalUri ~ "\n" ~ canonicalQueryString ~ "\n"
+      ~ canonicalHeaders ~ "\n" ~ signedHeaders ~ "\n" ~ payloadHash;
+  }
+
+  string generateStringToSign(HTTPServerRequest req, string canonicalRequest, string credentialScope) {
+    // Get timestamp from x-amz-date header
+    string timestamp;
+    if ("x-amz-date" in req.headers) {
+      timestamp = req.headers["x-amz-date"];
+    } else {
+      // Fallback to current time
+      import std.datetime.systime;
+      import std.datetime.timezone;
+
+      auto now = Clock.currTime();
+      timestamp = now.toISOString();
+    }
+
+    // Generate scope from credential scope
+    auto scopeParts = credentialScope.split("/");
+    string s = scopeParts[1] ~ "/" ~ scopeParts[2] ~ "/s3/aws4_request";
+
+    // Hash canonical request
+    import std.digest.sha;
+    import std.digest : toHexString, LetterCase;
+
+    auto canonicalRequestHash = toHexString!(LetterCase.lower)(sha256Of(canonicalRequest)).idup;
+
+    // Combine all parts
+    return "AWS4-HMAC-SHA256\n" ~ timestamp ~ "\n" ~ s ~ "\n" ~ canonicalRequestHash;
+  }
+
+    //fixme for realname detection
+  private void download(const(BlobProfile) profile, HTTPServerRequest req, HTTPServerResponse res, string path) {
+    import std.path;
+
+    auto ext = extension(path);
+    if (ext in repo.images) {
+      sendFile(req, res, repo.base ~ path, null);
+    } else {
+      auto realname = repo.getRealname(profile, path[profile.base.length .. $]);
+      if (realname.length > 0) {
+        void setContextDisposition(scope HTTPServerRequest req,
+            scope HTTPServerResponse res, ref string physicalPath) @safe {
+          res.headers["Content-Disposition"] = encodeAttachmentName(realname);
+        }
+
+        auto settings = new CacheSetting;
+        settings.preWriteCallback = &setContextDisposition;
+        sendFile(req, res, repo.base ~ path, settings);
+      } else {
+        sendFile(req, res, repo.base ~ path, null);
+      }
+    }
+  }
 }

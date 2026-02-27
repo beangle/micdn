@@ -1,22 +1,23 @@
 module micdn.web.file;
 /// 静态文件响应与 Range/缓存控制等 HTTP 输出工具。
 
-import vibe.http.server;
-import vibe.core.path;
-import vibe.core.file;
-import vibe.core.stream;
-import vibe.inet.mimetypes;
-import vibe.inet.message;
-
-import std.array;
-import std.stdio;
-import std.datetime;
-import std.typecons;
-import std.conv;
-import std.string;
 import std.algorithm;
-import std.exception;
+import std.array;
 import std.ascii : isWhite;
+import std.conv;
+import std.datetime;
+import std.exception;
+import std.stdio;
+import std.string;
+import std.typecons;
+
+import vibe.core.file;
+import vibe.core.path;
+import vibe.core.stream;
+import vibe.http.fileserver;
+import vibe.http.server;
+import vibe.inet.message;
+import vibe.inet.mimetypes;
 
 string encodeAttachmentName(string name) @safe {
   import std.array;
@@ -98,14 +99,14 @@ unittest {
   auto r1 = parseRange("0-1", 2);
   assert(r1 == [0, 1]);
 
-  auto r2 = parseRange("9500-", 10000);
-  auto r3 = parseRange("-500", 10000);
+  auto r2 = parseRange("9500-", 10_000);
+  auto r3 = parseRange("-500", 10_000);
   assert(r2 == r3);
 
-  auto r4 = parseRange("9500-100002", 10000);
+  auto r4 = parseRange("9500-100002", 10_000);
   assert(r2 == r4);
 
-  auto r5 = parseRange("10000-100002", 10000);
+  auto r5 = parseRange("10000-100002", 10_000);
   assert(r5 == [9999, 9999]);
 }
 
@@ -121,8 +122,6 @@ CacheSetting default_settings;
 static this() {
   default_settings = new CacheSetting();
 }
-
-import vibe.http.fileserver;
 
 void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
     string path, const CacheSetting settings = null) {

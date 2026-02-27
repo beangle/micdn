@@ -1,12 +1,20 @@
 module micdn.web.server;
 /// 通用 HTTP 服务器配置解析（监听地址、端口、上下文路径等）。
 
-import dxml.dom;
 import std.algorithm;
+import std.array;
+import std.conv;
 import std.file;
 import std.path;
+import std.typecons;
+
+import dxml.dom;
+
+import vibe.core.args;
 import vibe.core.log;
+
 import micdn.web.file;
+import micdn.xml.reader;
 
 class ServerOptions {
   string[] ips;
@@ -20,9 +28,6 @@ class ServerOptions {
   }
 
   public static ServerOptions parse(string content) {
-    import std.conv;
-    import micdn.xml.reader;
-
     auto dom = parseDOM!simpleXML(content).children[0];
     auto attrs = getAttrs(dom);
     string hosts;
@@ -37,14 +42,10 @@ class ServerOptions {
       throw new Exception("Context element is needed in server.xml.");
     }
     auto contextAttrs = getAttrs(contextEntries.front);
-    import std.array;
-
     return new ServerOptions(split(hosts, ","), port, contextAttrs["path"]);
   }
 
   @property public string listenAddr() const {
-    import std.conv;
-
     return this.ips[0] ~ ":" ~ port.to!string;
   }
 
@@ -57,22 +58,17 @@ unittest {
   <Context path="/blob" />
 </Server>`;
   auto server = ServerOptions.parse(content);
-  import std.stdio;
-
   assert(server.ips.length == 1);
 
   string test = "~/ems/micdn/asset.xml";
   assert(dirName(test) == "~/ems/micdn");
 }
 
-import vibe.core.args;
-import std.typecons;
-
 string readConfig(string defaultHome, string defaultConfigFileName) {
   string config;
   string remoteDir;
-  auto hasConfig = readOption!string("f", &config, "specify config params");
-  auto hasRemote = readOption!string("remote", &remoteDir, "specify remote params");
+  auto hasConfig = readOption!string("config|f", &config, "specify config params");
+  auto hasRemote = readOption!string("remote|r", &remoteDir, "specify remote params");
 
   if (hasConfig) {
     if (!exists(config)) {
@@ -99,9 +95,7 @@ string readConfig(string defaultHome, string defaultConfigFileName) {
   }
 }
 
-import std.file;
-
-ServerOptions getServerOptions(string serverType) {
+ServerOptions getServerOptions() {
   string serverFile;
   auto success = readOption!string("server", &serverFile, "specify server params");
   if (success) {
@@ -112,7 +106,7 @@ ServerOptions getServerOptions(string serverType) {
     }
   } else {
     auto defaultConfig = `<?xml version="1.0" encoding="UTF-8"?><Server ips="127.0.0.1" port="8080">`
-      ~ `<Context path="/` ~ serverType ~ `"/></Server>`;
+      ~ `<Context path="/"/></Server>`;
     return ServerOptions.parse(defaultConfig);
   }
 }

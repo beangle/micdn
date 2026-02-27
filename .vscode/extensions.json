@@ -1,5 +1,7 @@
 {
   "recommendations": [
-    "webfreak.code-d"
+    "EditorConfig.editorconfig",
+    "webfreak.code-d", // D语言支持
+    "redhat.vscode-xml" // XML文件支持
   ]
 }

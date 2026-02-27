@@ -1,0 +1,38 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "format-d-current-file",
+      "type": "shell",
+      "command": "dub",
+      "args": [
+        "run",
+        "dfmt",
+        "--",
+        "-i",
+        "${file}"
+      ],
+      "group": "none",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "never",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "format-d-all",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "find src -name '*.d' -print0 | xargs -0 dub run dfmt -- -i"
+      ],
+      "group": "none",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    }
+  ]
+}

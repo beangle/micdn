@@ -2,7 +2,9 @@
   "name": "beangle-micdn",
   "version": "0.2.0",
   "description": "A minimal CDN.",
-  "authors": ["chaostone"],
+  "authors": [
+    "chaostone"
+  ],
   "license": "GPLv3",
   "toolchainRequirements": {
     "dub": ">=1.34.0",
@@ -27,6 +29,14 @@
     },
     {
       "name": "unittest",
+      "sourcePaths": [
+        "src",
+        "test"
+      ],
+      "importPaths": [
+        "src",
+        "test"
+      ],
       "dependencies": {
         "silly": "~>1.1.1"
       }

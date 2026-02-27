@@ -1,8 +1,9 @@
 module micdn.web;
 /// web 子模块的聚合导出，简化 HTTP 相关导入。
-import vibe.http.server;
 
 import std.string;
+
+import vibe.http.server;
 
 string getPath(string contextPath, HTTPServerRequest req) {
   auto uri = req.requestURI;
