@@ -95,8 +95,7 @@ class MicdnConfig {
     app.put("  </repo>\n");
 
     //output asset config
-    app.put(`  <static endpoint="` ~ asset.endpoint ~ `" base="` ~ asset.base
-        ~ `" publicList="` ~ asset.publicList.to!string ~ `">` ~ "\n");
+    app.put(`  <static endpoint="` ~ asset.endpoint ~ `" base="` ~ asset.base ~ `">` ~ "\n");
     auto bundleKeys = asset.bundles.keys.array.sort;
     foreach (key; bundleKeys) {
       auto bundle = asset.bundles[key];
@@ -154,7 +153,7 @@ static MavenRepoConfig parseMavenConfig(T)(string defaultBase, ref DOMEntity!T m
   if (remoteRepos.length == 0) {
     remoteRepos.add("https://repo1.maven.org/maven2"); // 无配置时使用 Maven 中央仓库
   }
-  return new MavenRepoConfig(endpoint, base, publicList, remoteRepos);
+  return new MavenRepoConfig(endpoint, base, remoteRepos);
 }
 
 /// 从 DOM 节点解析静态资源配置（endpoint、bundle 及 zip/dir/jar 等 provider）。
@@ -198,7 +197,7 @@ static AssetConfig parseAssetConfig(T)(string home, ref DOMEntity!T micdnDom) {
     }
     bundles[bundle.name] = bundle;
   }
-  return new AssetConfig(endpoint, base, publicList, bundles.rehash());
+  return new AssetConfig(endpoint, base, bundles.rehash());
 }
 
 /// 从 DOM 节点解析 Blob 配置（endpoint、dataSource 等）。
@@ -211,8 +210,7 @@ static BlobConfig parseBlobConfig(T)(string home, ref DOMEntity!T micdnDom) {
   string base = expandTilde(attrs.get("base", "~/.micdn/blob"));
   string sizeLimit = attrs.get("maxSize", "50M");
 
-  bool publicList = attrs.get("publicList", "false").to!bool;
-  auto config = new BlobConfig(endpoint, base, publicList);
+  auto config = new BlobConfig(endpoint, base);
   config.maxSize = parseSize(sizeLimit);
   // 解析数据源属性（如 serverName、databaseName 等）
   auto dataSource = children(dom, "dataSource").front;
@@ -255,17 +253,14 @@ private static string normalizeEndpoint(string base) {
 class AssetConfig {
   /// 本地资源存储根路径（如 ~/.micdn/asset）
   immutable string base;
-  /// 是否允许通过 HTTP 列目录
-  immutable bool publicList;
   /// HTTP 访问路径前缀（如 /static）
   immutable string endpoint;
   /// bundle 名称 -> AssetBundle 配置的映射
   const AssetBundle[string] bundles;
 
-  this(string endpoint, string base, bool publicList, AssetBundle[string] bundles) {
+  this(string endpoint, string base, AssetBundle[string] bundles) {
     this.endpoint = normalizeEndpoint(endpoint);
     this.base = base;
-    this.publicList = publicList;
     this.bundles = bundles;
   }
 }
@@ -280,16 +275,13 @@ class MavenRepoConfig {
   const string endpoint;
   /// 本地 Maven 仓库根路径（如 ~/.m2/repository）
   const string base;
-  /// 是否允许通过 HTTP 列目录
-  const bool publicList;
   /// 远程仓库 URL 列表，按优先级排序
   const string[] remotes;
 
-  this(string endpoint, string base, bool publicList, string[] remotes) {
+  this(string endpoint, string base, string[] remotes) {
     this.endpoint = normalizeEndpoint(endpoint);
     this.remotes = remotes.idup;
     this.base = base;
-    this.publicList = publicList;
   }
 
   /// 将 GAV 转换为 Maven 目录路径，如 org.apache:commons:1.0 -> /org/apache/commons/1.0/commons-1.0.jar
@@ -427,17 +419,14 @@ class BlobConfig {
   const string endpoint;
   /// 文件存储根目录
   const string base;
-  /// 是否允许列目录
-  const bool publicList;
   /// 单文件上传大小限制（字节），默认 50MB
   ulong maxSize = 50 * 1024 * 1024;
   /// 数据源连接属性（如 PostgreSQL）
   string[string] dataSourceProps;
 
-  this(string endpoint, string base, bool publicList) {
+  this(string endpoint, string base) {
     this.endpoint = normalizeEndpoint(endpoint);
     this.base = base;
-    this.publicList = publicList;
   }
 
 }

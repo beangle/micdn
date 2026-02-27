@@ -36,7 +36,7 @@ class GavRepo {
 
   static GavRepo build(MicdnConfig config) {
     mkdirRecurse(config.maven.base);
-    return new GavRepo(config.maven.base, config.maven.publicList, config.maven.remotes);
+    return new GavRepo(config.maven.base, config.maven.remotes);
   }
 
   bool fetch(string uri) const {

@@ -14,18 +14,14 @@ import micdn.model;
 class AssetRepo {
   /// 仓库根目录（本地文件系统路径）。
   const string base;
-  /// 是否允许对目录列清单（目录浏览）。
-  const bool publicList;
 
   /** 构造资源仓库实例。
 
       Params:
           base       = 仓库根目录
-          publicList = 是否开启目录列表
   */
-  this(string base, bool publicList) {
+  this(string base) {
     this.base = base;
-    this.publicList = publicList;
   }
 
   /** 根据逻辑 URI 解析出对应的本地文件路径列表。
@@ -103,7 +99,7 @@ class AssetRepo {
       //rmdirRecurse( base);
     }
     mkdirRecurse(base);
-    logInfo("Building repository at %s", base);
+    logInfo("Building asset at %s", base);
     foreach (c; asset.bundles) {
       auto bundlePath = "/" ~ c.name;
       foreach (p; c.providers) {
@@ -114,8 +110,8 @@ class AssetRepo {
               remove(bundleBase);
             }
             logInfo("Linking " ~ dp.location ~ " to " ~ bundleBase);
-            //FIXME
-            //symlink(dp.location, bundleBase);
+            //FIXME 硬链接,不适合windows
+            symlink(dp.location, bundleBase);
           } else {
             logWarn("Cannot link " ~ dp.location ~ " to " ~ bundleBase);
           }
@@ -156,7 +152,7 @@ class AssetRepo {
       }
     }
     setReadOnly(base);
-    return new AssetRepo(base, config.asset.publicList);
+    return new AssetRepo(base);
   }
 
   /** 将 zip/jar 中的指定子目录解压到仓库的 bundle 路径下。
