@@ -1,5 +1,12 @@
 module test.micdn.blob.s3_test;
 
+import micdn.blob.s3;
+import std.uuid;
+import std.file;
+import std.path;
+import std.stdio;
+import std.algorithm;
+
 /**
  * Unit tests for S3 signature generation
  */

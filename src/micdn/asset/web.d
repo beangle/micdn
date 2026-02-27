@@ -19,7 +19,7 @@ import micdn.web;
 import micdn.web.file;
 import micdn.web.filebrowser;
 import micdn.web.server;
-import micdn.xml.reader;
+import micdn.xml;
 
 class AssetService {
   private const string endpoint;
@@ -27,7 +27,7 @@ class AssetService {
 
   this(MicdnConfig config) {
     this.endpoint = config.asset.endpoint;
-    this.repo =AssetRepo.build(config);
+    this.repo = AssetRepo.build(config);
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
@@ -40,7 +40,7 @@ class AssetService {
       if (isDir(rs[0])) {
         if (repo.publicList) {
           if (uri.endsWith("/")) {
-            auto content = genListContents(repo.base ~ uri,endpoint, uri);
+            auto content = genListContents(repo.base ~ uri, endpoint, uri);
             render!("index.dt", uri, content)(res);
           } else {
             uri = endpoint ~ uri;
@@ -67,4 +67,3 @@ class AssetService {
     }
   }
 }
-

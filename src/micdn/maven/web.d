@@ -19,7 +19,7 @@ import micdn.web;
 import micdn.web.file;
 import micdn.web.filebrowser;
 import micdn.web.server;
-import micdn.xml.reader;
+import micdn.xml;
 
 class MavenService {
   private const string endpoint;

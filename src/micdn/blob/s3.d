@@ -29,6 +29,7 @@ import micdn.blob.store;
 import micdn.model;
 import micdn.web;
 import micdn.web.file;
+
 /**
  * AWS Signature V4 utilities for S3 protocol
  */
@@ -73,10 +74,10 @@ string generateEtag(string filePath) {
     auto size = getSize(filePath);
     // Combine modification time and size to generate ETag
     auto digest = md5Of(lastModified.toString() ~ ":" ~ size.to!string);
-    return "\"" ~ toHexString!(LetterCase.lower)(digest).idup ~ "\"";
+    return `"` ~ toHexString!(LetterCase.lower)(digest).idup ~ `"`;
   } catch (Exception e) {
     // Fallback to dummy ETag if file read fails
-    return "\"dummy-etag\"";
+    return `"dummy-etag"`;
   }
 }
 
@@ -125,8 +126,8 @@ string generateListObjectsXml(string basePath, string uriPrefix, string bucketNa
   import std.array : appender;
 
   auto app = appender!string();
-  app.put("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-  app.put("<ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">\n");
+  app.put(`<?xml version="1.0" encoding="UTF-8"?>` ~ "\n");
+  app.put(`<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` ~ "\n");
 
   app.put("  <Name>");
   app.put(bucketName);
@@ -177,7 +178,6 @@ class S3Service {
     this.repo = BlobRepo.build(config, metadao);
   }
 
-
   void service(HTTPServerRequest req, HTTPServerResponse res) {
     auto uri = getPath(this.endpoint, req);
 
@@ -215,7 +215,6 @@ class S3Service {
       }
     }
   }
-
 
   void getObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
     // Implement S3 GetObject
@@ -277,8 +276,7 @@ class S3Service {
       auto mediaType = getMimeTypeForFile(filename);
       string owner = "s3-user";
 
-      auto meta = repo.create(profile, tempPath, filename,
-          uri.dirName(), owner, mediaType);
+      auto meta = repo.create(profile, tempPath, filename, uri.dirName(), owner, mediaType);
 
       // Clean up temp file
       std.file.remove(tempPath);
@@ -288,7 +286,7 @@ class S3Service {
       string amzId2 = generateAmzId2();
       res.headers["x-amz-request-id"] = requestId;
       res.headers["x-amz-id-2"] = amzId2;
-      res.headers["ETag"] = "\"" ~ meta.sha ~ "\"";
+      res.headers["ETag"] = `"` ~ meta.sha ~ `"`;
 
       res.statusCode = HTTPStatus.ok;
       res.writeBody("", "");
@@ -402,7 +400,6 @@ class S3Service {
     }
   }
 
-
   private bool auth(HTTPServerRequest req, HTTPServerResponse res) {
     // Implement AWS Signature V4 authentication
     if ("Authorization" in req.headers) {
@@ -510,7 +507,8 @@ class S3Service {
       ~ canonicalHeaders ~ "\n" ~ signedHeaders ~ "\n" ~ payloadHash;
   }
 
-  string generateStringToSign(HTTPServerRequest req, string canonicalRequest, string credentialScope) {
+  string generateStringToSign(HTTPServerRequest req, string canonicalRequest,
+      string credentialScope) {
     // Get timestamp from x-amz-date header
     string timestamp;
     if ("x-amz-date" in req.headers) {
@@ -538,8 +536,9 @@ class S3Service {
     return "AWS4-HMAC-SHA256\n" ~ timestamp ~ "\n" ~ s ~ "\n" ~ canonicalRequestHash;
   }
 
-    //fixme for realname detection
-  private void download(const(BlobProfile) profile, HTTPServerRequest req, HTTPServerResponse res, string path) {
+  //fixme for realname detection
+  private void download(const(BlobProfile) profile, HTTPServerRequest req,
+      HTTPServerResponse res, string path) {
     import std.path;
 
     auto ext = extension(path);

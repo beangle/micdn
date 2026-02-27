@@ -16,7 +16,7 @@ import vibe.core.log;
 
 import micdn.model;
 import micdn.web.file;
-import micdn.xml.reader;
+import micdn.xml;
 
 class GavRepo {
   /**artifact local repo*/

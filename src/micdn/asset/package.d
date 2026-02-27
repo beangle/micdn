@@ -1,5 +1,5 @@
 module micdn.asset;
-/// 根据配置构建/刷新本地静态资源仓库目录结构。
+/// 静态资源子模块：根据配置构建/刷新本地资源仓库，并按 URI 解析并返回物理路径列表。
 
 import std.file;
 import std.path;
@@ -10,15 +10,35 @@ import vibe.core.log;
 import micdn.fs.file;
 import micdn.model;
 
+/// 静态资源仓库实例，持有本地根目录与目录列表开关，提供 URI 解析与文件路径查询。
 class AssetRepo {
+  /// 仓库根目录（本地文件系统路径）。
   const string base;
-  /**enable dir list*/
+  /// 是否允许对目录列清单（目录浏览）。
   const bool publicList;
+
+  /** 构造资源仓库实例。
+
+      Params:
+          base       = 仓库根目录
+          publicList = 是否开启目录列表
+  */
   this(string base, bool publicList) {
     this.base = base;
     this.publicList = publicList;
   }
 
+  /** 根据逻辑 URI 解析出对应的本地文件路径列表。
+
+      支持逗号合并写法（如 /a/b,c.js 解析为 /a/b.js 与 /a/c.js）。
+      路径中含 ".." 或任一文件不存在时返回 null。
+
+      Params:
+          uri = 逻辑 URI（可含逗号表示多个文件）
+
+      Returns:
+          本地绝对路径数组，失败返回 null
+  */
   string[] get(string uri) const {
     if (uri.indexOf("..") > -1)
       return null;
@@ -35,6 +55,16 @@ class AssetRepo {
     return files;
   }
 
+  /** 将“逗号合并”形式的 URI 拆成多个逻辑路径。
+
+      例如 "/path/a,b.js" -> ["/path/a.js", "/path/b.js"]，无逗号则返回 [uri]。
+
+      Params:
+          uri = 可能含逗号的 URI
+
+      Returns:
+          拆分后的路径数组
+  */
   static string[] resolve(string uri) {
     auto commaIdx = uri.indexOf(',');
     if (commaIdx > 0) {
@@ -53,6 +83,17 @@ class AssetRepo {
     }
   }
 
+  /** 根据全局配置构建静态资源仓库目录并返回仓库实例。
+
+      会创建 base 目录，按 bundle 配置链接/下载 jar 并解压、挂载到对应路径，
+      最后将根目录设为只读。
+
+      Params:
+          config = 包含 asset、maven 等配置的全局配置
+
+      Returns:
+          构建好的 AssetRepo 实例
+  */
   static AssetRepo build(MicdnConfig config) {
     auto asset = config.asset;
     auto repo = config.maven;
@@ -91,7 +132,7 @@ class AssetRepo {
 
           location ~= bundlePath;
           if (exists(local)) {
-            mount(base, local,bundlePath, location);
+            mount(base, local, bundlePath, location);
           } else if (!local.endsWith("SNAPSHOT.jar")) {
             string[] remotes = repo.remoteUrls(gap.gav);
             mkdirRecurse(dirName(local));
@@ -100,7 +141,7 @@ class AssetRepo {
               import micdn.web.file;
 
               if (curlDownload(remote, local)) {
-                mount(base, local,bundlePath, location);
+                mount(base, local, bundlePath, location);
                 break;
               }
             }
@@ -115,9 +156,17 @@ class AssetRepo {
       }
     }
     setReadOnly(base);
-    return new AssetRepo(base,config.asset.publicList);
+    return new AssetRepo(base, config.asset.publicList);
   }
 
+  /** 将 zip/jar 中的指定子目录解压到仓库的 bundle 路径下。
+
+      Params:
+          base       = 仓库根目录
+          zipfile   = zip/jar 文件路径
+          bundlePath = bundle 在仓库中的路径（如 /bui）
+          dir        = zip 内要解压的子目录（如 META-INF/resources）
+  */
   private static void mount(string base, string zipfile, string bundlePath, string dir) {
     logInfo("Mounting %s", zipfile);
     auto count = refreshUnzip(zipfile, base ~ bundlePath, dir);

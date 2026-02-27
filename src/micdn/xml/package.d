@@ -1,4 +1,4 @@
-module micdn.xml.reader;
+module micdn.xml;
 /// 基于 dxml DOM 的通用 XML 解析辅助函数集合。
 
 import std.algorithm;
@@ -26,4 +26,8 @@ string readXml(string xmlfile) {
   } else {
     throw new Exception(xmlfile ~ " is not exists!");
   }
+}
+
+auto parseXml(string xml) {
+  return parseDOM(xml).children[0];
 }

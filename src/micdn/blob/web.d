@@ -22,7 +22,7 @@ import micdn.web;
 import micdn.web.file;
 import micdn.web.filebrowser;
 import micdn.web.server;
-import micdn.xml.reader;
+import micdn.xml;
 
 class BlobService {
   private const string endpoint;
@@ -51,8 +51,7 @@ class BlobService {
     }
   }
 
-
-  private void getObject(HTTPServerRequest req, HTTPServerResponse res,string uri) {
+  private void getObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
     auto rs = repo.check(uri);
     if (rs == 0) {
       throw new HTTPStatusException(HTTPStatus.notFound);
@@ -118,7 +117,7 @@ class BlobService {
     }
   }
 
- private void deleteObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
+  private void deleteObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
     auto profile = repo.getProfile(uri);
     if (basicAuth(req, res, profile)) {
       try {
@@ -137,7 +136,8 @@ class BlobService {
   }
 
   //fixme for realname detection
-  private void download(const(BlobProfile) profile, HTTPServerRequest req, HTTPServerResponse res, string path) {
+  private void download(const(BlobProfile) profile, HTTPServerRequest req,
+      HTTPServerResponse res, string path) {
     import std.path;
 
     auto ext = extension(path);
@@ -179,7 +179,7 @@ class BlobService {
     if (!checkBasicAuth(req, toDelegate(&checkPassword))) {
       res.statusCode = HTTPStatus.unauthorized;
       res.contentType = "text/plain";
-      res.headers["WWW-Authenticate"] = "Basic realm=\"micdn\"";
+      res.headers["WWW-Authenticate"] = `Basic realm="micdn"`;
       res.bodyWriter.write("Authorization required");
       return false;
     } else {

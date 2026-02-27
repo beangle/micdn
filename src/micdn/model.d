@@ -16,7 +16,7 @@ import std.uni;
 
 import dxml.dom;
 
-import micdn.xml.reader;
+import micdn.xml;
 
 /** 根配置类，聚合静态资源、Maven 仓库、Blob 存储三类子配置。
 
@@ -30,7 +30,7 @@ class MicdnConfig {
   /// Blob 存储配置（profiles、上传限制等）
   const BlobConfig blob;
 
-  this( AssetConfig  asset, MavenRepoConfig maven,  BlobConfig blob) {
+  this(AssetConfig asset, MavenRepoConfig maven, BlobConfig blob) {
     this.asset = asset;
     this.maven = maven;
     this.blob = blob;
@@ -87,26 +87,27 @@ class MicdnConfig {
     app.put("<micdn>");
 
     // 输出 Maven 配置
-    app.put("  <repo endpoint=\"" ~ maven.endpoint  ~ "\" base=\"" ~ maven.base
-     ~ " publicList=\"" ~ maven.publicList.to!string ~ "\">\n");
+    app.put(`  <repo endpoint="` ~ maven.endpoint ~ `" base="` ~ maven.base
+        ~ `" publicList="` ~ maven.publicList.to!string ~ `">` ~ "\n");
     foreach (remote; maven.remotes) {
-      app.put("    <remote url=\"" ~ remote ~ "\"/>\n");
+      app.put(`    <remote url="` ~ remote ~ `"/>` ~ "\n");
     }
     app.put("  </repo>\n");
 
     //output asset config
-    app.put("  <static endpoint=\"" ~ asset.endpoint ~ "\" base=\"" ~ asset.base ~ "\" publicList=\"" ~ asset.publicList.to!string ~ "\">\n");
+    app.put(`  <static endpoint="` ~ asset.endpoint ~ `" base="` ~ asset.base
+        ~ `" publicList="` ~ asset.publicList.to!string ~ `">` ~ "\n");
     auto bundleKeys = asset.bundles.keys.array.sort;
     foreach (key; bundleKeys) {
       auto bundle = asset.bundles[key];
-      app.put("    <bundle name=\"" ~ bundle.name ~ "\">\n");
+      app.put(`    <bundle name="` ~ bundle.name ~ `">` ~ "\n");
       foreach (provider; bundle.providers) {
         if (ZipProvider zp = cast(ZipProvider) provider) {
-          app.put("      <zip file=\"" ~ zp.file ~ "\" dir=\"" ~ zp.dir ~ "\"/>\n");
+          app.put(`      <zip file="` ~ zp.file ~ `" dir="` ~ zp.dir ~ `"/>` ~ "\n");
         } else if (DirProvider dp = cast(DirProvider) provider) {
-          app.put("      <dir location=\"" ~ dp.location ~ "\"/>\n");
+          app.put(`      <dir location="` ~ dp.location ~ `"/>` ~ "\n");
         } else if (GavJarProvider gjp = cast(GavJarProvider) provider) {
-          app.put("      <jar gav=\"" ~ gjp.gav ~ "\"/>\n");
+          app.put(`      <jar gav="` ~ gjp.gav ~ `"/>` ~ "\n");
         }
       }
       app.put("    </bundle>\n");
@@ -114,13 +115,9 @@ class MicdnConfig {
     app.put("  </static>\n");
 
     // 输出 Blob 配置
-    app.put("  <blob endpoint=\"" ~ blob.endpoint ~ "\" base=\"" ~ blob.base ~ "\" publicList=\"" ~ blob.publicList.to!string ~ "\">\n");
-    foreach (profile; blob.profiles.values) {
-      app.put("    <profile id=\"" ~ profile.id.to!string ~ "\" base=\"" ~ profile.base ~ "\" users=\"" ~ profile.keys.keys.join(",") ~ "\">\n");
-      app.put("      <namedBySha>\"" ~ profile.namedBySha.to!string ~ "\"</namedBySha>\n");
-      app.put("      <publicDownload>\"" ~ profile.publicDownload.to!string ~ "\"</publicDownload>\n");
-      app.put("    </profile>\n");
-    }
+    app.put(`<blob endpoint="` ~ blob.endpoint ~ `" base="` ~ blob.base
+        ~ `" publicList="` ~ blob.publicList.to!string ~ `">` ~ "\n");
+    app.put(`<xi:include href="blob.xml" />`);
     app.put("  </blob>\n");
 
     app.put("</micdn>\n");
@@ -129,7 +126,6 @@ class MicdnConfig {
 
 }
 
-
 /** 向远程仓库列表末尾追加一项。
 
     Params:
@@ -137,143 +133,119 @@ class MicdnConfig {
         remote  = 要追加的远程仓库地址
 */
 private void add(ref string[] remotes, string remote) {
-    remotes.length += 1;
-    remotes[$ - 1] = remote;
+  remotes.length += 1;
+  remotes[$ - 1] = remote;
 }
 
-  /// 解析 Maven 仓库配置（endpoint、本地路径、是否公开列表、远程地址）。
-  private static MavenRepoConfig parseMavenConfig(T)(string defaultBase, ref DOMEntity!T dom) {
-    auto attrs = getAttrs(dom);
-    bool publicList = attrs.get("publicList", "false").to!bool;
-    import std.path;
+/// 解析 Maven 仓库配置（endpoint、本地路径、是否公开列表、远程地址）。
+static MavenRepoConfig parseMavenConfig(T)(string defaultBase, ref DOMEntity!T micdnDom) {
+  auto dom = children(micdnDom, "repo").front;
+  auto attrs = getAttrs(dom);
+  bool publicList = attrs.get("publicList", "false").to!bool;
+  import std.path;
 
-    string base = expandTilde(attrs.get("base", defaultBase));
-    string endpoint = attrs.get("endpoint", "/repo");
-    string[] remoteRepos = [];
-    auto remoteEntries = children(dom, "remote");
-    foreach (remoteEntry; remoteEntries) {
-      remoteRepos.add(getAttrs(remoteEntry)["url"]);
-    }
-    if (remoteRepos.length == 0) {
-      remoteRepos.add("https://repo1.maven.org/maven2");  // 无配置时使用 Maven 中央仓库
-    }
-    return new MavenRepoConfig(endpoint, base, publicList, remoteRepos);
+  string base = expandTilde(attrs.get("base", defaultBase));
+  string endpoint = attrs.get("endpoint", "/repo");
+  string[] remoteRepos = [];
+  auto remoteEntries = children(dom, "remote");
+  foreach (remoteEntry; remoteEntries) {
+    remoteRepos.add(getAttrs(remoteEntry)["url"]);
   }
-
-  /// 从 DOM 节点解析静态资源配置（endpoint、bundle 及 zip/dir/jar 等 provider）。
-  private static AssetConfig parseAssetConfig(T)(string home, ref DOMEntity!T dom) {
-    auto attrs = getAttrs(dom);
-    string endpoint = attrs.get("endpoint", "/static");
-    string base = attrs.get("base", "~/.micdn/asset");
-
-    bool publicList = attrs.get("publicList", "false").to!bool;
-    import std.path;
-
-    base = expandTilde(base);
-    AssetBundle[string] bundles;
-    auto bundleEntries = children(dom, "bundle");
-
-    foreach (c; bundleEntries) {
-      auto bundle = new AssetBundle(getAttrs(c).get("name", ""));
-      auto jars = children(c, "jar");
-      foreach (jar; jars) {
-        attrs = getAttrs(jar);
-        string gav = attrs["gav"];
-        string location = null;
-        if ("location" in attrs) {
-          location = attrs["location"];
-        }
-        bundle.addProvider(new GavJarProvider(gav, location));
-      }
-      auto dirs = children(c, "dir");
-      foreach (dir; dirs) {
-        attrs = getAttrs(dir);
-        string location = expandTilde(attrs["location"].replace("${micdn.home}", home));
-        bundle.addProvider(new DirProvider(location));
-      }
-      auto zips = children(c, "zip");
-      foreach (zip; zips) {
-        attrs = getAttrs(zip);
-        string file = attrs["file"];
-        string location = attrs["location"];
-        bundle.addProvider(new ZipProvider(file, location));
-      }
-      bundles[bundle.name] = bundle;
-    }
-    return new AssetConfig(endpoint,base, publicList, bundles.rehash());
+  if (remoteRepos.length == 0) {
+    remoteRepos.add("https://repo1.maven.org/maven2"); // 无配置时使用 Maven 中央仓库
   }
+  return new MavenRepoConfig(endpoint, base, publicList, remoteRepos);
+}
 
+/// 从 DOM 节点解析静态资源配置（endpoint、bundle 及 zip/dir/jar 等 provider）。
+static AssetConfig parseAssetConfig(T)(string home, ref DOMEntity!T micdnDom) {
+  auto dom = children(micdnDom, "static").front;
+  auto attrs = getAttrs(dom);
+  string endpoint = attrs.get("endpoint", "/static");
+  string base = attrs.get("base", "~/.micdn/asset");
 
-  /// 从 DOM 节点解析 Blob 配置（endpoint、profiles、users、dataSource 等）。
-  private static BlobConfig parseBlobConfig(T)(string home, ref DOMEntity!T dom) {
-    auto attrs = getAttrs(dom);
-    import std.path;
-    string endpoint = attrs.get("endpoint", "/static");
-    string base = expandTilde(attrs.get("base", "~/.micdn/blob"));
-    string sizeLimit = attrs.get("maxSize", "50M");
+  bool publicList = attrs.get("publicList", "false").to!bool;
+  import std.path;
 
-    bool publicList = attrs.get("publicList", "false").to!bool;
-    auto config = new BlobConfig(endpoint, base, publicList);
-    config.maxSize = parseSize(sizeLimit);
-    auto usersEntry = children(dom, "users");
-    if (!usersEntry.empty) {
-      auto userEntries = children(usersEntry.front, "user");
-      foreach (u; userEntries) {
-        attrs = getAttrs(u);
-        config.keys[attrs["name"]] = attrs["key"];
+  base = expandTilde(base);
+  AssetBundle[string] bundles;
+  auto bundleEntries = children(dom, "bundle");
+
+  foreach (c; bundleEntries) {
+    auto bundle = new AssetBundle(getAttrs(c).get("name", ""));
+    auto jars = children(c, "jar");
+    foreach (jar; jars) {
+      attrs = getAttrs(jar);
+      string gav = attrs["gav"];
+      string location = null;
+      if ("location" in attrs) {
+        location = attrs["location"];
       }
+      bundle.addProvider(new GavJarProvider(gav, location));
     }
-    auto profilesEntry = children(dom, "profiles");
-    if (!profilesEntry.empty) {
-      auto profileEntries = children(profilesEntry.front, "profile");
-      foreach (p; profileEntries) {
-        attrs = getAttrs(p);
-        int id = attrs["id"].to!int;
-        string path = attrs["base"];
-        string users = attrs.get("users", "");
-        string[string] profileKeys;
-        if (!users.empty) {
-          foreach (u; users.split(",")) {
-            profileKeys[u] = config.keys[u];
-          }
-        }
-        bool namedBySha = attrs.get("namedBySha", "false").to!bool;
-        bool publicDownload = attrs.get("publicDownload", "false").to!bool;
-        config.profiles[path] = new BlobProfile(id, path, profileKeys, namedBySha, publicDownload);
-      }
+    auto dirs = children(c, "dir");
+    foreach (dir; dirs) {
+      attrs = getAttrs(dir);
+      string location = expandTilde(attrs["location"].replace("${micdn.home}", home));
+      bundle.addProvider(new DirProvider(location));
     }
-    // 解析数据源属性（如 serverName、databaseName 等）
-    auto dataSource = children(dom, "dataSource").front;
-    foreach (p; dataSource.children) {
-      // FIXME: 应检查 p.children.size
-      config.dataSourceProps[p.name] = p.children[0].text;
+    auto zips = children(c, "zip");
+    foreach (zip; zips) {
+      attrs = getAttrs(zip);
+      string file = attrs["file"];
+      string location = attrs["location"];
+      bundle.addProvider(new ZipProvider(file, location));
     }
-    return config;
+    bundles[bundle.name] = bundle;
   }
+  return new AssetConfig(endpoint, base, publicList, bundles.rehash());
+}
 
-  /// 解析大小字符串，支持 M/G 后缀（如 "50M"、"1G"）。
-  private static ulong parseSize(string size) {
-    assert(size.length > 0, "size cannot be empty.");
-    string s = size.toLower;
-    if (s.endsWith("m")) {
-      return s[0 .. $ - 1].to!ulong * 1024 * 1024;
-    } else if (s.endsWith("g")) {
-      return s[0 .. $ - 1].to!ulong * 1024 * 1024 * 1024;
-    } else {
-      return s[0 .. $ - 1].to!ulong;
-    }
-  }
+/// 从 DOM 节点解析 Blob 配置（endpoint、dataSource 等）。
+static BlobConfig parseBlobConfig(T)(string home, ref DOMEntity!T micdnDom) {
+  auto dom = children(micdnDom, "blob").front;
+  auto attrs = getAttrs(dom);
+  import std.path;
 
-  /// 规范化 endpoint 路径：空或 "/" 变为空串，末尾 "/" 去掉。
-  private static string normalizeEndpoint(string base) {
-    if (base == null || base == "/") {
-      return "";
-    } else if (base.endsWith("/")) {
-      return base[0 .. $ - 1];
-    } else {
-      return base;
-    }
+  string endpoint = attrs.get("endpoint", "/static");
+  string base = expandTilde(attrs.get("base", "~/.micdn/blob"));
+  string sizeLimit = attrs.get("maxSize", "50M");
+
+  bool publicList = attrs.get("publicList", "false").to!bool;
+  auto config = new BlobConfig(endpoint, base, publicList);
+  config.maxSize = parseSize(sizeLimit);
+  // 解析数据源属性（如 serverName、databaseName 等）
+  auto dataSource = children(dom, "dataSource").front;
+  foreach (p; dataSource.children) {
+    // FIXME: 应检查 p.children.size
+    config.dataSourceProps[p.name] = p.children[0].text;
   }
+  return config;
+}
+
+/// 解析大小字符串，支持 M/G 后缀（如 "50M"、"1G"）。
+static ulong parseSize(string size) {
+  assert(size.length > 0, "size cannot be empty.");
+  string s = size.toLower;
+  if (s.endsWith("m")) {
+    return s[0 .. $ - 1].to!ulong * 1024 * 1024;
+  } else if (s.endsWith("g")) {
+    return s[0 .. $ - 1].to!ulong * 1024 * 1024 * 1024;
+  } else {
+    return s[0 .. $ - 1].to!ulong;
+  }
+}
+
+/// 规范化 endpoint 路径：空或 "/" 变为空串，末尾 "/" 去掉。
+private static string normalizeEndpoint(string base) {
+  if (base == null || base == "/") {
+    return "";
+  } else if (base.endsWith("/")) {
+    return base[0 .. $ - 1];
+  } else {
+    return base;
+  }
+}
 
 /** 静态资源配置，定义前端资源（JS/CSS 等）的加载来源。
 
@@ -290,14 +262,13 @@ class AssetConfig {
   /// bundle 名称 -> AssetBundle 配置的映射
   const AssetBundle[string] bundles;
 
-  this(string endpoint,string base, bool publicList, AssetBundle[string] bundles) {
+  this(string endpoint, string base, bool publicList, AssetBundle[string] bundles) {
     this.endpoint = normalizeEndpoint(endpoint);
     this.base = base;
     this.publicList = publicList;
     this.bundles = bundles;
   }
 }
-
 
 /** Maven 仓库的镜像和本地配置。
 
@@ -314,7 +285,7 @@ class MavenRepoConfig {
   /// 远程仓库 URL 列表，按优先级排序
   const string[] remotes;
 
-  this(string endpoint,string base, bool publicList, string[] remotes) {
+  this(string endpoint, string base, bool publicList, string[] remotes) {
     this.endpoint = normalizeEndpoint(endpoint);
     this.remotes = remotes.idup;
     this.base = base;
@@ -404,6 +375,7 @@ class ZipProvider : BundleProvider {
     this.file = file;
     this.dir = dir;
   }
+
   override string path() const {
     return file;
   }
@@ -419,6 +391,7 @@ class DirProvider : BundleProvider {
   this(string location) {
     this.location = location;
   }
+
   override string path() const {
     return location;
   }
@@ -438,11 +411,11 @@ class GavJarProvider : BundleProvider {
     this.gav = gav;
     this.location = location;
   }
+
   override string path() const {
     return gav;
   }
 }
-
 
 /** Blob 存储配置，定义文件上传、profile 及数据源。
 
@@ -458,19 +431,14 @@ class BlobConfig {
   const bool publicList;
   /// 单文件上传大小限制（字节），默认 50MB
   ulong maxSize = 50 * 1024 * 1024;
-  /// profile 路径前缀 -> 配置
-  BlobProfile[string] profiles;
-  /// 用户名 -> 密钥
-  string[string] keys;
   /// 数据源连接属性（如 PostgreSQL）
   string[string] dataSourceProps;
 
-  this(string endpoint,string base, bool publicList) {
+  this(string endpoint, string base, bool publicList) {
     this.endpoint = normalizeEndpoint(endpoint);
     this.base = base;
     this.publicList = publicList;
   }
-
 
 }
 
@@ -516,15 +484,15 @@ class BlobMeta {
 */
 class BlobProfile {
   /// profile 主键 id
-  immutable int id;
+  const int id;
   /// 路径前缀（如 /public）
-  immutable string base;
+  const string base;
   /// 用户名 -> 密钥，有密钥的用户可上传到此 profile
-  immutable string[string] keys;
+  const string[string] keys;
   /// 是否以 SHA 摘要命名文件
-  immutable bool namedBySha;
+  const bool namedBySha;
   /// 是否允许公开下载
-  immutable bool publicDownload;
+  const bool publicDownload;
 
   this(int id, string base, string[string] keys, bool namedBySha, bool publicDownload) {
     this.id = id;
@@ -533,9 +501,20 @@ class BlobProfile {
     } else {
       this.base = base;
     }
-    this.keys = to!(immutable(string[string]))(keys);
+    this.keys = keys;
     this.namedBySha = namedBySha;
     this.publicDownload = publicDownload;
+  }
+
+  /** 从 const(BlobProfile) 拷贝构造一个新的 BlobProfile 实例。
+
+      keys 会复制为可变的 string[string]，其余字段按值拷贝。
+  */
+  static BlobProfile fromConst(const(BlobProfile) p) {
+    string[string] keysCopy;
+    foreach (k, v; p.keys)
+      keysCopy[k] = v;
+    return new BlobProfile(p.id, p.base, keysCopy, p.namedBySha, p.publicDownload);
   }
 
   /** 根据 path、user、key、时间戳生成签名 token。
@@ -582,4 +561,3 @@ class BlobProfile {
     }
   }
 }
-

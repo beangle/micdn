@@ -37,69 +37,55 @@ version (unittest) {
       showHelpInfo(args[0]);
       return;
     }
-      auto options = getServerOptions();
-      auto configFile = readConfig(getcwd(), "micdn.xml");
+    auto options = getServerOptions();
+    auto configFile = readConfig(getcwd(), "micdn.xml");
 
-      if (!exists(configFile)) {
-        logError("Config file[" ~ configFile ~ "] not exists!");
-        return;
-      }
-      writefln("Find config: %s", configFile);
+    if (!exists(configFile)) {
+      logError("Config file[" ~ configFile ~ "] not exists!");
+      return;
+    }
+    writefln("Find config: %s", configFile);
 
-      import std.path : dirName;
+    import std.path : dirName;
 
-      auto home = dirName(configFile);
-      auto config = MicdnConfig.parseFile(home,configFile);
+    auto home = dirName(configFile);
+    auto config = MicdnConfig.parseFile(home, configFile);
 
-      assetService = new AssetService(config);
-      mavenService = new MavenService(config);
-      MetaDao metaDao = null;
-      if (!config.blob.dataSourceProps.empty) {
-        metaDao = new MetaDao(config.blob.dataSourceProps, config.blob);
-      }
-      auto blobService = new BlobService(config, metaDao);
-      auto s3Service = new S3Service(config, metaDao);
+    assetService = new AssetService(config);
+    mavenService = new MavenService(config);
+    MetaDao metaDao = null;
+    if (!config.blob.dataSourceProps.empty) {
+      metaDao = new MetaDao(config.blob.dataSourceProps, config.blob);
+    }
+    auto blobService = new BlobService(config, metaDao);
+    auto s3Service = new S3Service(config, metaDao);
 
-      auto router = new URLRouter(options.contextPath);
-      router.get(config.asset.endpoint ~ "*", &assetService.service);
-      router.get(config.maven.endpoint ~ "*", &mavenService.service);
-      router.get(config.blob.endpoint ~ "*", &blobService.service);
-      router.get(config.blob.endpoint ~ "/s3/*", &s3Service.service);
+    auto router = new URLRouter(options.contextPath);
+    router.get(config.asset.endpoint ~ "*", &assetService.service);
+    router.get(config.maven.endpoint ~ "*", &mavenService.service);
+    router.get(config.blob.endpoint ~ "*", &blobService.service);
+    router.get(config.blob.endpoint ~ "/s3/*", &s3Service.service);
 
-      auto settings = new HTTPServerSettings;
-      settings.maxRequestSize = config.blob.maxSize;
-      settings.bindAddresses = options.ips.dup;
-      settings.port = options.port;
-      settings.serverString = null;
+    auto settings = new HTTPServerSettings;
+    settings.maxRequestSize = config.blob.maxSize;
+    settings.bindAddresses = options.ips.dup;
+    settings.port = options.port;
+    settings.serverString = null;
 
-      listenHTTP(settings, router);
-      logInfo( "Micdn is started on http://" ~ options.listenAddr ~ options.contextPath);
-      runApplication(&args);
+    listenHTTP(settings, router);
+    logInfo("Micdn is started on http://" ~ options.listenAddr ~ options.contextPath);
+    runApplication(&args);
   }
 }
 
 void showHelpInfo(string programName) {
-  immutable help = "Usage: micdn [OPTIONS]\n\n"
-    ~ "Required Options:\n"
-    ~ "  --as TYPE          Service type (maven|asset|blob)\n\n"
-    ~ "Optional Options:\n"
-    ~ "  --server FILE      Server startup file path, default: listen on localhost:8080\n"
-    ~ "  --config FILE      Service configuration file path\n"
-    ~ "  --remote URL       Remote update URL for configuration file\n\n"
-    ~ "Help Options:\n"
-    ~ "  --help             Show this help message and exit\n"
-    ~ "  --version          Show version information and exit\n\n"
-    ~ "Examples:\n"
-    ~ "  micdn --config maven.xml\n"
-    ~ "  micdn --server server.xml --config asset.xml\n"
-    ~ "  micdn --server server.xml --config blob.xml --remote http://example.com/config";
+  immutable help = "Usage: micdn [OPTIONS]\n\n" ~ "Required Options:\n" ~ "  --as TYPE          Service type (maven|asset|blob)\n\n" ~ "Optional Options:\n" ~ "  --server FILE      Server startup file path, default: listen on localhost:8080\n" ~ "  --config FILE      Service configuration file path\n" ~ "  --remote URL       Remote update URL for configuration file\n\n" ~ "Help Options:\n" ~ "  --help             Show this help message and exit\n" ~ "  --version          Show version information and exit\n\n" ~ "Examples:\n" ~ "  micdn --config maven.xml\n" ~ "  micdn --server server.xml --config asset.xml\n" ~ "  micdn --server server.xml --config blob.xml --remote http://example.com/config";
   writeln(help);
 }
 
 string getVersion() {
   return "0.2.0";
 }
-
 
 // void aaa(){
 //  auto uri = getPath(server.options.contextPath, req);
@@ -111,31 +97,27 @@ string getVersion() {
 //   }
 // }
 
+// void blobStart(ServerOptions options, string configFile) {
+//   auto config = Config.parse(readXml(configFile));
 
+//   auto repository = new Repository(config.base, metaDao);
+//   server = new BlobServer(options, config, repository);
+//   auto router = new URLRouter(options.contextPath);
+//   router.get("*", &index);
+//   router.post("*", &upload);
+//   router.delete_("*", &remove);
 
+//   // S3 protocol routes with /s3 prefix
+//   router.get("/s3/*", &s3Handle);
+//   router.put("/s3/*", &s3Handle);
+//   router.delete_("/s3/*", &s3Handle);
+//   router.match(HTTPMethod.HEAD, "/s3/*", &s3Handle);
 
+//   auto settings = new HTTPServerSettings;
+//   settings.maxRequestSize = config.maxSize;
+//   settings.bindAddresses = server.options.ips.dup;
+//   settings.port = server.options.port;
+//   settings.serverString = null;
 
-  // void blobStart(ServerOptions options, string configFile) {
-  //   auto config = Config.parse(readXml(configFile));
-
-  //   auto repository = new Repository(config.base, metaDao);
-  //   server = new BlobServer(options, config, repository);
-  //   auto router = new URLRouter(options.contextPath);
-  //   router.get("*", &index);
-  //   router.post("*", &upload);
-  //   router.delete_("*", &remove);
-
-  //   // S3 protocol routes with /s3 prefix
-  //   router.get("/s3/*", &s3Handle);
-  //   router.put("/s3/*", &s3Handle);
-  //   router.delete_("/s3/*", &s3Handle);
-  //   router.match(HTTPMethod.HEAD, "/s3/*", &s3Handle);
-
-  //   auto settings = new HTTPServerSettings;
-  //   settings.maxRequestSize = config.maxSize;
-  //   settings.bindAddresses = server.options.ips.dup;
-  //   settings.port = server.options.port;
-  //   settings.serverString = null;
-
-  //   listenHTTP(settings, router);
-  // }
+//   listenHTTP(settings, router);
+// }

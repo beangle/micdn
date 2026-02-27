@@ -14,7 +14,7 @@ import vibe.core.args;
 import vibe.core.log;
 
 import micdn.web.file;
-import micdn.xml.reader;
+import micdn.xml;
 
 class ServerOptions {
   string[] ips;
@@ -36,13 +36,13 @@ class ServerOptions {
     } else {
       hosts = attrs.get("hosts", "127.0.0.1");
     }
-    ushort port = attrs.get("port", "8080").to!ushort;
+    ushort p = attrs.get("port", "8080").to!ushort;
     auto contextEntries = children(dom, "Context");
     if (contextEntries.empty) {
       throw new Exception("Context element is needed in server.xml.");
     }
     auto contextAttrs = getAttrs(contextEntries.front);
-    return new ServerOptions(split(hosts, ","), port, contextAttrs["path"]);
+    return new ServerOptions(split(hosts, ","), p, contextAttrs["path"]);
   }
 
   @property public string listenAddr() const {

@@ -37,10 +37,10 @@ auto genListContents(string dir, string prefix, string uri) {
   auto app = appender!string();
   auto lastSlash = uri[0 .. $ - 1].lastIndexOf("/");
   if (lastSlash > -1) {
-    app.put("<a href=\"");
+    app.put(`<a href="`);
     app.put(prefix);
     app.put(uri[0 .. lastSlash + 1]);
-    app.put("\">..</a>\n");
+    app.put(`">..</a>` ~ "\n");
   }
   foreach (entry; entries) {
     app.put(entry.toLine());
@@ -57,12 +57,12 @@ class FileEntry {
 
   auto toLine() {
     auto buf = appender!string();
-    buf.put("<a href=\"");
+    buf.put(`<a href="`);
     buf.put(name);
     if (isDir) {
       buf.put("/");
     }
-    buf.put("\" >");
+    buf.put(`" >`);
     buf.put(name);
     if (isDir) {
       buf.put("/");

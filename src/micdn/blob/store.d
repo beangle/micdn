@@ -138,7 +138,7 @@ class BlobRepo {
   /**every key for profile*/
   string[string] keys;
 
-  string hostname="localhost";
+  string hostname = "localhost";
 
   private BlobProfile defaultProfile = new BlobProfile(0, "", null, false, false);
   /** 构造一个仓库。
@@ -147,14 +147,14 @@ class BlobRepo {
           b       = 仓库根目录（如 "/var/blob/"）
           metaDao = 元数据 DAO，可为空表示不持久化元数据
   */
-  this(const(string) base, const(bool) publicList, const(ulong) maxSize, const(BlobProfile[string]) profiles,
-   const(string[string]) keys, MetaDao metaDao) {
-    this.base = base;
-    this.publicList = publicList;
-    this.maxSize = maxSize;
-    this.profiles = profiles.dup;
-    this.keys = keys.dup;
+  this(const(BlobConfig) config, MetaDao metaDao) {
+    this.base = config.base;
+    this.publicList = config.publicList;
+    this.maxSize = config.maxSize;
     this.metaDao = metaDao;
+    if (metaDao !is null) {
+      metaDao.loadProfiles(this);
+    }
     this.images[".jpg"] = true;
     this.images[".png"] = true;
     this.images[".gif"] = true;
@@ -165,9 +165,6 @@ class BlobRepo {
     this.images[".bmp"] = true;
     this.images[".tiff"] = true;
     this.images[".tif"] = true;
-    if(metaDao !is null) {
-      metaDao.loadProfiles(this);
-    }
   }
 
   /** 检查给定逻辑路径对应的资源类型。
@@ -203,9 +200,8 @@ class BlobRepo {
     }
   }
 
-  static BlobRepo build(MicdnConfig config,MetaDao metaDao) {
-    return new BlobRepo(config.blob.base, config.blob.publicList, config.blob.maxSize,
-    config.blob.profiles, config.blob.keys, metaDao);
+  static BlobRepo build(MicdnConfig config, MetaDao metaDao) {
+    return new BlobRepo(config.blob, metaDao);
   }
   /** 将临时上传文件写入仓库，并生成/更新对应的元数据。
 
@@ -221,8 +217,8 @@ class BlobRepo {
          若 `profile.namedBySha` 为真，则文件名使用 SHA1 摘要加扩展名，
          否则直接使用原始文件名。
   */
-  public BlobMeta create(const(BlobProfile) profile, string tmpfile, string filename,
-      string dir, string owner, string mediaType) {
+  public BlobMeta create(const(BlobProfile) profile, string tmpfile,
+      string filename, string dir, string owner, string mediaType) {
     auto meta = new BlobMeta();
     import std.digest, std.digest.sha;
 
