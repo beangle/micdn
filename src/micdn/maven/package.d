@@ -21,16 +21,13 @@ import micdn.xml;
 class GavRepo {
   /**artifact local repo*/
   const string base;
-  /**enable dir list*/
-  const bool publicList;
   /**candinates remote repos*/
   const string[] remotes = [];
 
   static Sha1Postfix = ".sha1";
 
-  this(const(string) base, const(bool) publicList, const(string[]) remotes) {
+  this(const(string) base, const(string[]) remotes) {
     this.base = base;
-    this.publicList = publicList;
     this.remotes = remotes;
   }
 

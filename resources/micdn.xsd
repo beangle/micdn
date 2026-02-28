@@ -94,7 +94,6 @@
         </xs:complexType>
       </xs:element>
     </xs:sequence>
-    <xs:attribute name="publicList" type="xs:boolean" default="true" use="optional" />
     <xs:attribute name="base" type="xs:string" default="~/.m2/repository" use="optional" />
     <xs:attribute name="endpoint" type="xs:string" default="/repo" use="optional" />
   </xs:complexType>

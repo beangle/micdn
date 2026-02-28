@@ -38,16 +38,12 @@ class AssetService {
     } else {
       // dir
       if (isDir(rs[0])) {
-        if (repo.publicList) {
-          if (uri.endsWith("/")) {
-            auto content = genListContents(repo.base ~ uri, endpoint, uri);
-            render!("index.dt", uri, content)(res);
-          } else {
-            uri = endpoint ~ uri;
-            res.redirect(req.requestURI.replace(uri, uri ~ "/"));
-          }
+        if (uri.endsWith("/")) {
+          auto content = genListContents(repo.base ~ uri, endpoint, uri);
+          render!("index.dt", uri, content)(res);
         } else {
-          throw new HTTPStatusException(HTTPStatus.notFound);
+          uri = endpoint ~ uri;
+          res.redirect(req.requestURI.replace(uri, uri ~ "/"));
         }
       } else {
         void setCORS(scope HTTPServerRequest req, scope HTTPServerResponse res,
@@ -56,7 +52,7 @@ class AssetService {
         }
 
         auto settings = new CacheSetting;
-        settings.preWriteCallback = &setCORS;
+        settings.preWrite = &setCORS;
 
         if (rs.length == 1) {
           sendFile(req, res, rs[0], settings);

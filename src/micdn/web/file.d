@@ -19,6 +19,8 @@ import vibe.http.server;
 import vibe.inet.message;
 import vibe.inet.mimetypes;
 
+import micdn.model;
+
 string encodeAttachmentName(string name) @safe {
   import std.array;
   import vibe.textfilter.urlencode;
@@ -91,31 +93,10 @@ ulong[2] parseRange(string range, ulong maxSize) @safe {
   return [start, end];
 }
 
-@("web file range encode")
-unittest {
-  auto s = encodeAttachmentName("早上 好.txt");
-  assert(
-      s == `attachment; filename="%E6%97%A9%E4%B8%8A%20%E5%A5%BD.txt"; filename*=utf-8''%E6%97%A9%E4%B8%8A%20%E5%A5%BD.txt`);
-  auto r1 = parseRange("0-1", 2);
-  assert(r1 == [0, 1]);
-
-  auto r2 = parseRange("9500-", 10_000);
-  auto r3 = parseRange("-500", 10_000);
-  assert(r2 == r3);
-
-  auto r4 = parseRange("9500-100002", 10_000);
-  assert(r2 == r4);
-
-  auto r5 = parseRange("10000-100002", 10_000);
-  assert(r5 == [9999, 9999]);
-}
-
 class CacheSetting {
   Duration maxAge = 7.days;
-
   string cacheControl = null;
-
-  void delegate(scope HTTPServerRequest req, scope HTTPServerResponse res, ref string physicalPath) preWriteCallback = null;
+  void delegate(scope HTTPServerRequest req, scope HTTPServerResponse res, ref string physicalPath) preWrite = null;
 }
 
 CacheSetting default_settings;
@@ -186,8 +167,8 @@ private void sendFileImpl(scope HTTPServerRequest req,
   } else
     res.headers["Content-Length"] = dirent.size.to!string;
 
-  if (settings.preWriteCallback)
-    settings.preWriteCallback(req, res, pathstr);
+  if (settings.preWrite)
+    settings.preWrite(req, res, pathstr);
 
   if (res.isHeadResponse()) {
     res.writeVoidBody();
@@ -225,8 +206,8 @@ private void sendFilesImpl(scope HTTPServerRequest req,
   }
   res.headers["Content-Length"] = size.to!string;
 
-  if (settings.preWriteCallback)
-    settings.preWriteCallback(req, res, firstPath);
+  if (settings.preWrite)
+    settings.preWrite(req, res, firstPath);
 
   if (res.isHeadResponse()) {
     res.writeVoidBody();

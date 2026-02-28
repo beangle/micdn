@@ -5,6 +5,10 @@
 target
 classes
 
+# Windows 构建生成（由 scripts/setup-windows.ps1 创建）
+lib
+packages
+
 *.log
 
 #idea

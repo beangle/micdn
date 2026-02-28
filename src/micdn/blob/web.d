@@ -56,33 +56,21 @@ class BlobService {
     if (rs == 0) {
       throw new HTTPStatusException(HTTPStatus.notFound);
     } else if (rs == 1) { // dir
-      if (repo.publicList) {
-        if (uri.endsWith("/")) {
-          auto content = genListContents(repo.base ~ uri, this.endpoint, uri);
-          render!("index.dt", uri, content)(res);
-        } else {
-          import std.array;
-
-          uri = this.endpoint ~ uri;
-          res.redirect(req.requestURI.replace(uri, uri ~ "/"));
-        }
-      } else {
-        throw new HTTPStatusException(HTTPStatus.notFound);
-      }
+      throw new HTTPStatusException(HTTPStatus.notFound);
     } else { //file
       auto profile = repo.getProfile(uri);
       if (profile.publicDownload) {
-        download(profile, req, res, uri);
+        sendObject(repo,profile, req, res, uri);
       } else {
         auto token = ("token" in req.query);
         auto t = ("t" in req.query);
         auto user = ("u" in req.query);
         if (null == user || null == token || null == t) {
           if (basicAuth(req, res, profile)) {
-            download(profile, req, res, uri);
+            sendObject(repo,profile, req, res, uri);
           }
         } else if (checkToken(profile, uri, *user, profile.keys.get(*user, ""), *token, *t)) {
-          download(profile, req, res, uri);
+          sendObject(repo,profile, req, res, uri);
         } else {
           res.statusCode = HTTPStatus.forbidden;
           res.writeBody("bad token!", "text/plain");
@@ -135,31 +123,6 @@ class BlobService {
     }
   }
 
-  //fixme for realname detection
-  private void download(const(BlobProfile) profile, HTTPServerRequest req,
-      HTTPServerResponse res, string path) {
-    import std.path;
-
-    auto ext = extension(path);
-    if (ext in repo.images) {
-      sendFile(req, res, repo.base ~ path, null);
-    } else {
-      auto realname = repo.getRealname(profile, path[profile.base.length .. $]);
-      if (realname.length > 0) {
-        void setContextDisposition(scope HTTPServerRequest req,
-            scope HTTPServerResponse res, ref string physicalPath) @safe {
-          res.headers["Content-Disposition"] = encodeAttachmentName(realname);
-        }
-
-        auto settings = new CacheSetting;
-        settings.preWriteCallback = &setContextDisposition;
-        sendFile(req, res, repo.base ~ path, settings);
-      } else {
-        sendFile(req, res, repo.base ~ path, null);
-      }
-    }
-  }
-
   bool checkToken(const(BlobProfile) profile, string uri, string user, string key,
       string token, string timestamp) {
     try {
@@ -187,4 +150,28 @@ class BlobService {
     }
   }
 
+}
+
+//fixme for realname detection
+void sendObject(BlobRepo repo, const(BlobProfile) profile, HTTPServerRequest req, HTTPServerResponse res, string path) {
+  import std.path;
+
+  auto ext = extension(path);
+  if (ext in repo.images) {
+    sendFile(req, res, repo.base ~ path, null);
+  } else {
+    auto realname = repo.getRealname(profile, path[profile.base.length .. $]);
+    if (realname.length > 0) {
+      void setContextDisposition(scope HTTPServerRequest req,
+          scope HTTPServerResponse res, ref string physicalPath) @safe {
+        res.headers["Content-Disposition"] = encodeAttachmentName(realname);
+      }
+
+      auto settings = new CacheSetting;
+      settings.preWrite = &setContextDisposition;
+      sendFile(req, res, repo.base ~ path, settings);
+    } else {
+      sendFile(req, res, repo.base ~ path, null);
+    }
+  }
 }

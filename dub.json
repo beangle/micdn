@@ -2,9 +2,7 @@
   "name": "beangle-micdn",
   "version": "0.2.0",
   "description": "A minimal CDN.",
-  "authors": [
-    "chaostone"
-  ],
+  "authors": ["chaostone"],
   "license": "GPLv3",
   "toolchainRequirements": {
     "dub": ">=1.34.0",
@@ -13,7 +11,6 @@
   },
   "dependencies": {
     "dxml": "~>0.4.5",
-    "dpq2": "~>1.2.3",
     "vibe-inet": "~>1.2.0",
     "vibe-d:web": "~>0.10.2",
     "vibe-http": "~>1.3.2",
@@ -28,16 +25,20 @@
       "targetName": "micdn"
     },
     {
+      "name": "executable-windows",
+      "targetType": "executable",
+      "targetPath": "target",
+      "targetName": "micdn",
+      "dependencies": {
+        "vibe-d-postgresql": {"path": "packages/vibe-d-postgresql"}
+      },
+      "lflags-windows": ["/LIBPATH:lib"]
+    },
+    {
       "name": "unittest",
       "targetPath": "target",
-      "sourcePaths": [
-        "src",
-        "test"
-      ],
-      "importPaths": [
-        "src",
-        "test"
-      ],
+      "sourcePaths": ["src", "test"],
+      "importPaths": ["src", "test"],
       "dependencies": {
         "silly": "~>1.1.1"
       }

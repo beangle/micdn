@@ -5,9 +5,16 @@ import std.conv;
 import std.file;
 import std.stdio;
 import std.string;
+import std.utf;
 import std.zip;
 
 import vibe.core.log;
+
+version (Windows) {
+  import core.sys.windows.winbase;
+  import core.sys.windows.windef:DWORD;
+  import core.sys.windows.winerror;
+}
 
 uint unzip(string zipfile, string base, string innerDir = null) {
   string prefix = innerDir;
@@ -80,6 +87,33 @@ uint refreshUnzip(string zipfile, string base, string innerDir = null) {
     }
   }
   return count;
+}
+
+/** 创建符号链接。
+
+    Params:
+        target   = 目标路径（已存在的文件或目录）
+        linkPath = 符号链接的创建路径
+
+    Throws:
+        Exception 创建失败时（Windows 上需管理员权限或开启开发者模式）
+*/
+void makeSymlink(string target, string linkPath) {
+  version (Windows) {
+    enum SYMBOLIC_LINK_FLAG_DIRECTORY = 0x1;
+    enum SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE = 0x2;
+
+    uint flags = SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE;  // DWORD
+    if (exists(target) && isDir(target)) {
+      flags |= SYMBOLIC_LINK_FLAG_DIRECTORY;
+    }
+    if (CreateSymbolicLinkW(linkPath.toUTF16z, target.toUTF16z, flags) == 0) {
+      throw new Exception("Failed to create symlink: " ~ linkPath ~ " -> " ~ target
+        ~ " (error " ~ GetLastError().to!string ~ "; require Admin or Developer Mode on Windows)");
+    }
+  } else {
+    symlink(target, linkPath);
+  }
 }
 
 void setReadOnly(string dir) {

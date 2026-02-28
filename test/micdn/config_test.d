@@ -8,7 +8,7 @@ auto CentralURL = "https://repo1.maven.org/maven2";
 
 @("asset repo remote url")
 unittest{
-  auto repo = new MavenRepoConfig("/maven", "~/.m2/repository", true, ["https://repo1.maven.org/maven2"]);
+  auto repo = new MavenRepoConfig("/maven", "~/.m2/repository", ["https://repo1.maven.org/maven2"]);
   auto remoteBui = "https://repo1.maven.org/maven2/org/beangle/bundles/beangle-bundles-bui/0.1.7/beangle-bundles-bui-0.1.7.jar";
   assert(remoteBui == repo.remoteUrls("org.beangle.bundles:beangle-bundles-bui:0.1.7")[0]);
 }

@@ -110,8 +110,7 @@ class AssetRepo {
               remove(bundleBase);
             }
             logInfo("Linking " ~ dp.location ~ " to " ~ bundleBase);
-            //FIXME 硬链接,不适合windows
-            symlink(dp.location, bundleBase);
+            makeSymlink(dp.location, bundleBase);
           } else {
             logWarn("Cannot link " ~ dp.location ~ " to " ~ bundleBase);
           }

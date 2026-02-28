@@ -228,7 +228,8 @@ class S3Service {
       res.headers["x-amz-request-id"] = requestId;
       res.headers["x-amz-id-2"] = amzId2;
 
-      download(profile, req, res, uri);
+      import micdn.blob.web;
+      sendObject(repo,profile, req, res, uri);
     } else {
       // S3-style error response
       res.statusCode = HTTPStatus.notFound;
@@ -534,30 +535,5 @@ class S3Service {
 
     // Combine all parts
     return "AWS4-HMAC-SHA256\n" ~ timestamp ~ "\n" ~ s ~ "\n" ~ canonicalRequestHash;
-  }
-
-  //fixme for realname detection
-  private void download(const(BlobProfile) profile, HTTPServerRequest req,
-      HTTPServerResponse res, string path) {
-    import std.path;
-
-    auto ext = extension(path);
-    if (ext in repo.images) {
-      sendFile(req, res, repo.base ~ path, null);
-    } else {
-      auto realname = repo.getRealname(profile, path[profile.base.length .. $]);
-      if (realname.length > 0) {
-        void setContextDisposition(scope HTTPServerRequest req,
-            scope HTTPServerResponse res, ref string physicalPath) @safe {
-          res.headers["Content-Disposition"] = encodeAttachmentName(realname);
-        }
-
-        auto settings = new CacheSetting;
-        settings.preWriteCallback = &setContextDisposition;
-        sendFile(req, res, repo.base ~ path, settings);
-      } else {
-        sendFile(req, res, repo.base ~ path, null);
-      }
-    }
   }
 }

@@ -87,8 +87,7 @@ class MicdnConfig {
     app.put("<micdn>");
 
     // 输出 Maven 配置
-    app.put(`  <repo endpoint="` ~ maven.endpoint ~ `" base="` ~ maven.base
-        ~ `" publicList="` ~ maven.publicList.to!string ~ `">` ~ "\n");
+    app.put(`  <repo endpoint="` ~ maven.endpoint ~ `" base="` ~ maven.base ~ `">` ~ "\n");
     foreach (remote; maven.remotes) {
       app.put(`    <remote url="` ~ remote ~ `"/>` ~ "\n");
     }
@@ -114,8 +113,7 @@ class MicdnConfig {
     app.put("  </static>\n");
 
     // 输出 Blob 配置
-    app.put(`<blob endpoint="` ~ blob.endpoint ~ `" base="` ~ blob.base
-        ~ `" publicList="` ~ blob.publicList.to!string ~ `">` ~ "\n");
+    app.put(`<blob endpoint="` ~ blob.endpoint ~ `" base="` ~ blob.base ~ `">` ~ "\n");
     app.put(`<xi:include href="blob.xml" />`);
     app.put("  </blob>\n");
 
@@ -140,7 +138,6 @@ private void add(ref string[] remotes, string remote) {
 static MavenRepoConfig parseMavenConfig(T)(string defaultBase, ref DOMEntity!T micdnDom) {
   auto dom = children(micdnDom, "repo").front;
   auto attrs = getAttrs(dom);
-  bool publicList = attrs.get("publicList", "false").to!bool;
   import std.path;
 
   string base = expandTilde(attrs.get("base", defaultBase));
@@ -163,7 +160,6 @@ static AssetConfig parseAssetConfig(T)(string home, ref DOMEntity!T micdnDom) {
   string endpoint = attrs.get("endpoint", "/static");
   string base = attrs.get("base", "~/.micdn/asset");
 
-  bool publicList = attrs.get("publicList", "false").to!bool;
   import std.path;
 
   base = expandTilde(base);

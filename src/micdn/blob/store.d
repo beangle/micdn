@@ -129,8 +129,7 @@ class BlobRepo {
   MetaDao metaDao;
   /// 需要特殊处理为图片的扩展名集合。
   bool[string] images;
-  /**enable dir list*/
-  const bool publicList;
+
   /**upload file limit*/
   ulong maxSize = 50 * 1024 * 1024; //default 50m
   /**url profile for management*/
@@ -149,7 +148,6 @@ class BlobRepo {
   */
   this(const(BlobConfig) config, MetaDao metaDao) {
     this.base = config.base;
-    this.publicList = config.publicList;
     this.maxSize = config.maxSize;
     this.metaDao = metaDao;
     if (metaDao !is null) {

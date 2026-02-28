@@ -40,16 +40,12 @@ class MavenService {
     auto file = urlDecode(repo.base ~ uri);
     if (exists(file)) {
       if (isDir(file)) {
-        if (repo.publicList) {
-          if (uri.endsWith("/")) {
-            auto content = genListContents(repo.base ~ uri, endpoint, uri);
-            render!("index.dt", uri, content)(res);
-          } else {
-            uri = endpoint ~ uri;
-            res.redirect(req.requestURI.replace(uri, uri ~ "/"));
-          }
+        if (uri.endsWith("/")) {
+          auto content = genListContents(repo.base ~ uri, endpoint, uri);
+          render!("index.dt", uri, content)(res);
         } else {
-          throw new HTTPStatusException(HTTPStatus.forbidden);
+          uri = endpoint ~ uri;
+          res.redirect(req.requestURI.replace(uri, uri ~ "/"));
         }
       } else {
         sendFile(req, res, file);

@@ -3,7 +3,7 @@
   xmlns:xi="http://www.w3.org/2001/XInclude"
   xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.0.0.xsd">
 
-  <repo publicList="true" base="~/.m2/repository" endpoint="/repo">
+  <repo base="~/.m2/repository" endpoint="/repo">
     <remote url="https://maven.aliyun.com/repository/public" />
     <remote url="https://repo1.maven.org/maven2/" />
   </repo>
