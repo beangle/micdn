@@ -88,11 +88,9 @@ version (unittest) {
       router.get(config.maven.endpoint ~ "/*", &mavenService.service);
       router.get(config.maven.endpoint, &mavenService.service);
 
-      if (config.npm !is null) {
-        auto npmService = new NpmService(config);
-        router.get(config.npm.endpoint ~ "/*", &npmService.service);
-        router.get(config.npm.endpoint, &npmService.service);
-      }
+      auto npmService = new NpmService(config);
+      router.get(config.npm.endpoint ~ "/*", &npmService.service);
+      router.get(config.npm.endpoint, &npmService.service);
 
       if (config.blob !is null) {
         MetaDao metaDao = null;
@@ -108,7 +106,7 @@ version (unittest) {
 
       if (config.www !is null) {
         foreach (doc; config.www.docs) {
-          if (doc.provider is null){
+          if (doc.provider is null) {
             logWarn("Www doc provider is null: %s", doc.location);
             continue;
           }

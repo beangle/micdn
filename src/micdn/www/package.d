@@ -51,13 +51,13 @@ class WwwDocRepo {
     if (uri.indexOf("..") > -1)
       return null;
     auto location = base ~ uri;
-    if(exists(location)){
-      if (std.file.isDir(location)){
+    if (exists(location)) {
+      if (std.file.isDir(location)) {
         auto indexPath = location ~ "/index.html";
-        if (exists(indexPath)){
+        if (exists(indexPath)) {
           return indexPath;
         }
-      }else{
+      } else {
         return location;
       }
     }

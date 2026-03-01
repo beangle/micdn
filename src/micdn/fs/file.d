@@ -26,6 +26,36 @@ import std.zip;
 
 import vibe.core.log;
 
+/// ZIP 文件魔数：PK\x03\x04 本地文件头、PK\x05\x06 空/结尾、PK\x07\x08 分卷
+enum zipSignature1 = "\x50\x4B\x03\x04"; // 最常见
+enum zipSignature2 = "\x50\x4B\x05\x06"; // 空 zip / 中央目录结尾
+enum zipSignature3 = "\x50\x4B\x07\x08"; // 分卷归档
+
+/** 通过魔数快速判断是否为合法 ZIP 文件，仅读取前 4 字节。
+
+    不保证文件完整可解压，深度校验由 ZipArchive 构造时完成。
+    用于在 read() 全量加载前快速拒绝明显非 zip 的文件。
+
+    Params:
+        zipfile = 文件路径
+
+    Returns:
+        true 若前 4 字节为 ZIP 标准签名之一
+*/
+bool isZipFile(string zipfile) {
+  if (!exists(zipfile))
+    return false;
+  auto f = File(zipfile, "rb");
+  scope (exit)
+    f.close();
+  ubyte[4] buf;
+  auto readBuf = f.rawRead(buf[]);
+  if (readBuf.length < 4)
+    return false;
+  auto s = cast(string) readBuf;
+  return s == zipSignature1 || s == zipSignature2 || s == zipSignature3;
+}
+
 version (Windows) {
   import core.sys.windows.winbase;
   import core.sys.windows.windef : DWORD;
@@ -51,7 +81,13 @@ uint unzip(string zipfile, string base, string innerDir = null) {
     prefix ~= "/";
   }
   uint count = 0;
-  if (exists(zipfile)) {
+  if (!exists(zipfile))
+    return 0;
+  if (!isZipFile(zipfile)) {
+    logWarn("Not a valid zip file (bad magic): %s", zipfile);
+    return 0;
+  }
+  try {
     auto zip = new ZipArchive(read(zipfile));
     mkdirRecurse(base);
     foreach (name, am; zip.directory) {
@@ -74,6 +110,9 @@ uint unzip(string zipfile, string base, string innerDir = null) {
         }
       }
     }
+  } catch (ZipException e) {
+    logError("Invalid or corrupted zip file: %s - %s", zipfile, e.msg);
+    return 0;
   }
   return count;
 }
@@ -92,6 +131,7 @@ uint extractTgz(string tgzFile, string baseDir) {
     return 0;
   mkdirRecurse(baseDir);
   import std.process;
+
   auto result = execute(["tar", "-xzf", tgzFile, "-C", baseDir]);
   return (result.status == 0) ? 1 : 0;
 }
@@ -104,6 +144,7 @@ uint extractTgz(string tgzFile, string baseDir) {
 */
 void copyDirContents(string srcDir, string destDir) {
   import std.path;
+
   if (!exists(srcDir) || !isDir(srcDir))
     return;
   mkdirRecurse(destDir);
@@ -139,7 +180,13 @@ uint refreshUnzip(string zipfile, string base, string innerDir = null) {
     prefix ~= "/";
   }
   uint count = 0;
-  if (exists(zipfile)) {
+  if (!exists(zipfile))
+    return 0;
+  if (!isZipFile(zipfile)) {
+    logWarn("Not a valid zip file (bad magic): %s", zipfile);
+    return 0;
+  }
+  try {
     auto zip = new ZipArchive(read(zipfile));
     mkdirRecurse(base);
     foreach (name, am; zip.directory) {
@@ -169,6 +216,9 @@ uint refreshUnzip(string zipfile, string base, string innerDir = null) {
         }
       }
     }
+  } catch (ZipException e) {
+    logError("Invalid or corrupted zip file: %s - %s", zipfile, e.msg);
+    return 0;
   }
   return count;
 }

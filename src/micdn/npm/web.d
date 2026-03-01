@@ -9,6 +9,7 @@
 module micdn.npm.web;
 /// NPM 仓库浏览 HTTP 服务，提供本地 npm-repo 目录列表与文件下载。
 
+import std.algorithm;
 import std.exception;
 import std.file;
 import std.string;
@@ -41,6 +42,20 @@ class NpmService {
       throw new HTTPStatusException(HTTPStatus.notFound);
 
     import vibe.textfilter.urlencode;
+
+    // 支持 NPM 官方 tgz URL：{packageName}/-/{name}-{version}.tgz，不存在则下载后返回
+    if (uri.canFind("/-/") && uri.endsWith(".tgz")) {
+      auto decodedUri = urlDecode(uri);
+      auto parsed = parseTarballUri(decodedUri);
+      if (parsed[0]!is null && parsed[1]!is null && parsed[2]!is null) {
+        if (repo.fetch(parsed[0], parsed[1], parsed[2])) {
+          auto local = repo.localTarball(parsed[0], parsed[1], parsed[2]);
+          sendFile(req, res, local);
+          return;
+        }
+        throw new HTTPStatusException(HTTPStatus.notFound);
+      }
+    }
 
     auto path = urlDecode(repo.base ~ uri);
     if (exists(path)) {

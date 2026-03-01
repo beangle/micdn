@@ -52,6 +52,7 @@ class WwwDocService {
     void setCORS(scope HTTPServerRequest req, scope HTTPServerResponse res, ref string physicalPath) @safe {
       res.headers["Access-Control-Allow-Origin"] = "*";
     }
+
     auto settings = new CacheSetting;
     settings.preWrite = &setCORS;
     sendFile(req, res, rs, settings);

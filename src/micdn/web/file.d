@@ -54,7 +54,7 @@ bool curlDownload(string url, string local) {
 
   mkdirRecurse(dirName(local));
 
-  auto cmd = execute(["curl", "--fail", "--silent", "-o", local, url]);
+  auto cmd = execute(["curl", "--fail", "--silent", "-L", "-o", local, url]);
   import vibe.core.log;
 
   if (cmd.status == 0) {

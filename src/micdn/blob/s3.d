@@ -255,12 +255,9 @@ class S3Service {
   <Error>
     <Code>NoSuchKey</Code>
     <Message>The specified key does not exist.</Message>
-    <Key>`
-          ~ uri ~ `</Key>f
-    <RequestId>`
-          ~ generateUuid() ~ `</RequestId>
-    <HostId>`
-          ~ generateAmzId2() ~ `</HostId>
+    <Key>` ~ uri ~ `</Key>f
+    <RequestId>` ~ generateUuid() ~ `</RequestId>
+    <HostId>` ~ generateAmzId2() ~ `</HostId>
   </Error>`, "application/xml");
     }
   }
@@ -319,10 +316,8 @@ class S3Service {
   <Error>
     <Code>InternalError</Code>
     <Message>We encountered an internal error. Please try again.</Message>
-    <RequestId>`
-          ~ generateUuid() ~ `</RequestId>
-    <HostId>`
-          ~ generateAmzId2() ~ `</HostId>
+    <RequestId>` ~ generateUuid() ~ `</RequestId>
+    <HostId>` ~ generateAmzId2() ~ `</HostId>
   </Error>`, "application/xml");
     }
   }
@@ -347,12 +342,9 @@ class S3Service {
   <Error>
     <Code>NoSuchKey</Code>
     <Message>The specified key does not exist.</Message>
-    <Key>`
-          ~ uri ~ `</Key>
-    <RequestId>`
-          ~ generateUuid() ~ `</RequestId>
-    <HostId>`
-          ~ generateAmzId2() ~ `</HostId>
+    <Key>` ~ uri ~ `</Key>
+    <RequestId>` ~ generateUuid() ~ `</RequestId>
+    <HostId>` ~ generateAmzId2() ~ `</HostId>
   </Error>`, "application/xml");
     }
   }
@@ -387,12 +379,9 @@ class S3Service {
   <Error>
     <Code>NoSuchKey</Code>
     <Message>The specified key does not exist.</Message>
-    <Key>`
-          ~ uri ~ `</Key>
-    <RequestId>`
-          ~ generateUuid() ~ `</RequestId>
-    <HostId>`
-          ~ generateAmzId2() ~ `</HostId>
+    <Key>` ~ uri ~ `</Key>
+    <RequestId>` ~ generateUuid() ~ `</RequestId>
+    <HostId>` ~ generateAmzId2() ~ `</HostId>
   </Error>`, "application/xml");
     }
   }
@@ -422,12 +411,9 @@ class S3Service {
   <Error>
     <Code>NoSuchBucket</Code>
     <Message>The specified bucket does not exist.</Message>
-    <BucketName>`
-          ~ uri ~ `</BucketName>
-    <RequestId>`
-          ~ generateUuid() ~ `</RequestId>
-    <HostId>`
-          ~ generateAmzId2() ~ `</HostId>
+    <BucketName>` ~ uri ~ `</BucketName>
+    <RequestId>` ~ generateUuid() ~ `</RequestId>
+    <HostId>` ~ generateAmzId2() ~ `</HostId>
   </Error>`, "application/xml");
     }
   }
