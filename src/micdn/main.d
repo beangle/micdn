@@ -38,11 +38,8 @@ import micdn.blob.web;
 import micdn.maven.web;
 import micdn.model;
 import micdn.web.server;
-
-AssetService assetService;
-MavenService mavenService;
-BlobService blobService;
-S3Service s3Service;
+import micdn.www;
+import micdn.www.web;
 
 // 跑 dub test 时由测试运行器提供 main，此处不编译
 version (unittest) {
@@ -81,12 +78,12 @@ version (unittest) {
       auto settings = new HTTPServerSettings;
 
       if (config.asset !is null) {
-        assetService = new AssetService(config);
+        auto assetService = new AssetService(config);
         router.get(config.asset.endpoint, &assetService.service);
         router.get(config.asset.endpoint ~ "/*", &assetService.service);
       }
 
-      mavenService = new MavenService(config);
+      auto mavenService = new MavenService(config);
       router.get(config.maven.endpoint ~ "/*", &mavenService.service);
       router.get(config.maven.endpoint, &mavenService.service);
 
@@ -100,6 +97,19 @@ version (unittest) {
         router.get(config.blob.endpoint ~ "/*", &blobService.service);
         router.get(config.blob.endpoint ~ "/s3/*", &s3Service.service);
         settings.maxRequestSize = config.blob.maxSize;
+      }
+
+      if (config.www !is null) {
+        foreach (doc; config.www.docs) {
+          if (doc.provider is null){
+            logWarn("Www doc provider is null: %s", doc.location);
+            continue;
+          }
+          auto repo = WwwDocRepo.build(config, doc);
+          auto svc = new WwwDocService(doc, repo);
+          router.get(doc.location, &svc.service);
+          router.get(doc.location ~ "/*", &svc.service);
+        }
       }
 
       settings.bindAddresses = options.ips.dup;
@@ -116,10 +126,6 @@ version (unittest) {
       return 1;
     }
   }
-}
-
-void serveRepo(HTTPServerRequest req, HTTPServerResponse res) {
-  mavenService.service(req, res);
 }
 
 void showHelpInfo(string programName) {

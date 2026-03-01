@@ -34,7 +34,7 @@ import dxml.dom;
 
 import micdn.xml;
 
-/** 根配置类，聚合静态资源、Maven 仓库、Blob 存储三类子配置。
+/** 根配置类，聚合静态资源、Maven 仓库、Blob 存储、WWW 文档四类子配置。
 
     通过 parse/parseFile 从 XML 加载，通过 staticToXml 序列化回 XML。
 */
@@ -45,11 +45,14 @@ class MicdnConfig {
   const MavenRepoConfig maven;
   /// Blob 存储配置（profiles、上传限制等）
   const BlobConfig blob;
+  /// WWW 文档配置（多 doc，每 doc 独立 endpoint）
+  const WwwConfig www;
 
-  this(AssetConfig asset, MavenRepoConfig maven, BlobConfig blob) {
+  this(AssetConfig asset, MavenRepoConfig maven, BlobConfig blob, WwwConfig www = null) {
     this.asset = asset;
     this.maven = maven;
     this.blob = blob;
+    this.www = www;
   }
   /** 从 XML 字符串解析配置。
 
@@ -65,6 +68,7 @@ class MicdnConfig {
     AssetConfig asset;
     MavenRepoConfig maven;
     BlobConfig blob;
+    WwwConfig www;
 
     if (dom.children.any!(c => c.name == "repo")) {
       maven = parseMavenConfig("~/.m2/repository", dom);
@@ -77,7 +81,10 @@ class MicdnConfig {
     if (dom.children.any!(c => c.name == "blob")) {
       blob = parseBlobConfig(home, dom);
     }
-    return new MicdnConfig(asset, maven, blob);
+    if (dom.children.any!(c => c.name == "www")) {
+      www = parseWwwConfig(home, dom);
+    }
+    return new MicdnConfig(asset, maven, blob, www);
   }
 
   /** 从本地 XML 文件解析配置。
@@ -141,9 +148,29 @@ class MicdnConfig {
     app.put("  </static>\n");
 
     // 输出 Blob 配置
-    app.put(`<blob endpoint="` ~ blob.endpoint ~ `" base="` ~ blob.base ~ `">` ~ "\n");
-    app.put(`<xi:include href="blob.xml" />`);
-    app.put("  </blob>\n");
+    if (blob) {
+      app.put(`<blob endpoint="` ~ blob.endpoint ~ `" base="` ~ blob.base ~ `">` ~ "\n");
+      app.put(`<xi:include href="blob.xml" />`);
+      app.put("  </blob>\n");
+    }
+
+    // 输出 WWW 配置
+    if (www) {
+      app.put("  <www base=\"" ~ www.base ~ "\">\n");
+      foreach (doc; www.docs) {
+        app.put(`    <doc location="` ~ doc.location ~ `">` ~ "\n");
+        if (doc.provider) {
+          if (auto zp = cast(ZipProvider) doc.provider)
+            app.put(`      <zip file="` ~ zp.file ~ `" dir="` ~ zp.dir ~ `"/>` ~ "\n");
+          else if (auto dp = cast(DirProvider) doc.provider)
+            app.put(`      <dir location="` ~ dp.location ~ `"/>` ~ "\n");
+          else if (auto gjp = cast(GavJarProvider) doc.provider)
+            app.put(`      <jar gav="` ~ gjp.gav ~ `"/>` ~ "\n");
+        }
+        app.put("    </doc>\n");
+      }
+      app.put("  </www>\n");
+    }
 
     app.put("</micdn>\n");
     return app.data;
@@ -243,6 +270,43 @@ static BlobConfig parseBlobConfig(T)(string home, ref DOMEntity!T micdnDom) {
     config.dataSourceProps[p.name] = p.children[0].text;
   }
   return config;
+}
+
+/// 从 DOM 节点解析 WWW 配置（多 doc，每 doc 有 location 和至多一个 dir/jar/zip）。
+static WwwConfig parseWwwConfig(T)(string home, ref DOMEntity!T micdnDom) {
+  auto dom = children(micdnDom, "www").front;
+  auto attrs = getAttrs(dom);
+  import std.path;
+
+  string base = expandTilde(attrs.get("base", "~/.micdn/www"));
+  WwwDocConfig[] docs;
+  foreach (c; children(dom, "doc")) {
+    auto docAttrs = getAttrs(c);
+    string location = normalizeEndpoint(docAttrs.get("location", ""));
+    if (location.empty)
+      continue;
+    BundleProvider provider = null;
+    auto jars = children(c, "jar");
+    if (!jars.empty) {
+      attrs = getAttrs(jars.front);
+      provider = new GavJarProvider(attrs["gav"], attrs.get("location", null));
+    }
+    auto dirs = children(c, "dir");
+    if (!dirs.empty && provider is null) {
+      attrs = getAttrs(dirs.front);
+      string loc = expandTilde(attrs["location"].replace("${micdn.home}", home));
+      provider = new DirProvider(loc);
+    }
+    auto zips = children(c, "zip");
+    if (!zips.empty && provider is null) {
+      attrs = getAttrs(zips.front);
+      string file = expandTilde(attrs["file"].replace("${micdn.home}", home));
+      string dir = attrs.get("dir", "");
+      provider = new ZipProvider(file, dir);
+    }
+    docs ~= new WwwDocConfig(location, provider);
+  }
+  return new WwwConfig(base, docs);
 }
 
 /// 解析大小字符串，支持 M/G 后缀（如 "50M"、"1G"）。
@@ -458,6 +522,34 @@ class BlobConfig {
     this.base = base;
   }
 
+}
+
+/** WWW 文档配置，包含多个 doc，每个 doc 有独立 endpoint，至多一个 dir/jar/zip 提供者。
+*/
+class WwwConfig {
+  /// 本地构建根路径（如 ~/.micdn/www）
+  const string base;
+  /// doc 列表，每个 doc 的 location 即其 endpoint
+  const WwwDocConfig[] docs;
+
+  this(string base, WwwDocConfig[] docs) {
+    this.base = base;
+    this.docs = docs;
+  }
+}
+
+/** 单个 WWW doc 配置，对应一个 endpoint，包含至多一个 dir/jar/zip。
+*/
+class WwwDocConfig {
+  /// HTTP 访问路径前缀（如 /www）
+  const string location;
+  /// 资源提供者，至多一个（DirProvider、ZipProvider 或 GavJarProvider）
+  const BundleProvider provider;
+
+  this(string location, BundleProvider provider) {
+    this.location = normalizeEndpoint(location);
+    this.provider = provider;
+  }
 }
 
 /** Blob 元数据记录，对应数据库 blb_blob_metas 表中的一条记录。

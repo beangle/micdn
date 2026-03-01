@@ -32,6 +32,19 @@ version (Windows) {
   import core.sys.windows.winerror;
 }
 
+/** 将 zip/jar 包解压到指定目录。
+
+    若指定 innerDir，则仅解压该子目录内的条目；否则解压全部。
+    目录条目会创建空目录，文件条目会写入磁盘。
+
+    Params:
+        zipfile  = zip/jar 文件路径
+        base     = 目标解压根目录
+        innerDir = zip 内要解压的子目录（如 "META-INF/resources"），null 表示全部
+
+    Returns:
+        实际解压的文件数量（不含目录）
+*/
 uint unzip(string zipfile, string base, string innerDir = null) {
   string prefix = innerDir;
   if (null != prefix && !prefix.endsWith("/")) {
@@ -65,6 +78,19 @@ uint unzip(string zipfile, string base, string innerDir = null) {
   return count;
 }
 
+/** 增量解压 zip/jar：已存在且大小一致的文件跳过写入，用于加速重复构建。
+
+    逻辑与 unzip 相同，但会检查目标文件是否存在且大小等于 zip 内条目大小，
+    满足则跳过解压，否则覆盖写入。
+
+    Params:
+        zipfile  = zip/jar 文件路径
+        base     = 目标解压根目录
+        innerDir = zip 内要解压的子目录，null 表示全部
+
+    Returns:
+        匹配的文件数量（含跳过的）
+*/
 uint refreshUnzip(string zipfile, string base, string innerDir = null) {
   string prefix = innerDir;
   if (null != prefix && !prefix.endsWith("/")) {
@@ -132,6 +158,8 @@ void makeSymlink(string target, string linkPath) {
   }
 }
 
+/** 递归将目录及子项设为只读（目录 555，文件 444），符号链接不修改。
+*/
 void setReadOnly(string dir) {
   if (!exists(dir)) {
     return;
@@ -139,6 +167,7 @@ void setReadOnly(string dir) {
   doSetReadOnly(dir);
 }
 
+/// 递归设置只读的实现，符号链接跳过。
 private void doSetReadOnly(string dir) {
   if (dir.isDir) {
     dir.setAttributes(octal!555);
@@ -156,6 +185,9 @@ private void doSetReadOnly(string dir) {
   }
 }
 
+/** 递归将目录及子项设为可写（目录 +700，文件 +200），符号链接不修改。
+    用于在覆盖/解压前恢复写入权限。
+*/
 void setWritable(string dir) {
   if (!exists(dir)) {
     return;
@@ -163,6 +195,7 @@ void setWritable(string dir) {
   doSetWritable(dir);
 }
 
+/// 递归设置可写的实现，符号链接跳过。
 private void doSetWritable(string dir) {
   if (dir.isDir) {
     dir.setAttributes(dir.getAttributes | octal!700);
