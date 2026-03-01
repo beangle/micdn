@@ -25,6 +25,7 @@ import vibe.core.log;
 
 import micdn.fs.file;
 import micdn.model;
+import micdn.npm;
 
 /// 静态资源仓库实例，持有本地根目录与目录列表开关，提供 URI 解析与文件路径查询。
 class AssetRepo {
@@ -151,6 +152,24 @@ class AssetRepo {
             }
           } else {
             logWarn("Cannot resolve %s,ignore it.", gap.gav);
+          }
+        } else if (NpmProvider np = cast(NpmProvider) p) {
+          string scopePart, namePart, versionPart;
+          parsePackageSpec(np.packageSpec, scopePart, namePart, versionPart);
+          if (namePart.length == 0 || versionPart.length == 0) {
+            logWarn("Invalid npm package spec: %s", np.packageSpec);
+          } else {
+            logInfo("Mounting %s", np.packageSpec);
+            auto npmRepo = NpmRepo.build(config);
+            if (npmRepo.fetch(scopePart, namePart, versionPart)) {
+              auto tgzPath = npmRepo.localTarball(scopePart, namePart, versionPart);
+              auto docBase = base ~ bundlePath ~ "/" ~ versionPart;
+              if (!extractTgzToDocBase(tgzPath, docBase, "package/" ~ np.dir)) {
+                logWarn("Failed to extract %s to %s", tgzPath, docBase);
+              }
+            } else {
+              logWarn("Cannot resolve npm package %s", np.packageSpec);
+            }
           }
         } else if (ZipProvider zp = cast(ZipProvider) p) {
           logInfo("Mounting %s", zp.file);

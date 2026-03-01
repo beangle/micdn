@@ -163,6 +163,8 @@ class MicdnConfig {
             app.put(`      <jar gav="` ~ gjp.gav ~ `" dir="` ~ gjp.dir ~ `"/>` ~ "\n");
           else
             app.put(`      <jar gav="` ~ gjp.gav ~ `"/>` ~ "\n");
+        } else if (NpmProvider np = cast(NpmProvider) provider) {
+          app.put(`      <npm package="` ~ np.packageSpec ~ `" dir="` ~ np.dir ~ `"/>` ~ "\n");
         }
       }
       app.put("    </bundle>\n");
@@ -286,6 +288,13 @@ static AssetConfig parseAssetConfig(T)(string home, ref DOMEntity!T micdnDom) {
       string dir = rawDir.length == 0 ? (gav.startsWith("org.webjars")
           ? "META-INF/resources/webjars" : "META-INF/resources") : stripLeadingSlash(rawDir);
       bundle.addProvider(new GavJarProvider(gav, dir));
+    }
+    auto npms = children(c, "npm");
+    foreach (npm; npms) {
+      attrs = getAttrs(npm);
+      string packageSpec = attrs["package"];
+      auto dir = stripLeadingSlash(attrs.get("dir", "dist"));
+      bundle.addProvider(new NpmProvider(packageSpec, dir));
     }
     auto dirs = children(c, "dir");
     foreach (dir; dirs) {
@@ -506,8 +515,8 @@ class NpmRepoConfig {
 
 /** 静态资源 bundle，对应配置中的一个 <bundle> 节点。
 
-    每个 bundle 有唯一名称和若干 provider（ZipProvider、DirProvider、GavJarProvider），
-    用于从 zip 包、本地目录或 Maven jar 加载前端资源。
+    每个 bundle 有唯一名称和若干 provider（ZipProvider、DirProvider、GavJarProvider、NpmProvider），
+    用于从 zip 包、本地目录、Maven jar 或 NPM 包加载前端资源。
 */
 class AssetBundle {
   /// bundle 名称，不能为空且不能包含 "/"
@@ -523,7 +532,7 @@ class AssetBundle {
   /** 向当前 bundle 追加一个资源提供者。
 
       Params:
-          p = ZipProvider、DirProvider 或 GavJarProvider 实例
+          p = ZipProvider、DirProvider、GavJarProvider 或 NpmProvider 实例
   */
   void addProvider(BundleProvider p) {
     providers.length += 1;

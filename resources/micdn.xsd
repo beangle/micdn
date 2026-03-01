@@ -29,6 +29,11 @@
         <xs:documentation> Maven GAV coordinates (groupId:artifactId:version) </xs:documentation>
       </xs:annotation>
     </xs:attribute>
+    <xs:attribute name="dir" type="xs:string" use="optional">
+      <xs:annotation>
+        <xs:documentation> jar 内子目录路径（不能以 / 开头），默认 META-INF/resources </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
   </xs:complexType>
 
   <xs:complexType name="zipType">
@@ -39,8 +44,7 @@
     </xs:attribute>
     <xs:attribute name="dir" type="xs:string" use="optional">
       <xs:annotation>
-        <xs:documentation> Directory path inside jar (relative path, should not start with /, e.g.,
-          sub/dir) </xs:documentation>
+        <xs:documentation> zip 包内子目录路径（相对路径，不能以 / 开头，如 sub/dir）</xs:documentation>
       </xs:annotation>
     </xs:attribute>
   </xs:complexType>
@@ -57,6 +61,7 @@
   <xs:complexType name="bundleType">
     <xs:choice minOccurs="0" maxOccurs="unbounded">
       <xs:element name="jar" type="jarType" />
+      <xs:element name="npm" type="npmType" />
       <xs:element name="zip" type="zipType" />
       <xs:element name="dir" type="dirType" />
     </xs:choice>
@@ -87,7 +92,7 @@
     </xs:attribute>
     <xs:attribute name="dir" type="xs:string" use="optional">
       <xs:annotation>
-        <xs:documentation> tgz 解压后取包内的子目录，默认 dist </xs:documentation>
+        <xs:documentation> tgz 解压后取包内的子目录（不能以 / 开头），默认 dist </xs:documentation>
       </xs:annotation>
     </xs:attribute>
   </xs:complexType>
