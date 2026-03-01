@@ -28,7 +28,7 @@ import vibe.core.log;
 
 version (Windows) {
   import core.sys.windows.winbase;
-  import core.sys.windows.windef:DWORD;
+  import core.sys.windows.windef : DWORD;
   import core.sys.windows.winerror;
 }
 
@@ -119,13 +119,13 @@ void makeSymlink(string target, string linkPath) {
     enum SYMBOLIC_LINK_FLAG_DIRECTORY = 0x1;
     enum SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE = 0x2;
 
-    uint flags = SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE;  // DWORD
+    uint flags = SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE; // DWORD
     if (exists(target) && isDir(target)) {
       flags |= SYMBOLIC_LINK_FLAG_DIRECTORY;
     }
     if (CreateSymbolicLinkW(linkPath.toUTF16z, target.toUTF16z, flags) == 0) {
-      throw new Exception("Failed to create symlink: " ~ linkPath ~ " -> " ~ target
-        ~ " (error " ~ GetLastError().to!string ~ "; require Admin or Developer Mode on Windows)");
+      throw new Exception("Failed to create symlink: " ~ linkPath ~ " -> " ~ target ~ " (error " ~ GetLastError()
+          .to!string ~ "; require Admin or Developer Mode on Windows)");
     }
   } else {
     symlink(target, linkPath);
@@ -179,4 +179,3 @@ private void doSetWritable(string dir) {
     dir.setAttributes(dir.getAttributes | octal!600);
   }
 }
-

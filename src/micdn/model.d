@@ -66,15 +66,15 @@ class MicdnConfig {
     MavenRepoConfig maven;
     BlobConfig blob;
 
-    if(dom.children.any!(c => c.name == "repo")) {
+    if (dom.children.any!(c => c.name == "repo")) {
       maven = parseMavenConfig("~/.m2/repository", dom);
-    }else{
+    } else {
       maven = MavenRepoConfig.defaultConfig();
     }
-    if(dom.children.any!(c => c.name == "static")) {
+    if (dom.children.any!(c => c.name == "static")) {
       asset = parseAssetConfig(home, dom);
     }
-    if(dom.children.any!(c => c.name == "blob")) {
+    if (dom.children.any!(c => c.name == "blob")) {
       blob = parseBlobConfig(home, dom);
     }
     return new MicdnConfig(asset, maven, blob);
@@ -309,7 +309,9 @@ class MavenRepoConfig {
   }
 
   static MavenRepoConfig defaultConfig() {
-    return new MavenRepoConfig("/repo", "~/.m2/repository", ["https://repo1.maven.org/maven2"]);
+    return new MavenRepoConfig("/repo", "~/.m2/repository", [
+      "https://repo1.maven.org/maven2"
+    ]);
   }
   /// 将 GAV 转换为 Maven 目录路径，如 org.apache:commons:1.0 -> /org/apache/commons/1.0/commons-1.0.jar
   private string path(string gav) const {

@@ -76,17 +76,17 @@ class BlobService {
     } else { //file
       auto profile = repo.getProfile(uri);
       if (profile.publicDownload) {
-        sendObject(repo,profile, req, res, uri);
+        sendObject(repo, profile, req, res, uri);
       } else {
         auto token = ("token" in req.query);
         auto t = ("t" in req.query);
         auto user = ("u" in req.query);
         if (null == user || null == token || null == t) {
           if (basicAuth(req, res, profile)) {
-            sendObject(repo,profile, req, res, uri);
+            sendObject(repo, profile, req, res, uri);
           }
         } else if (checkToken(profile, uri, *user, profile.keys.get(*user, ""), *token, *t)) {
-          sendObject(repo,profile, req, res, uri);
+          sendObject(repo, profile, req, res, uri);
         } else {
           res.statusCode = HTTPStatus.forbidden;
           res.writeBody("bad token!", "text/plain");
@@ -169,7 +169,8 @@ class BlobService {
 }
 
 //fixme for realname detection
-void sendObject(BlobRepo repo, const(BlobProfile) profile, HTTPServerRequest req, HTTPServerResponse res, string path) {
+void sendObject(BlobRepo repo, const(BlobProfile) profile, HTTPServerRequest req,
+    HTTPServerResponse res, string path) {
   import std.path;
 
   auto ext = extension(path);
