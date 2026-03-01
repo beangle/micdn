@@ -37,6 +37,7 @@ import micdn.blob.store;
 import micdn.blob.web;
 import micdn.maven.web;
 import micdn.model;
+import micdn.npm.web;
 import micdn.web.server;
 import micdn.www;
 import micdn.www.web;
@@ -86,6 +87,12 @@ version (unittest) {
       auto mavenService = new MavenService(config);
       router.get(config.maven.endpoint ~ "/*", &mavenService.service);
       router.get(config.maven.endpoint, &mavenService.service);
+
+      if (config.npm !is null) {
+        auto npmService = new NpmService(config);
+        router.get(config.npm.endpoint ~ "/*", &npmService.service);
+        router.get(config.npm.endpoint, &npmService.service);
+      }
 
       if (config.blob !is null) {
         MetaDao metaDao = null;

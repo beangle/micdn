@@ -15,7 +15,7 @@
  */
 
 module micdn.www;
-/// WWW 文档子模块：每个 doc 含至多一个 dir/jar/zip，按 endpoint 挂载，不提供目录列表。
+/// WWW 文档子模块：每个 doc 含至多一个 dir/npm/zip，按 endpoint 挂载，不提供目录列表。
 
 import std.file;
 import std.path;
@@ -25,6 +25,7 @@ import vibe.core.log;
 
 import micdn.fs.file;
 import micdn.model;
+import micdn.npm;
 import micdn.web.file;
 
 /// 单个 doc 的本地仓库，根目录为 base，内容来自一个 dir/jar/zip 提供者。
@@ -79,7 +80,6 @@ class WwwDocRepo {
   */
   static WwwDocRepo build(MicdnConfig config, const WwwDocConfig doc) {
     auto www = config.www;
-    auto repo = config.maven;
     auto base = www.base;
     auto slug = doc.location.length > 1 ? doc.location[1 .. $].replace("/", "_") : "root";
     auto docBase = base ~ "/" ~ slug;
@@ -97,30 +97,30 @@ class WwwDocRepo {
       } else {
         logWarn("Cannot link " ~ dp.location ~ " to " ~ docBase);
       }
-    } else if (GavJarProvider gap = cast(GavJarProvider) p) {
-      string local = repo.localFile(gap.gav);
-      string location = gap.location;
-      if (null == location) {
-        if (gap.gav.startsWith("org.webjars")) {
-          location = "META-INF/resources/webjars";
-        } else {
-          location = "META-INF/resources";
-        }
-      }
-      if (exists(local)) {
-        mount(local, docBase, location);
-      } else if (!local.endsWith("SNAPSHOT.jar")) {
-        string[] remotes = repo.remoteUrls(gap.gav);
-        mkdirRecurse(dirName(local));
-        foreach (remote; remotes) {
-          logInfo("Downloading %s", remote);
-          if (curlDownload(remote, local)) {
-            mount(local, docBase, location);
-            break;
-          }
-        }
+    } else if (NpmProvider np = cast(NpmProvider) p) {
+      string scopePart, namePart, versionPart;
+      parsePackageSpec(np.packageSpec, scopePart, namePart, versionPart);
+      if (namePart.length == 0 || versionPart.length == 0) {
+        logWarn("Invalid npm package spec: %s", np.packageSpec);
       } else {
-        logWarn("Cannot resolve %s, ignore it.", gap.gav);
+        auto npmRepo = NpmRepo.build(config);
+        if (npmRepo.fetch(scopePart, namePart, versionPart)) {
+          auto tgzPath = npmRepo.localTarball(scopePart, namePart, versionPart);
+          auto extractDir = docBase ~ "/.npm_extract";
+          if (extractTgz(tgzPath, extractDir) > 0) {
+            auto innerDir = extractDir ~ "/package/" ~ np.dir;
+            if (exists(innerDir) && isDir(innerDir)) {
+              copyDirContents(innerDir, docBase);
+            } else {
+              logWarn("Cannot find %s in %s", np.dir, tgzPath);
+            }
+          }
+          if (exists(extractDir)) {
+            rmdirRecurse(extractDir);
+          }
+        } else {
+          logWarn("Cannot resolve npm package %s", np.packageSpec);
+        }
       }
     } else if (ZipProvider zp = cast(ZipProvider) p) {
       logInfo("Mounting %s", zp.file);

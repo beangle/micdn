@@ -7,8 +7,9 @@
   <!-- Root element -->
   <xs:element name="micdn">
     <xs:complexType>
-      <xs:choice minOccurs="0" maxOccurs="4">
-        <xs:element name="repo" type="repoType" minOccurs="0" maxOccurs="1" />
+      <xs:choice minOccurs="0" maxOccurs="5">
+        <xs:element name="maven" type="mavenType" minOccurs="0" maxOccurs="1" />
+        <xs:element name="npmjs" type="npmjsType" minOccurs="0" maxOccurs="1" />
         <xs:element name="blob" type="blobType" minOccurs="0" maxOccurs="1" />
         <xs:element name="static" type="staticType" minOccurs="0" maxOccurs="1" />
         <xs:element name="www" type="wwwType" minOccurs="0" maxOccurs="1" />
@@ -74,18 +75,35 @@
     </xs:sequence>
   </xs:complexType>
 
+  <!-- npmType: package spec @scope/package@version, optional dir (default dist) -->
+  <xs:complexType name="npmType">
+    <xs:annotation>
+      <xs:documentation> NPM 包，格式为 @scope/package@version 或 package@version，解压后取包内 dir 目录（默认 dist） </xs:documentation>
+    </xs:annotation>
+    <xs:attribute name="package" type="xs:string" use="required">
+      <xs:annotation>
+        <xs:documentation> NPM 包规格，格式为 @scope/package@version 或 package@version </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
+    <xs:attribute name="dir" type="xs:string" use="optional">
+      <xs:annotation>
+        <xs:documentation> tgz 解压后取包内的子目录，默认 dist </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
+  </xs:complexType>
+
   <!-- docType for www -->
   <xs:complexType name="docType">
     <xs:choice minOccurs="1" maxOccurs="1">
-      <xs:element name="jar" type="jarType" />
+      <xs:element name="npm" type="npmType" />
       <xs:element name="zip" type="zipType" />
       <xs:element name="dir" type="dirType" />
     </xs:choice>
     <xs:attribute name="location" type="xs:string" use="required" />
   </xs:complexType>
 
-  <!-- repoType -->
-  <xs:complexType name="repoType">
+  <!-- mavenType (Maven 仓库) -->
+  <xs:complexType name="mavenType">
     <xs:sequence>
       <xs:element name="remote" minOccurs="0" maxOccurs="unbounded">
         <xs:complexType>
@@ -95,7 +113,21 @@
       </xs:element>
     </xs:sequence>
     <xs:attribute name="base" type="xs:string" default="~/.m2/repository" use="optional" />
-    <xs:attribute name="endpoint" type="xs:string" default="/repo" use="optional" />
+    <xs:attribute name="endpoint" type="xs:string" default="/maven" use="optional" />
+  </xs:complexType>
+
+  <!-- npmjsType (NPM 仓库) -->
+  <xs:complexType name="npmjsType">
+    <xs:sequence>
+      <xs:element name="remote" minOccurs="0" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:attribute name="url" type="xs:string" use="required" />
+          <xs:attribute name="alias" type="xs:string" use="optional" />
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+    <xs:attribute name="base" type="xs:string" default="~/.npm-repo" use="optional" />
+    <xs:attribute name="endpoint" type="xs:string" default="/npm" use="optional" />
   </xs:complexType>
 
   <!-- blobType -->

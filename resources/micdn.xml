@@ -3,10 +3,14 @@
   xmlns:xi="http://www.w3.org/2001/XInclude"
   xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.0.0.xsd">
 
-  <repo base="~/.m2/repository" endpoint="/repo">
+  <maven base="~/.m2/repository" endpoint="/maven">
     <remote url="https://maven.aliyun.com/repository/public" />
     <remote url="https://repo1.maven.org/maven2/" />
-  </repo>
+  </maven>
+
+  <npmjs base="~/.npm-repo" endpoint="/npm">
+    <remote url="https://registry.npmmirror.com" />
+  </npmjs>
 
   <xi:include href="blob.xml" />
 
@@ -32,6 +36,10 @@
     <doc location="/www">
       <zip file="${micdn.home}/local.zip" dir="sub/dir" />
     </doc>
+    <!-- 示例：从 NPM 拉取包并取 dist 目录作为文档根 -->
+    <!-- <doc location="/docs">
+      <npm package="vue@3" dir="dist" />
+    </doc> -->
   </www>
 
 </micdn>
