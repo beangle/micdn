@@ -67,6 +67,22 @@ html(lang="zh")
         text-decoration: underline;
       }
       .icon { opacity: 0.9; }
+      @media (prefers-color-scheme: dark) {
+        body { background: #1a1a1a; color: #e4e4e4; }
+        .list-wrap {
+          background: #2d2d2d;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        h1 {
+          color: #b0b0b0;
+          background: #252525;
+          border-bottom-color: #404040;
+        }
+        .listing td:nth-child(3), .listing td:nth-child(4) { color: #909090; }
+        .listing a { color: #6ea8fe; }
+        .listing a:hover { color: #93c5fe; }
+        .icon { opacity: 0.85; }
+      }
   body
     .list-wrap
       h1 Index of #{listData.uri}
