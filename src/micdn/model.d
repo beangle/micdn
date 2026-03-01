@@ -46,9 +46,21 @@ class MicdnConfig {
   */
   static MicdnConfig parse(string home, string content) {
     auto dom = parseDOM!simpleXML(content).children[0];
-    auto asset = parseAssetConfig(home, dom);
-    auto maven = parseMavenConfig("~/.m2/repository", dom);
-    auto blob = parseBlobConfig(home, dom);
+    AssetConfig asset;
+    MavenRepoConfig maven;
+    BlobConfig blob;
+
+    if(dom.children.any!(c => c.name == "repo")) {
+      maven = parseMavenConfig("~/.m2/repository", dom);
+    }else{
+      maven = MavenRepoConfig.defaultConfig();
+    }
+    if(dom.children.any!(c => c.name == "static")) {
+      asset = parseAssetConfig(home, dom);
+    }
+    if(dom.children.any!(c => c.name == "blob")) {
+      blob = parseBlobConfig(home, dom);
+    }
     return new MicdnConfig(asset, maven, blob);
   }
 
@@ -188,7 +200,7 @@ static AssetConfig parseAssetConfig(T)(string home, ref DOMEntity!T micdnDom) {
     foreach (zip; zips) {
       attrs = getAttrs(zip);
       string file = attrs["file"];
-      string location = attrs["location"];
+      string location = attrs["dir"];
       bundle.addProvider(new ZipProvider(file, location));
     }
     bundles[bundle.name] = bundle;
@@ -280,6 +292,9 @@ class MavenRepoConfig {
     this.base = base;
   }
 
+  static MavenRepoConfig defaultConfig() {
+    return new MavenRepoConfig("/repo", "~/.m2/repository", ["https://repo1.maven.org/maven2"]);
+  }
   /// 将 GAV 转换为 Maven 目录路径，如 org.apache:commons:1.0 -> /org/apache/commons/1.0/commons-1.0.jar
   private string path(string gav) const {
     auto parts = split(gav, ":");

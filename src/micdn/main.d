@@ -50,24 +50,33 @@ version (unittest) {
 
     auto home = dirName(configFile);
     auto config = MicdnConfig.parseFile(home, configFile);
-
-    assetService = new AssetService(config);
-    mavenService = new MavenService(config);
-    MetaDao metaDao = null;
-    if (!config.blob.dataSourceProps.empty) {
-      metaDao = new MetaDao(config.blob.dataSourceProps, config.blob);
-    }
-    auto blobService = new BlobService(config, metaDao);
-    auto s3Service = new S3Service(config, metaDao);
-
+    writeln("contextPath: " ~ options.contextPath);
     auto router = new URLRouter(options.contextPath);
-    router.get(config.asset.endpoint ~ "*", &assetService.service);
-    router.get(config.maven.endpoint ~ "*", &mavenService.service);
-    router.get(config.blob.endpoint ~ "*", &blobService.service);
-    router.get(config.blob.endpoint ~ "/s3/*", &s3Service.service);
-
     auto settings = new HTTPServerSettings;
-    settings.maxRequestSize = config.blob.maxSize;
+
+    if(config.asset !is null) {
+      assetService = new AssetService(config);
+      router.get(config.asset.endpoint ~ "*", &assetService.service);
+      writeln("add route "~ config.asset.endpoint ~ "*");
+    }
+
+    mavenService = new MavenService(config);
+    router.get( "/repo/*", &serveRepo);
+    writeln("add route "~ config.maven.endpoint ~ "/*");
+
+
+    if(config.blob !is null) {
+      MetaDao metaDao = null;
+      if (!config.blob.dataSourceProps.empty) {
+        metaDao = new MetaDao(config.blob.dataSourceProps, config.blob);
+      }
+      auto blobService = new BlobService(config, metaDao);
+      auto s3Service = new S3Service(config, metaDao);
+      router.get(config.blob.endpoint ~ "*", &blobService.service);
+      router.get(config.blob.endpoint ~ "/s3/*", &s3Service.service);
+      settings.maxRequestSize = config.blob.maxSize;
+    }
+
     settings.bindAddresses = options.ips.dup;
     settings.port = options.port;
     settings.serverString = null;
@@ -76,6 +85,11 @@ version (unittest) {
     logInfo("Micdn is started on http://" ~ options.listenAddr ~ options.contextPath);
     runApplication(&args);
   }
+}
+
+void serveRepo(HTTPServerRequest req, HTTPServerResponse res) {
+  logInfo("Micdn is started on http://");
+  mavenService.service(req, res);
 }
 
 void showHelpInfo(string programName) {
