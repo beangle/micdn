@@ -19,6 +19,7 @@ module micdn.fs.file;
 
 import std.conv;
 import std.file;
+import std.path;
 import std.stdio;
 import std.string;
 import std.utf;
@@ -126,39 +127,69 @@ uint unzip(string zipfile, string base, string innerDir = null) {
     Returns:
         0 表示失败，1 表示成功（不统计文件数）
 */
-uint extractTgz(string tgzFile, string baseDir) {
+bool doExtractTgz(string tgzFile, string baseDir) {
   if (!exists(tgzFile))
     return 0;
   mkdirRecurse(baseDir);
   import std.process;
 
   auto result = execute(["tar", "-xzf", tgzFile, "-C", baseDir]);
-  return (result.status == 0) ? 1 : 0;
+  return result.status == 0;
 }
 
-/** 递归复制目录内容到目标目录（目标目录可不存在，会创建）。
+/** 将 tgz（npm 包）解压到临时目录，再按 innerDir 搬到 docBase。
+
+    先解压到 docBase_npm_extract，npm 包内有一层 package/ 目录。
+    若 innerDir 为 null 或空，将 package/ 整体 rename 为 docBase；
+    若 innerDir 非空，将 package/innerDir 整个 mv 到 docBase。
+    最后删除临时目录。
 
     Params:
-        srcDir = 源目录
-        destDir = 目标目录
-*/
-void copyDirContents(string srcDir, string destDir) {
-  import std.path;
+        tgzFile  = .tgz 文件路径
+        docBase  = 目标目录（最终挂载内容所在）
+        innerDir = npm 包内子目录（如 "dist"），null 或空表示使用 package 根
 
-  if (!exists(srcDir) || !isDir(srcDir))
-    return;
-  mkdirRecurse(destDir);
-  foreach (e; dirEntries(srcDir, SpanMode.depth)) {
-    auto rel = relativePath(srcDir, e.name);
-    if (rel == "." || rel == "..")
-      continue;
-    if (e.isDir) {
-      mkdirRecurse(destDir ~ "/" ~ rel);
-    } else {
-      mkdirRecurse(dirName(destDir ~ "/" ~ rel));
-      std.file.copy(e.name, destDir ~ "/" ~ rel);
+    Returns:
+        true 成功，false 失败
+*/
+bool extractTgzToDocBase(string tgzFile, string docBase, string innerDir = null) {
+  if (!exists(tgzFile))
+    return false;
+
+  if (null == innerDir || innerDir.length == 0) {
+    if (exists(docBase)) {
+      setWritable(docBase);
+      rmdirRecurse(docBase);
     }
+    return doExtractTgz(tgzFile, docBase);
   }
+
+  auto extractDir = docBase ~ "_tgz_extract";
+  scope (exit) {
+    if (exists(extractDir))
+      rmdirRecurse(extractDir);
+  }
+
+  if (exists(extractDir))
+    rmdirRecurse(extractDir);
+  mkdirRecurse(extractDir);
+
+  if (!doExtractTgz(tgzFile, extractDir))
+    return false;
+
+  string sourceDir = extractDir ~ "/" ~ innerDir;
+  if (!exists(sourceDir) || !isDir(sourceDir)) {
+    logWarn("Cannot find %s in %s", innerDir, tgzFile);
+    return false;
+  }
+
+  if (exists(docBase)) {
+    setWritable(docBase);
+    rmdirRecurse(docBase);
+  }
+  mkdirRecurse(dirName(docBase));
+  rename(sourceDir, docBase);
+  return true;
 }
 
 /** 增量解压 zip/jar：已存在且大小一致的文件跳过写入，用于加速重复构建。
@@ -176,7 +207,7 @@ void copyDirContents(string srcDir, string destDir) {
 */
 uint refreshUnzip(string zipfile, string base, string innerDir = null) {
   string prefix = innerDir;
-  if (null != prefix && !prefix.endsWith("/")) {
+  if (null != prefix && prefix.length > 0 && !prefix.endsWith("/")) {
     prefix ~= "/";
   }
   uint count = 0;
@@ -192,7 +223,7 @@ uint refreshUnzip(string zipfile, string base, string innerDir = null) {
     foreach (name, am; zip.directory) {
       if (null == prefix || name.startsWith(prefix)) {
         auto targetName = name;
-        if (null != prefix && name.startsWith(prefix)) {
+        if (null != prefix && prefix.length > 0 && name.startsWith(prefix)) {
           targetName = targetName[prefix.length .. $];
         }
         if (targetName.endsWith("/")) {

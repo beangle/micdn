@@ -159,7 +159,10 @@ class MicdnConfig {
         } else if (DirProvider dp = cast(DirProvider) provider) {
           app.put(`      <dir location="` ~ dp.location ~ `"/>` ~ "\n");
         } else if (GavJarProvider gjp = cast(GavJarProvider) provider) {
-          app.put(`      <jar gav="` ~ gjp.gav ~ `"/>` ~ "\n");
+          if (gjp.dir.length > 0)
+            app.put(`      <jar gav="` ~ gjp.gav ~ `" dir="` ~ gjp.dir ~ `"/>` ~ "\n");
+          else
+            app.put(`      <jar gav="` ~ gjp.gav ~ `"/>` ~ "\n");
         }
       }
       app.put("    </bundle>\n");
@@ -211,6 +214,13 @@ private void add(ref string[] remotes, string remote) {
 /// 去掉 URL 末尾的 /，保证为无斜杠结尾的地址。
 private string stripTrailingSlash(string url) {
   return (url.length > 1 && url.endsWith("/")) ? url[0 .. $ - 1] : url;
+}
+
+/// 去掉路径开头的 /，zip/npm 的 dir 属性必须为相对路径。
+private string stripLeadingSlash(string path) {
+  while (path.length > 0 && path[0] == '/')
+    path = path[1 .. $];
+  return path;
 }
 
 /// 解析 Maven 仓库配置（endpoint、本地路径、远程地址）。支持标签 maven 或 repo。
@@ -272,11 +282,10 @@ static AssetConfig parseAssetConfig(T)(string home, ref DOMEntity!T micdnDom) {
     foreach (jar; jars) {
       attrs = getAttrs(jar);
       string gav = attrs["gav"];
-      string location = null;
-      if ("location" in attrs) {
-        location = attrs["location"];
-      }
-      bundle.addProvider(new GavJarProvider(gav, location));
+      auto rawDir = attrs.get("dir", "");
+      string dir = rawDir.length == 0 ? (gav.startsWith("org.webjars")
+          ? "META-INF/resources/webjars" : "META-INF/resources") : stripLeadingSlash(rawDir);
+      bundle.addProvider(new GavJarProvider(gav, dir));
     }
     auto dirs = children(c, "dir");
     foreach (dir; dirs) {
@@ -288,8 +297,8 @@ static AssetConfig parseAssetConfig(T)(string home, ref DOMEntity!T micdnDom) {
     foreach (zip; zips) {
       attrs = getAttrs(zip);
       string file = attrs["file"];
-      string location = attrs["dir"];
-      bundle.addProvider(new ZipProvider(file, location));
+      auto dir = stripLeadingSlash(attrs.get("dir", ""));
+      bundle.addProvider(new ZipProvider(file, dir));
     }
     bundles[bundle.name] = bundle;
   }
@@ -335,7 +344,7 @@ static WwwConfig parseWwwConfig(T)(string home, ref DOMEntity!T micdnDom) {
     if (!npms.empty) {
       attrs = getAttrs(npms.front);
       string packageSpec = attrs["package"];
-      string dir = attrs.get("dir", "dist");
+      auto dir = stripLeadingSlash(attrs.get("dir", "dist"));
       provider = new NpmProvider(packageSpec, dir);
     }
     auto dirs = children(c, "dir");
@@ -348,7 +357,7 @@ static WwwConfig parseWwwConfig(T)(string home, ref DOMEntity!T micdnDom) {
     if (!zips.empty && provider is null) {
       attrs = getAttrs(zips.front);
       string file = expandTilde(attrs["file"].replace("${micdn.home}", home));
-      string dir = attrs.get("dir", "");
+      auto dir = stripLeadingSlash(attrs.get("dir", ""));
       provider = new ZipProvider(file, dir);
     }
     docs ~= new WwwDocConfig(location, provider);
@@ -537,10 +546,12 @@ interface BundleProvider {
 class ZipProvider : BundleProvider {
   /// ZIP 文件路径
   string file;
-  /// ZIP 内要挂载的目录路径
+  /// ZIP 内要挂载的目录路径（相对路径，不以 / 开头）
   string dir;
 
   this(string file, string dir) {
+    assert(dir !is null, "zip dir must not be null");
+    assert(dir.length == 0 || !dir.startsWith("/"), "zip dir must not start with '/'");
     this.file = file;
     this.dir = dir;
   }
@@ -568,17 +579,20 @@ class DirProvider : BundleProvider {
 
 /** 从 Maven 仓库的 jar 包加载资源。
 
-    对应配置中的 <jar gav="..." /> 或 <jar gav="..." location="..." />，
+    对应配置中的 <jar gav="..." /> 或 <jar gav="..." dir="..." />，
     通过 GAV 从 Maven 仓库下载 jar，并挂载 jar 内指定路径（默认 META-INF/resources）。
 */
 class GavJarProvider : BundleProvider {
   /// Maven 坐标，格式 groupId:artifactId:version
   string gav;
-  /// jar 内要挂载的子路径，空则使用默认路径
-  string location;
-  this(string gav, string location) {
+  /// jar 内要挂载的子路径（相对路径，不以 / 开头）
+  string dir;
+
+  this(string gav, string dir) {
+    assert(dir !is null, "jar dir must not be null");
+    assert(!dir.startsWith("/"), "jar dir must not start with '/'");
     this.gav = gav;
-    this.location = location;
+    this.dir = dir;
   }
 
   override string path() const {
@@ -594,12 +608,14 @@ class GavJarProvider : BundleProvider {
 class NpmProvider : BundleProvider {
   /// NPM 包规格，格式 @scope/package@version 或 package@version
   string packageSpec;
-  /// tgz 解压后取包内的子目录，默认 dist
+  /// tgz 解压后取包内的子目录，默认 dist（相对路径，不以 / 开头）
   string dir;
 
   this(string packageSpec, string dir = "dist") {
+    assert(dir !is null, "npm dir must not be null");
+    assert(!dir.startsWith("/"), "npm dir must not start with '/'");
     this.packageSpec = packageSpec;
-    this.dir = (dir.length > 0) ? dir : "dist";
+    this.dir = dir;
   }
 
   override string path() const {

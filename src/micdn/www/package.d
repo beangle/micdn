@@ -88,7 +88,6 @@ class WwwDocRepo {
       setWritable(docBase);
     }
     mkdirRecurse(docBase);
-
     auto p = doc.provider;
     if (DirProvider dp = cast(DirProvider) p) {
       if (exists(dp.location)) {
@@ -103,20 +102,12 @@ class WwwDocRepo {
       if (namePart.length == 0 || versionPart.length == 0) {
         logWarn("Invalid npm package spec: %s", np.packageSpec);
       } else {
+        logInfo("Mounting %s", np.packageSpec);
         auto npmRepo = NpmRepo.build(config);
         if (npmRepo.fetch(scopePart, namePart, versionPart)) {
           auto tgzPath = npmRepo.localTarball(scopePart, namePart, versionPart);
-          auto extractDir = docBase ~ "/.npm_extract";
-          if (extractTgz(tgzPath, extractDir) > 0) {
-            auto innerDir = extractDir ~ "/package/" ~ np.dir;
-            if (exists(innerDir) && isDir(innerDir)) {
-              copyDirContents(innerDir, docBase);
-            } else {
-              logWarn("Cannot find %s in %s", np.dir, tgzPath);
-            }
-          }
-          if (exists(extractDir)) {
-            rmdirRecurse(extractDir);
+          if (!extractTgzToDocBase(tgzPath, docBase, "package/" ~ np.dir)) {
+            logWarn("Failed to extract %s to %s", tgzPath, docBase);
           }
         } else {
           logWarn("Cannot resolve npm package %s", np.packageSpec);
@@ -124,7 +115,7 @@ class WwwDocRepo {
       }
     } else if (ZipProvider zp = cast(ZipProvider) p) {
       logInfo("Mounting %s", zp.file);
-      auto count = refreshUnzip(zp.file, docBase, zp.dir.length ? zp.dir : null);
+      auto count = refreshUnzip(zp.file, docBase, zp.dir);
       if (count == 0) {
         logWarn("Cannot find %s in %s", zp.dir, zp.file);
       }

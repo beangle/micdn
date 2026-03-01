@@ -105,6 +105,7 @@ version (unittest) {
       }
 
       if (config.www !is null) {
+        logInfo("Building docs at %s", config.www.base);
         foreach (doc; config.www.docs) {
           if (doc.provider is null) {
             logWarn("Www doc provider is null: %s", doc.location);

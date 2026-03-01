@@ -108,14 +108,14 @@ class AssetRepo {
   */
   static AssetRepo build(MicdnConfig config) {
     auto asset = config.asset;
-    auto repo = config.maven;
+    auto maven = config.maven;
     auto base = asset.base;
     if (exists(base)) {
       setWritable(base);
       //rmdirRecurse( base);
     }
     mkdirRecurse(base);
-    logInfo("Building asset at %s", base);
+    logInfo("Building static resources at %s", base);
     foreach (c; asset.bundles) {
       auto bundlePath = "/" ~ c.name;
       foreach (p; c.providers) {
@@ -131,28 +131,21 @@ class AssetRepo {
             logWarn("Cannot link " ~ dp.location ~ " to " ~ bundleBase);
           }
         } else if (GavJarProvider gap = cast(GavJarProvider) p) {
-          string local = repo.localFile(gap.gav);
-          string location = gap.location;
-          if (null == location) {
-            if (gap.gav.startsWith("org.webjars")) {
-              location = "META-INF/resources/webjars";
-            } else {
-              location = "META-INF/resources";
-            }
-          }
-
-          location ~= bundlePath;
+          logInfo("Mounting %s", gap.gav);
+          string local = maven.localFile(gap.gav);
+          string innerDir = gap.dir;
+          innerDir ~= bundlePath;
           if (exists(local)) {
-            mount(base, local, bundlePath, location);
+            mount(base, local, bundlePath, innerDir);
           } else if (!local.endsWith("SNAPSHOT.jar")) {
-            string[] remotes = repo.remoteUrls(gap.gav);
+            string[] remotes = maven.remoteUrls(gap.gav);
             mkdirRecurse(dirName(local));
             foreach (remote; remotes) {
               logInfo("Downloading %s", remote);
               import micdn.web.file;
 
               if (curlDownload(remote, local)) {
-                mount(base, local, bundlePath, location);
+                mount(base, local, bundlePath, innerDir);
                 break;
               }
             }
@@ -160,6 +153,7 @@ class AssetRepo {
             logWarn("Cannot resolve %s,ignore it.", gap.gav);
           }
         } else if (ZipProvider zp = cast(ZipProvider) p) {
+          logInfo("Mounting %s", zp.file);
           mount(base, zp.file, bundlePath, zp.dir);
         } else {
           //throw new R
@@ -179,7 +173,6 @@ class AssetRepo {
           dir        = zip 内要解压的子目录（如 META-INF/resources）
   */
   private static void mount(string base, string zipfile, string bundlePath, string dir) {
-    logInfo("Mounting %s", zipfile);
     auto count = refreshUnzip(zipfile, base ~ bundlePath, dir);
     if (count == 0) {
       logWarn("Cannot find %s in %s", dir, zipfile);
