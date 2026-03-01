@@ -1,3 +1,19 @@
+/* Copyright (C) 2023 Beangle
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 module micdn.asset.web;
 /// 静态资源服务入口，挂载资源上下文并提供 HTTP 访问。
 
@@ -14,10 +30,10 @@ import vibe.http.server;
 import vibe.web.web;
 
 import micdn.asset;
+import micdn.fs.browser;
 import micdn.model;
 import micdn.web;
 import micdn.web.file;
-import micdn.web.filebrowser;
 import micdn.web.server;
 import micdn.xml;
 
@@ -39,8 +55,8 @@ class AssetService {
       // dir
       if (isDir(rs[0])) {
         if (uri.endsWith("/")) {
-          auto content = genListContents(repo.base ~ uri, endpoint, uri);
-          render!("index.dt", uri, content)(res);
+          auto listData = genListContents(repo.base ~ uri, endpoint, uri);
+          render!("index.dt", listData)(res);
         } else {
           uri = endpoint ~ uri;
           res.redirect(req.requestURI.replace(uri, uri ~ "/"));

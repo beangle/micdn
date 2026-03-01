@@ -1,9 +1,82 @@
 doctype 5
-html
-	head
-		title Index of #{uri}
-	body
-		h1 Index of #{uri}
-		hr
-		pre !{content}
-		hr
+html(lang="zh")
+  head
+    meta(charset="utf-8")
+    meta(name="viewport", content="width=device-width, initial-scale=1")
+    title Index of #{listData.uri}
+    style.
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+        background: #f5f5f0;
+        color: #2c2c2c;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 2rem 1rem;
+      }
+      .list-wrap {
+        width: 100%;
+        max-width: 960px;
+        background: #fff;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        overflow: hidden;
+      }
+      h1 {
+        margin: 0;
+        padding: 1rem 1.25rem;
+        font-size: 1rem;
+        font-weight: 600;
+        color: #555;
+        background: #fafaf8;
+        border-bottom: 1px solid #eee;
+      }
+      .listing {
+        padding: 0.25rem 0;
+        font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+        font-size: 0.875rem;
+        line-height: 1.4;
+        margin: 0;
+        overflow-x: auto;
+      }
+      .listing table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .listing td {
+        padding: 0.15rem 0.75rem;
+        vertical-align: middle;
+      }
+      .listing td:first-child { width: 1%; white-space: nowrap; }
+      .listing td:nth-child(3) { color: #888; font-size: 0.85em; }
+      .listing td:nth-child(4) {
+        text-align: right;
+        color: #888;
+        font-size: 0.85em;
+      }
+      .listing a {
+        text-decoration: none;
+        color: #1a5fb4;
+        transition: color 0.15s;
+      }
+      .listing a:hover {
+        color: #3584e4;
+        text-decoration: underline;
+      }
+      .icon { opacity: 0.9; }
+  body
+    .list-wrap
+      h1 Index of #{listData.uri}
+      .listing
+        table
+          - foreach (entry; listData.entries)
+            tr
+              td
+                span.icon= entry.icon
+              td
+                a(href="#{entry.href}")= entry.name
+              td= entry.lastModified
+              td= entry.size

@@ -1,3 +1,19 @@
+/* Copyright (C) 2023 Beangle
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 module micdn.main;
 /// 应用入口，根据命令行参数选择并启动 maven/asset/blob 三种服务。
 
@@ -50,7 +66,6 @@ version (unittest) {
 
     auto home = dirName(configFile);
     auto config = MicdnConfig.parseFile(home, configFile);
-    writeln("contextPath: " ~ options.contextPath);
     // contextPath "/" 会导致注册 "/repo/*" 变成 "//repo/*" 无法匹配请求路径 "/repo/xxx"
     auto routerPrefix = (options.contextPath == "/") ? "" : options.contextPath;
     auto router = new URLRouter(routerPrefix);
@@ -58,14 +73,13 @@ version (unittest) {
 
     if(config.asset !is null) {
       assetService = new AssetService(config);
-      router.get(config.asset.endpoint ~ "*", &assetService.service);
-      writeln("add route "~ config.asset.endpoint ~ "*");
+      router.get(config.asset.endpoint ~ "/*", &assetService.service);
+      writeln("Add route "~ config.asset.endpoint ~ "/*");
     }
 
     mavenService = new MavenService(config);
-    router.get(config.maven.endpoint ~ "*", &serveRepo);
-    writeln("add route " ~ config.maven.endpoint ~ "*");
-
+    router.get(config.maven.endpoint ~ "/*", &mavenService.service);
+    writeln("Add route " ~ config.maven.endpoint ~ "/*");
 
     if(config.blob !is null) {
       MetaDao metaDao = null;
@@ -74,7 +88,7 @@ version (unittest) {
       }
       auto blobService = new BlobService(config, metaDao);
       auto s3Service = new S3Service(config, metaDao);
-      router.get(config.blob.endpoint ~ "*", &blobService.service);
+      router.get(config.blob.endpoint ~ "/*", &blobService.service);
       router.get(config.blob.endpoint ~ "/s3/*", &s3Service.service);
       settings.maxRequestSize = config.blob.maxSize;
     }
@@ -83,14 +97,14 @@ version (unittest) {
     settings.port = options.port;
     settings.serverString = null;
 
-    listenHTTP(settings, router);
+    auto listener = listenHTTP(settings, router);
+    scope (exit) listener.stopListening();
     logInfo("Micdn is started on http://" ~ options.listenAddr ~ options.contextPath);
     runApplication(&args);
   }
 }
 
 void serveRepo(HTTPServerRequest req, HTTPServerResponse res) {
-  logInfo("Micdn is started on http://");
   mavenService.service(req, res);
 }
 

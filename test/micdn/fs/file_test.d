@@ -14,26 +14,23 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-module micdn.web;
-/// web 子模块的聚合导出，简化 HTTP 相关导入。
+module test.micdn.fs.file_test;
 
-import std.string;
+import micdn.fs.file;
+import std.file;
+import std.stdio;
 
-import vibe.http.server;
+@("fs unzip and permissions")
+unittest {
+  import std.file : read;
+  import std.stdio;
 
-string getPath(string contextPath, HTTPServerRequest req) {
-  auto uri = req.requestURI;
-  if (contextPath != "" && contextPath != "/") {
-    if (uri.startsWith(contextPath)) {
-      uri = uri[contextPath.length .. $];
-    } else {
-      throw new HTTPStatusException(HTTPStatus.notFound);
-    }
-  }
-  auto qIdx = uri.indexOf("?");
-  if (qIdx > 0) {
-    return uri[0 .. qIdx];
-  } else {
-    return uri;
+  auto zipPath = "/tmp/beangle-bundles-bui-0.2.1.jar";
+  if (exists(zipPath)) {
+    auto base = "/tmp/beangle-bundles-bui-0.2.1";
+    unzip(zipPath, base, "META-INF/resources/bui");
+    setReadOnly(base);
+    setWritable(base);
+    base.rmdirRecurse();
   }
 }

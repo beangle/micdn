@@ -14,26 +14,18 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-module micdn.web;
-/// web 子模块的聚合导出，简化 HTTP 相关导入。
+module test.micdn.fs.browser_test;
 
-import std.string;
+import micdn.fs.browser;
 
-import vibe.http.server;
-
-string getPath(string contextPath, HTTPServerRequest req) {
-  auto uri = req.requestURI;
-  if (contextPath != "" && contextPath != "/") {
-    if (uri.startsWith(contextPath)) {
-      uri = uri[contextPath.length .. $];
-    } else {
-      throw new HTTPStatusException(HTTPStatus.notFound);
-    }
-  }
-  auto qIdx = uri.indexOf("?");
-  if (qIdx > 0) {
-    return uri[0 .. qIdx];
-  } else {
-    return uri;
-  }
+import std.algorithm;
+@("web filebrowser sort entries")
+unittest {
+  auto entries = new FileEntry[2];
+  entries[0] = new FileEntry();
+  entries[1] = new FileEntry();
+  entries[0].name = "av";
+  entries[1].name = "a";
+  sort(entries);
+  assert(entries[0].name == "a");
 }
