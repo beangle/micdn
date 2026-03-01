@@ -23,6 +23,8 @@
     </bundle>
     <bundle name="bootstrap">
       <jar gav="org.webjars:bootstrap:4.6.1" />
+      <npm package="bootstrap@5.3.8" />
+      <npm package="bootstrap@5.3.3" />
     </bundle>
     <bundle name="bootstrap-combobox">
       <jar gav="org.webjars.bowergithub.danielfarrell:bootstrap-combobox:1.2.0" />
@@ -33,13 +35,10 @@
   </static>
 
   <www>
-    <doc location="/www">
-      <zip file="${micdn.home}/local.zip" dir="sub/dir" />
+    <doc location="/manual">
+      <!-- <zip file="${micdn.home}/manual.zip" dir="manual" /> -->
+      <npm package="@xurp/manual@0.0.2" />
     </doc>
-    <!-- 示例：从 NPM 拉取包并取 dist 目录作为文档根 -->
-    <!-- <doc location="/docs">
-      <npm package="vue@3" dir="dist" />
-    </doc> -->
   </www>
 
 </micdn>

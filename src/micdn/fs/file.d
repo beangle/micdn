@@ -157,10 +157,6 @@ bool extractTgzToDocBase(string tgzFile, string docBase, string innerDir = null)
     return false;
 
   if (null == innerDir || innerDir.length == 0) {
-    if (exists(docBase)) {
-      setWritable(docBase);
-      rmdirRecurse(docBase);
-    }
     return doExtractTgz(tgzFile, docBase);
   }
 
@@ -172,7 +168,6 @@ bool extractTgzToDocBase(string tgzFile, string docBase, string innerDir = null)
 
   if (exists(extractDir))
     rmdirRecurse(extractDir);
-  mkdirRecurse(extractDir);
 
   if (!doExtractTgz(tgzFile, extractDir))
     return false;
@@ -184,7 +179,6 @@ bool extractTgzToDocBase(string tgzFile, string docBase, string innerDir = null)
   }
 
   if (exists(docBase)) {
-    setWritable(docBase);
     rmdirRecurse(docBase);
   }
   mkdirRecurse(dirName(docBase));

@@ -122,7 +122,6 @@ class GavRepo {
     if (exists(local)) {
       return true;
     }
-    mkdirRecurse(dirName(local));
     foreach (r; this.remotes) {
       auto remote = r ~ uri;
       if (curlDownload(remote, local)) {

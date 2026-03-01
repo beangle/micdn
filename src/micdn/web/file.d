@@ -47,30 +47,34 @@ string encodeAttachmentName(string name) @safe {
 }
 
 /**
- * Fetch url,and store at local
+ * Fetch url and store at local.
+ * Downloads to a temp file first, then creates target directory and moves on success.
+ * No target directory is created when download fails.
  */
 bool curlDownload(string url, string local) {
-  import std.process, std.file, std.path;
+  import std.process, std.file, std.path, std.conv, std.datetime;
 
-  mkdirRecurse(dirName(local));
+  auto tmpPath = tempDir() ~ "micdn_curl_" ~ to!string(
+      Clock.currTime.stdTime) ~ "_" ~ baseName(local);
+  scope (exit) {
+    if (exists(tmpPath))
+      remove(tmpPath);
+  }
 
-  auto cmd = execute(["curl", "--fail", "--silent", "-L", "-o", local, url]);
+  auto cmd = execute(["curl", "--fail", "--silent", "-L", "-o", tmpPath, url]);
   import vibe.core.log;
 
-  if (cmd.status == 0) {
-    if (exists(local)) {
-      return true;
-    } else {
-      logWarn("Download failure %s due to %s", url, cmd.output);
-      return false;
-    }
-  } else {
-    if (exists(local)) {
-      remove(local);
-    }
+  if (cmd.status != 0) {
     logWarn("Download failure %s due to %s", url, cmd.output);
     return false;
   }
+  if (!exists(tmpPath)) {
+    logWarn("Download failure %s due to %s", url, cmd.output);
+    return false;
+  }
+  mkdirRecurse(dirName(local));
+  rename(tmpPath, local);
+  return true;
 }
 
 /**

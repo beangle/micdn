@@ -123,7 +123,6 @@ class NpmRepo {
     auto local = localTarball(scopePart, namePart, versionPart);
     if (exists(local))
       return true;
-    mkdirRecurse(dirName(local));
     foreach (registryBase; remotes) {
       string url = tarballUrl(scopePart, namePart, versionPart, registryBase);
       logInfo("Downloading %s", url);
