@@ -51,7 +51,9 @@ version (unittest) {
     auto home = dirName(configFile);
     auto config = MicdnConfig.parseFile(home, configFile);
     writeln("contextPath: " ~ options.contextPath);
-    auto router = new URLRouter(options.contextPath);
+    // contextPath "/" 会导致注册 "/repo/*" 变成 "//repo/*" 无法匹配请求路径 "/repo/xxx"
+    auto routerPrefix = (options.contextPath == "/") ? "" : options.contextPath;
+    auto router = new URLRouter(routerPrefix);
     auto settings = new HTTPServerSettings;
 
     if(config.asset !is null) {
@@ -61,8 +63,8 @@ version (unittest) {
     }
 
     mavenService = new MavenService(config);
-    router.get( "/repo/*", &serveRepo);
-    writeln("add route "~ config.maven.endpoint ~ "/*");
+    router.get(config.maven.endpoint ~ "*", &serveRepo);
+    writeln("add route " ~ config.maven.endpoint ~ "*");
 
 
     if(config.blob !is null) {
