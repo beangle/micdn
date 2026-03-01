@@ -13,8 +13,6 @@
   <static endpoint="/static" base="~/.micdn/static">
     <bundle name="local">
       <dir location="${micdn.home}/local" />
-      <zip file="${micdn.home}/local.zip" dir="sub/dir" />
-      <jar gav="org.webjars:AdminLTE:3.2.0" />
     </bundle>
     <bundle name="AdminLTE">
       <jar gav="org.webjars:AdminLTE:3.2.0" />

@@ -73,13 +73,13 @@ version (unittest) {
 
     if(config.asset !is null) {
       assetService = new AssetService(config);
+      router.get(config.asset.endpoint, &assetService.service);
       router.get(config.asset.endpoint ~ "/*", &assetService.service);
-      writeln("Add route "~ config.asset.endpoint ~ "/*");
     }
 
     mavenService = new MavenService(config);
     router.get(config.maven.endpoint ~ "/*", &mavenService.service);
-    writeln("Add route " ~ config.maven.endpoint ~ "/*");
+    router.get(config.maven.endpoint, &mavenService.service);
 
     if(config.blob !is null) {
       MetaDao metaDao = null;
@@ -99,7 +99,6 @@ version (unittest) {
 
     auto listener = listenHTTP(settings, router);
     scope (exit) listener.stopListening();
-    logInfo("Micdn is started on http://" ~ options.listenAddr ~ options.contextPath);
     runApplication(&args);
   }
 }
@@ -109,7 +108,19 @@ void serveRepo(HTTPServerRequest req, HTTPServerResponse res) {
 }
 
 void showHelpInfo(string programName) {
-  immutable help = "Usage: micdn [OPTIONS]\n\n" ~ "Required Options:\n" ~ "  --as TYPE          Service type (maven|asset|blob)\n\n" ~ "Optional Options:\n" ~ "  --server FILE      Server startup file path, default: listen on localhost:8080\n" ~ "  --config FILE      Service configuration file path\n" ~ "  --remote URL       Remote update URL for configuration file\n\n" ~ "Help Options:\n" ~ "  --help             Show this help message and exit\n" ~ "  --version          Show version information and exit\n\n" ~ "Examples:\n" ~ "  micdn --config maven.xml\n" ~ "  micdn --server server.xml --config asset.xml\n" ~ "  micdn --server server.xml --config blob.xml --remote http://example.com/config";
+  immutable help = "Usage: micdn [OPTIONS]\n\n"
+    ~ "Required Options:\n"
+    ~ "  --config, -f FILE  Service configuration file path\n\n"
+    ~ "Optional Options:\n"
+    ~ "  --server FILE      Server startup file path, default: listen on localhost:8080\n"
+    ~ "  --remote, -r URL   Remote update URL for configuration file\n\n"
+    ~ "Help Options:\n"
+    ~ "  --help             Show this help message and exit\n"
+    ~ "  --version          Show version information and exit\n\n"
+    ~ "Examples:\n"
+    ~ "  micdn -f maven.xml\n"
+    ~ "  micdn --server server.xml -f asset.xml\n"
+    ~ "  micdn --server server.xml -f blob.xml -r http://example.com/config";
   writeln(help);
 }
 

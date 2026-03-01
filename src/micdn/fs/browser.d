@@ -85,7 +85,7 @@ private string formatSize(ulong bytes) {
   return format("%.1f GB", bytes / (1024.0 * 1024 * 1024));
 }
 
-/// 按扩展名返回 emoji 图标：📁目录 📜js 🎨css 📦zip/jar/war 🔏sha1 📋xml/pom 📄其他
+/// 按扩展名返回 emoji 图标：📁目录 📜js 🎨css 📦zip/jar/war 🔏sha1 📋xml/pom 🖼️图片 📄其他
 private string iconFor(string name, bool isDir) {
   if (isDir) return "📁";
   auto dot = name.lastIndexOf('.');
@@ -93,6 +93,7 @@ private string iconFor(string name, bool isDir) {
   auto ext = name[dot + 1 .. $].toLower;
   if (ext == "js") return "📜";
   if (ext == "css") return "🎨";
+  if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "gif") return "🖼️";
   if (ext == "zip" || ext == "jar" || ext == "war") return "📦";
   if (ext == "sha1") return "🔏";
   if (ext == "xml" || ext == "pom") return "📋";

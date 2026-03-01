@@ -73,29 +73,28 @@ string readConfig(string defaultHome, string defaultConfigFileName) {
   auto hasConfig = readOption!string("config|f", &config, "specify config params");
   auto hasRemote = readOption!string("remote|r", &remoteDir, "specify remote params");
 
-  if (hasConfig) {
-    if (!exists(config)) {
-      return config;
-    }
-    if (config.endsWith("/"))
-      config = config[0 .. $ - 1];
-
-    if (isDir(config)) {
-      auto home = expandTilde(config);
-      config = expandTilde(home ~ "/" ~ defaultConfigFileName);
-    }
-    if (hasRemote) {
-      auto newxml = config ~ ".new";
-      auto remoteUrl = remoteDir ~ "/" ~ defaultConfigFileName;
-      if (curlDownload(remoteUrl, newxml)) {
-        logInfo("Downloaded %s", remoteUrl);
-        rename(newxml, config);
-      }
-    }
-    return config;
-  } else {
-    return defaultHome ~ "/" ~ defaultConfigFileName;
+  if (!hasConfig) {
+    throw new Exception("--config/-f is required. Use --help for usage.");
   }
+  if (!exists(config)) {
+    return config;
+  }
+  if (config.endsWith("/"))
+    config = config[0 .. $ - 1];
+
+  if (isDir(config)) {
+    auto home = expandTilde(config);
+    config = expandTilde(home ~ "/" ~ defaultConfigFileName);
+  }
+  if (hasRemote) {
+    auto newxml = config ~ ".new";
+    auto remoteUrl = remoteDir ~ "/" ~ defaultConfigFileName;
+    if (curlDownload(remoteUrl, newxml)) {
+      logInfo("Downloaded %s", remoteUrl);
+      rename(newxml, config);
+    }
+  }
+  return config;
 }
 
 ServerOptions getServerOptions() {
