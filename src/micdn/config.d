@@ -85,7 +85,7 @@ MicdnConfig parseFile(string xmlFile) {
   if (!exists(xmlFile)) {
     throw new Exception(xmlFile ~ " is not exists!");
   }
-  return parse(dirName(xmlFile), cast(string) read(xmlFile));
+  return parse(std.path.absolutePath(dirName(xmlFile)), cast(string) read(xmlFile));
 }
 
 /** 将 MicdnConfig 序列化为 micdn.xml 格式的字符串。
@@ -94,7 +94,10 @@ string toXml(const MicdnConfig config) {
   auto app = appender!string();
   app.put(`<?xml version="1.0" encoding="UTF-8"?>`);
   app.put("\n");
-  app.put(`<micdn listen="` ~ config.listen ~ `"`);
+  app.put(`<micdn xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"` ~ "\n");
+  app.put(`  xmlns:xi="http://www.w3.org/2001/XInclude"` ~ "\n");
+  app.put(`  xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.0.0.xsd"` ~ "\n");
+  app.put(`  listen="` ~ config.listen ~ `"`);
   if (config.remote !is null && config.remote.length > 0)
     app.put(` remote="` ~ config.remote ~ `"`);
   if (config.home.length > 0)
@@ -144,7 +147,7 @@ string toXml(const MicdnConfig config) {
   if (config.blob) {
     app.put(`<blob endpoint="` ~ config.blob.endpoint ~ `" base="` ~ config.blob.base ~ `">` ~ "\n");
     app.put(`<xi:include href="blob.xml" />`);
-    app.put("  </blob>\n");
+    app.put("</blob>\n");
   }
 
   if (config.www) {
