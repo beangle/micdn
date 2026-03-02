@@ -18,12 +18,14 @@ module micdn.main;
 /// 应用入口，根据命令行参数选择并启动 maven/asset/blob 三种服务。
 
 import std.algorithm : canFind, any;
+import std.conv : to;
 import std.exception;
+import std.typecons : tuple, Tuple;
 import std.file : getcwd, exists;
 import std.range : empty;
 import std.stdio;
-import std.string : startsWith, strip;
-import std.path : dirName;
+import std.string : startsWith, strip, lastIndexOf;
+import std.path : dirName, expandTilde;
 
 import vibe.core.args;
 import vibe.core.core;
@@ -44,93 +46,172 @@ import micdn.www;
 import micdn.www.web;
 import micdn.config;
 
+/// 可热加载的请求分发器：持有一个可替换的 URLRouter，支持通过 SIGHUP 完整热加载配置。
+class ReloadableDispatcher : HTTPServerRequestHandler {
+  private URLRouter _currentRouter;
+  private string _configFile;
+  private string _routerPrefix;
+  private HTTPServerSettings _settings;
+
+  this(string configFile, string routerPrefix, HTTPServerSettings settings) {
+    _configFile = configFile;
+    _routerPrefix = routerPrefix;
+    _settings = settings;
+  }
+
+  void setRouter(URLRouter router) {
+    _currentRouter = router;
+  }
+
+  override void handleRequest(HTTPServerRequest req, HTTPServerResponse res) {
+    _currentRouter.handleRequest(req, res);
+  }
+
+  ReloadResult tryReload() {
+    try {
+      fetchRemoteIfNeeded(_configFile);
+      auto config = parseFile(_configFile);
+      auto router = buildRouter(config, _settings, () => this.tryReload());
+      if (config.blob !is null)
+        _settings.maxRequestSize = config.blob.maxSize;
+      _currentRouter = router;
+      return ReloadResult(true, null);
+    } catch (Exception e) {
+      logError("Reload failed: %s", e.msg);
+      return ReloadResult(false, e.msg);
+    }
+  }
+}
+
+/// 根据 config 构建 URLRouter，注册所有服务路由。
+URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
+    ReloadResult delegate() onReload) {
+  auto router = new URLRouter("");
+
+  auto adminService = new AdminService(config, onReload);
+  registerEndpoint(router, "/admin", &adminService.service);
+
+  if (config.asset !is null) {
+    auto assetService = new AssetService(config);
+    registerEndpoint(router, config.asset.endpoint, &assetService.service);
+  }
+
+  auto mavenService = new MavenService(config);
+  registerEndpoint(router, config.maven.endpoint, &mavenService.service);
+
+  auto npmService = new NpmService(config);
+  registerEndpoint(router, config.npm.endpoint, &npmService.service);
+
+  if (config.blob !is null) {
+    MetaDao metaDao = null;
+    if (!config.blob.dataSourceProps.empty) {
+      metaDao = new MetaDao(config.blob.dataSourceProps, config.blob);
+    }
+    auto blobService = new BlobService(config, metaDao);
+    auto s3Service = new S3Service(config, metaDao);
+    registerEndpoint(router, config.blob.endpoint, &blobService.service);
+    router.get(config.blob.endpoint ~ "/s3/*", &s3Service.service);
+    settings.maxRequestSize = config.blob.maxSize;
+  }
+
+  if (config.www !is null) {
+    logInfo("Building docs at %s", config.www.base);
+    foreach (doc; config.www.docs) {
+      if (doc.provider is null) {
+        logWarn("Www doc provider is null: %s", doc.location);
+        continue;
+      }
+      auto repo = WwwDocRepo.build(config, doc);
+      auto svc = new WwwDocService(doc, repo);
+      registerEndpoint(router, doc.location, &svc.service);
+    }
+  }
+
+  return router;
+}
+
 // 跑 dub test 时由测试运行器提供 main，此处不编译
 version (unittest) {
 } else {
   int main(string[] args) {
-    if (args.canFind("--version")) {
+    if (args.canFind("--version") || args.canFind("-v")) {
       writeln("Micdn " ~ getVersion());
       return 0;
     }
-    if (args.canFind("--help")) {
-      showHelpInfo(args[0]);
+    if (args.canFind("--help") || args.canFind("-h")) {
+      showHelpInfo();
       return 0;
     }
-    bool hasConfig = args.canFind("--config") || args.canFind("-f")
-      || args.any!(a => a.startsWith("--config="));
+    bool hasConfig = args.canFind("-f");
     if (!hasConfig) {
-      showHelpInfo(args[0]);
+      showHelpInfo();
       return 1;
     }
     string configFile;
     try {
-      auto options = getServerOptions();
-      configFile = readConfig(getcwd(), "micdn.xml");
+      configFile = resolveConfigFile("micdn.xml");
 
-      if (!exists(configFile)) {
+      if (!exists(expandTilde(configFile))) {
         logError("Config file[" ~ configFile ~ "] not exists!");
         return 1;
       }
       logInfo("Find config: %s", configFile);
 
-      auto home = dirName(configFile);
-      auto config = parseFile(home, configFile);
-      // contextPath "/" 会导致注册 "/repo/*" 变成 "//repo/*" 无法匹配请求路径 "/repo/xxx"
-      auto routerPrefix = (options.contextPath == "/") ? "" : options.contextPath;
-      auto router = new URLRouter(routerPrefix);
+      auto configPath = expandTilde(configFile);
+      auto config = parseFile(configPath);
+      auto listenPair = parseListen(config.listen);
+      auto host = listenPair[0];
+      auto port = listenPair[1];
+
       auto settings = new HTTPServerSettings;
-
-      auto adminService = new AdminService(config);
-      registerEndpoint(router, "/admin", &adminService.service);
-
-      if (config.asset !is null) {
-        auto assetService = new AssetService(config);
-        registerEndpoint(router, config.asset.endpoint, &assetService.service);
-      }
-
-      auto mavenService = new MavenService(config);
-      registerEndpoint(router, config.maven.endpoint, &mavenService.service);
-
-      auto npmService = new NpmService(config);
-      registerEndpoint(router, config.npm.endpoint, &npmService.service);
-
-      if (config.blob !is null) {
-        MetaDao metaDao = null;
-        if (!config.blob.dataSourceProps.empty) {
-          metaDao = new MetaDao(config.blob.dataSourceProps, config.blob);
-        }
-        auto blobService = new BlobService(config, metaDao);
-        auto s3Service = new S3Service(config, metaDao);
-        registerEndpoint(router, config.blob.endpoint, &blobService.service);
-        router.get(config.blob.endpoint ~ "/s3/*", &s3Service.service);
-        settings.maxRequestSize = config.blob.maxSize;
-      }
-
-      if (config.www !is null) {
-        logInfo("Building docs at %s", config.www.base);
-        foreach (doc; config.www.docs) {
-          if (doc.provider is null) {
-            logWarn("Www doc provider is null: %s", doc.location);
-            continue;
-          }
-          auto repo = WwwDocRepo.build(config, doc);
-          auto svc = new WwwDocService(doc, repo);
-          registerEndpoint(router, doc.location, &svc.service);
-        }
-      }
-
-      settings.bindAddresses = options.ips.dup;
-      settings.port = options.port;
+      settings.bindAddresses = [host];
+      settings.port = port;
       settings.serverString = null;
 
-      auto listener = listenHTTP(settings, router);
+      auto dispatcher = new ReloadableDispatcher(configPath, "", settings);
+      dispatcher.setRouter(buildRouter(config, settings, () => dispatcher.tryReload()));
+
+      auto listener = listenHTTP(settings, dispatcher);
       scope (exit)
         listener.stopListening();
+
+      version (Posix) {
+        startSighupReloadThread(dispatcher);
+      }
+
       runApplication(&args);
       return 0;
     } catch (Exception e) {
       logError("%s", e.msg);
       return 1;
+    }
+  }
+}
+
+/// 启动 SIGHUP 监听线程，收到信号时在事件循环中触发 reload（供 systemctl reload 使用）。
+version (Posix) {
+  void startSighupReloadThread(ReloadableDispatcher dispatcher) {
+    import core.thread;
+
+    version (Linux) {
+      import core.sys.posix.signal;
+
+      sigset_t mask;
+      sigemptyset(&mask);
+      sigaddset(&mask, SIGHUP);
+      sigprocmask(SIG_BLOCK, &mask, null);
+
+      auto t = new Thread({
+        int sig;
+        while (sigwait(&mask, &sig) == 0 && sig == SIGHUP) {
+          runTask({
+            auto r = dispatcher.tryReload();
+            logInfo("Config reload (SIGHUP): %s", r.ok ? "ok" : ("failed: " ~ r.error));
+          });
+        }
+      });
+      t.isDaemon = true;
+      t.start();
     }
   }
 }
@@ -141,22 +222,32 @@ void registerEndpoint(T)(URLRouter router, string endpoint, T handler) {
   router.get(endpoint ~ "/*", handler);
 }
 
-void showHelpInfo(string programName) {
-  immutable helpRaw = `
-Usage: micdn -f FILE/DIR [OPTIONS]
+/// 解析 listen 字符串 "host:port"，返回 (host, port)。
+private Tuple!(string, ushort) parseListen(string listen) {
+  auto idx = listen.lastIndexOf(':');
+  if (idx < 0)
+    throw new Exception("Invalid listen format: " ~ listen ~ ", expected host:port");
+  auto host = listen[0 .. idx];
+  auto port = listen[idx + 1 .. $].to!ushort;
+  return tuple(host, port);
+}
 
-Optional Options:
-  --server FILE      Server startup file path, default: listen on localhost:8080
-  --remote, -r URL   Remote update URL for configuration file
+void showHelpInfo() {
+  immutable helpRaw = `
+Usage: micdn -f FILE|DIR|URL
+
+  -f FILE    本地配置文件路径
+  -f DIR     配置目录，使用 DIR/micdn.xml
+  -f URL     从 URL 下载配置到 ~/micdn.xml
 
 Help Options:
-  --help             Show this help message and exit
-  --version          Show version information and exit
+  --help      Show this help message and exit
+  --version   Show version information and exit
 
 Examples:
-  micdn -f maven.xml
-  micdn --server server.xml -f asset.xml
-  micdn --server server.xml -f blob.xml -r http://example.com/config
+  micdn -f micdn.xml
+  micdn -f ./conf
+  micdn -f http://example.com/micdn.xml
 `;
   writeln(strip(helpRaw));
 }

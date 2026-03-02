@@ -121,10 +121,10 @@ class AssetRepo {
     logInfo("Building static resources at %s", base);
     foreach (c; asset.bundles) {
       auto bundlePath = "/" ~ c.name;
+      auto bundleBase = base ~ "/" ~ c.name;
       string[] allowedVersionDirs = [];
       foreach (p; c.providers) {
         if (DirProvider dp = cast(DirProvider) p) {
-          auto bundleBase = base ~ "/" ~ c.name;
           if (exists(dp.location)) {
             if (exists(bundleBase)) {
               remove(bundleBase);

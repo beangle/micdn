@@ -1,0 +1,15 @@
+[Unit]
+Description=Micdn static CDN server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/micdn -f /etc/micdn/micdn.xml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+User=micdn
+Group=micdn
+
+[Install]
+WantedBy=multi-user.target

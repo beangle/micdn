@@ -24,13 +24,14 @@
     <bundle name="bootstrap">
       <jar gav="org.webjars:bootstrap:4.6.1" />
       <npm package="bootstrap@5.3.8" />
-      <npm package="bootstrap@5.3.3" />
-    </bundle>
-    <bundle name="bootstrap-combobox">
-      <jar gav="org.webjars.bowergithub.danielfarrell:bootstrap-combobox:1.2.0" />
+      <npm package="bootstrap@5.3.7" />
     </bundle>
     <bundle name="bui">
       <jar gav="org.beangle.bundles:beangle-bundles-bui:0.6.7" />
+    </bundle>
+    <bundle name="echarts">
+      <jar gav="org.webjars.bower:echarts:4.5.0"/>
+      <jar gav="org.webjars.npm:echarts:5.3.1"/>
     </bundle>
   </static>
 

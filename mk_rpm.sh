@@ -40,7 +40,7 @@ fi
 
   # assign variables
   MAINTAINER="duantihua <duantihua@163.com>"
-  VERSION=`grep "version " -R dub.sdl |awk 'NR==1{gsub(/"/,"");print $2}'`
+  VERSION=`awk -F'"' '/"version"/{print $4; exit}' $MICDN_HOME/dub.json`
   MAJOR=$(awk -F. '{ print $1 +0 }' <<<$VERSION)
   MINOR=$(awk -F. '{ print $2 +0 }' <<<$VERSION)
   RELEASE=$(awk -F. '{ print $3 +0 }' <<<$VERSION)
@@ -66,12 +66,14 @@ fi
     mkdir -p $DESTDIR"/"$CDNDIR
     # switch to temp dir
     pushd $DESTDIR"/"$CDNDIR > /dev/null
-    mkdir -p usr/bin
+    mkdir -p usr/bin etc/micdn usr/lib/systemd/system
     cp -f $MICDN_HOME/target/micdn usr/bin/micdn
+    cp -f $MICDN_HOME/deploy/micdn.xml etc/micdn/micdn.xml
+    cp -f $MICDN_HOME/deploy/micdn.service usr/lib/systemd/system/micdn.service
 
     # change folders and files permissions
-    chmod -R 0755 *
-    chmod 0644 $(find . ! -type d)
+    chmod -R 0755 .
+    chmod 0644 etc/micdn/micdn.xml usr/lib/systemd/system/micdn.service
     chmod 0755 usr/bin/micdn
 
     # find deb package dependencies
@@ -131,15 +133,29 @@ fi
     %description
     Mini cdn,serve static resource, maven artifacts and binary file storage.
     Main designer: Duan TiHua
+    %pre
+    getent group micdn >/dev/null 2>&1 || groupadd -r micdn
+    getent passwd micdn >/dev/null 2>&1 || useradd -r -g micdn -d /var/lib/micdn -s /sbin/nologin -c "Micdn CDN server" micdn
+    mkdir -p /var/cache/micdn/asset /var/cache/micdn/www
+    mkdir -p /var/lib/micdn/blob /var/lib/micdn/maven /var/lib/micdn/npm /var/lib/micdn/local
     %post
-    ldconfig || :
+    chown -R micdn:micdn /var/cache/micdn /var/lib/micdn
+    systemctl daemon-reload 2>/dev/null || :
+    %preun
+    if [ "$1" = 0 ]; then
+      systemctl stop micdn 2>/dev/null || :
+    fi
     %postun
-    ldconfig || :
+    systemctl daemon-reload 2>/dev/null || :
     %changelog
     '$changes'
     %files' | sed 's/^    //' > micdn.spec
 
-    find $DESTDIR/$CDNDIR/ ! -type d | sed 's:'$DESTDIR'/'$CDNDIR':":' | sed 's:$:":' >> micdn.spec
+    # Config file: preserve user modifications on upgrade
+    echo '%config(noreplace) /etc/micdn/micdn.xml' >> micdn.spec
+    # Other files (exclude config already listed)
+    find $DESTDIR/$CDNDIR/ ! -type d ! -path '*/etc/micdn/micdn.xml' | \
+      sed 's|'$DESTDIR'/'$CDNDIR'|/|' >> micdn.spec
 
     echo >> micdn.spec
     mkdir -p $RPMDIR

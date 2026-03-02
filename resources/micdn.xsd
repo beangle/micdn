@@ -17,6 +17,21 @@
   <!-- Root element -->
   <xs:element name="micdn">
     <xs:complexType>
+      <xs:attribute name="listen" type="xs:string" default="127.0.0.1:8888" use="optional">
+        <xs:annotation>
+          <xs:documentation> 监听地址，格式 host:port，默认 127.0.0.1:8888 </xs:documentation>
+        </xs:annotation>
+      </xs:attribute>
+      <xs:attribute name="remote" type="xs:anyURI" use="optional">
+        <xs:annotation>
+          <xs:documentation> 远程配置 URL，加载时会下载并覆盖本地 micdn.xml </xs:documentation>
+        </xs:annotation>
+      </xs:attribute>
+      <xs:attribute name="home" type="xs:string" use="optional">
+        <xs:annotation>
+          <xs:documentation> 根目录，空表示 xml 文件所在目录，~ 表示用户主目录 </xs:documentation>
+        </xs:annotation>
+      </xs:attribute>
       <xs:choice minOccurs="0" maxOccurs="5">
         <xs:element name="maven" type="mavenType" minOccurs="0" maxOccurs="1" />
         <xs:element name="npmjs" type="npmjsType" minOccurs="0" maxOccurs="1" />
@@ -67,12 +82,11 @@
     </xs:attribute>
   </xs:complexType>
 
-  <!-- bundleType for static -->
+  <!-- bundleType for static，不支持 zip（仅 www doc 支持） -->
   <xs:complexType name="bundleType">
     <xs:choice minOccurs="0" maxOccurs="unbounded">
       <xs:element name="jar" type="jarType" />
       <xs:element name="npm" type="npmType" />
-      <xs:element name="zip" type="zipType" />
       <xs:element name="dir" type="dirType" />
     </xs:choice>
     <xs:attribute name="name" type="xs:string" use="required" />
@@ -131,7 +145,7 @@
         </xs:complexType>
       </xs:element>
     </xs:sequence>
-    <xs:attribute name="base" type="xs:string" default="~/.m2/repository" use="optional" />
+    <xs:attribute name="base" type="xs:string" default="~/maven" use="optional" />
     <xs:attribute name="endpoint" type="endpointType" default="/maven" use="optional">
       <xs:annotation>
         <xs:documentation> 空串，或以 / 开头且不以 / 结尾 </xs:documentation>
@@ -149,7 +163,7 @@
         </xs:complexType>
       </xs:element>
     </xs:sequence>
-    <xs:attribute name="base" type="xs:string" default="~/.npm-repo" use="optional" />
+    <xs:attribute name="base" type="xs:string" default="~/npm" use="optional" />
     <xs:attribute name="endpoint" type="endpointType" default="/npm" use="optional">
       <xs:annotation>
         <xs:documentation> 空串，或以 / 开头且不以 / 结尾 </xs:documentation>
@@ -162,7 +176,7 @@
     <xs:sequence>
       <xs:element name="data-source" type="dataSourceType" minOccurs="1" maxOccurs="1" />
     </xs:sequence>
-    <xs:attribute name="base" type="xs:string" default="./micdn/blob" use="optional" />
+    <xs:attribute name="base" type="xs:string" default="~/blob" use="optional" />
     <xs:attribute name="maxSize" type="xs:string" default="50M" use="optional" />
     <xs:attribute name="endpoint" type="endpointType" default="/blob" use="optional">
       <xs:annotation>
@@ -181,7 +195,7 @@
         <xs:documentation> 空串，或以 / 开头且不以 / 结尾 </xs:documentation>
       </xs:annotation>
     </xs:attribute>
-    <xs:attribute name="base" type="xs:string" default="~/.micdn/static" use="optional" />
+    <xs:attribute name="base" type="xs:string" default="~/static" use="optional" />
   </xs:complexType>
 
   <!-- wwwType -->

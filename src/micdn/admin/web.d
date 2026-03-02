@@ -25,13 +25,21 @@ import micdn.model;
 import micdn.web;
 import micdn.config;
 
-/// 管理服务，挂载于 /admin 下，提供配置查看等接口。
+/// Reload 结果：ok 为 true 表示成功，否则 error 为错误信息。
+struct ReloadResult {
+  bool ok;
+  string error;
+}
+
+/// 管理服务，挂载于 /admin 下，提供配置查看、reload 等接口。
 class AdminService {
   private const string endpoint = "/admin";
   private const MicdnConfig config;
+  private ReloadResult delegate() onReload;
 
-  this(MicdnConfig config) {
+  this(MicdnConfig config, ReloadResult delegate() onReload = null) {
     this.config = config;
+    this.onReload = onReload;
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
@@ -41,6 +49,21 @@ class AdminService {
       res.statusCode = HTTPStatus.ok;
       res.headers["Content-Type"] = "application/xml; charset=utf-8";
       res.writeBody(config.toXml());
+    } else if (path == "/reload" && onReload !is null) {
+      auto peer = req.peer;
+      if (peer != "127.0.0.1" && peer != "::1") {
+        throw new HTTPStatusException(HTTPStatus.forbidden, "reload only allowed from localhost");
+      }
+      auto result = onReload();
+      if (result.ok) {
+        res.statusCode = HTTPStatus.ok;
+        res.headers["Content-Type"] = "text/plain; charset=utf-8";
+        res.writeBody("reload ok");
+      } else {
+        res.statusCode = HTTPStatus.internalServerError;
+        res.headers["Content-Type"] = "text/plain; charset=utf-8";
+        res.writeBody("reload failed: " ~ result.error);
+      }
     } else {
       throw new HTTPStatusException(HTTPStatus.notFound);
     }

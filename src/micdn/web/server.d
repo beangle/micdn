@@ -22,6 +22,8 @@ import std.array;
 import std.conv;
 import std.file;
 import std.path;
+import std.regex;
+import std.string;
 import std.typecons;
 
 import dxml.dom;
@@ -32,49 +34,21 @@ import vibe.core.log;
 import micdn.web.file;
 import micdn.xml;
 
-class ServerOptions {
-  string[] ips;
-  ushort port;
-  string contextPath;
-
-  this(string[] ips, ushort port, string contextPath) {
-    this.ips = ips;
-    this.port = port;
-    this.contextPath = contextPath;
-  }
-
-  public static ServerOptions parse(string content) {
-    auto dom = parseDOM!simpleXML(content).children[0];
-    auto attrs = getAttrs(dom);
-    string hosts;
-    if ("ips" in attrs) {
-      hosts = attrs.get("ips", "127.0.0.1");
-    } else {
-      hosts = attrs.get("hosts", "127.0.0.1");
-    }
-    ushort p = attrs.get("port", "8080").to!ushort;
-    auto contextEntries = children(dom, "Context");
-    if (contextEntries.empty) {
-      throw new Exception("Context element is needed in server.xml.");
-    }
-    auto contextAttrs = getAttrs(contextEntries.front);
-    return new ServerOptions(split(hosts, ","), p, contextAttrs["path"]);
-  }
-
-  @property public string listenAddr() const {
-    return this.ips[0] ~ ":" ~ port.to!string;
-  }
-
-}
-
-string readConfig(string defaultHome, string defaultConfigFileName) {
+string resolveConfigFile(string defaultConfigFileName) {
   string config;
-  string remoteDir;
-  auto hasConfig = readOption!string("config|f", &config, "specify config params");
-  auto hasRemote = readOption!string("remote|r", &remoteDir, "specify remote params");
+  auto hasConfig = readOption!string("f", &config, "specify config file, dir or URL");
 
   if (!hasConfig) {
-    throw new Exception("--config/-f is required. Use --help for usage.");
+    throw new Exception("-f is required. Use --help for usage.");
+  }
+  // URL：下载到 ~/micdn.xml
+  if (config.startsWith("http://") || config.startsWith("https://")) {
+    auto localPath = expandTilde("~/" ~ defaultConfigFileName);
+    if (curlDownload(config, localPath)) {
+      logInfo("Downloaded %s -> %s", config, localPath);
+      return localPath;
+    }
+    throw new Exception("Failed to download config from " ~ config);
   }
   if (!exists(config)) {
     return config;
@@ -86,29 +60,27 @@ string readConfig(string defaultHome, string defaultConfigFileName) {
     auto home = expandTilde(config);
     config = expandTilde(home ~ "/" ~ defaultConfigFileName);
   }
-  if (hasRemote) {
-    auto newxml = config ~ ".new";
-    auto remoteUrl = remoteDir ~ "/" ~ defaultConfigFileName;
-    if (curlDownload(remoteUrl, newxml)) {
-      logInfo("Downloaded %s", remoteUrl);
-      rename(newxml, config);
-    }
-  }
+  fetchRemoteIfNeeded(config);
   return config;
 }
 
-ServerOptions getServerOptions() {
-  string serverFile;
-  auto success = readOption!string("server", &serverFile, "specify server params");
-  if (success) {
-    if (exists(serverFile)) {
-      return ServerOptions.parse(cast(string) read(serverFile));
-    } else {
-      throw new Exception(serverFile ~ " is not exists!");
+/** 从 XML 文本中提取 remote 属性值，用正则避免递归解析。未找到返回 null。
+*/
+string extractRemoteUrl(string content) {
+  auto m = matchFirst(content, regex(r"remote\s*=\s*[\x22\x27]([^\x22\x27]+)[\x22\x27]"));
+  return (m && m.captures.length > 1) ? m.captures[1] : null;
+}
+
+/** 启动或 reload 前调用：若本地配置文件含 remote 属性，则下载覆盖。
+*/
+void fetchRemoteIfNeeded(string configPath) {
+  if (!exists(configPath))
+    return;
+  auto content = cast(string) read(configPath);
+  auto url = extractRemoteUrl(content);
+  if (url !is null) {
+    if (curlDownload(url, configPath)) {
+      logInfo("Downloaded config from %s -> %s", url, configPath);
     }
-  } else {
-    auto defaultConfig = `<?xml version="1.0" encoding="UTF-8"?><Server ips="127.0.0.1" port="8080">`
-      ~ `<Context path="/"/></Server>`;
-    return ServerOptions.parse(defaultConfig);
   }
 }

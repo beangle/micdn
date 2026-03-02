@@ -22,17 +22,35 @@ import std.array;
 import std.conv;
 import std.file;
 import std.path;
+import std.process;
+import std.regex;
 import std.string;
 
 import dxml.dom;
 
+import vibe.core.log;
+
 import micdn.model;
 import micdn.xml;
 
-/** 从 XML 字符串解析 MicdnConfig。
+/** 解析 home 属性：空=默认目录，~=用户主目录，否则 expandTilde。
 */
-MicdnConfig parse(string home, string content) {
+private string resolveHome(string homeAttr, string defaultDir) {
+  if (homeAttr.length == 0)
+    return defaultDir;
+  if (homeAttr == "~")
+    return expandTilde("~");
+  return expandTilde(homeAttr);
+}
+
+/** 从 XML 字符串解析 MicdnConfig。defaultHome 为 xml 所在目录，用于 home 属性为空时。
+*/
+MicdnConfig parse(string defaultHome, string content) {
   auto dom = parseDOM!simpleXML(content).children[0];
+  auto rootAttrs = getAttrs(dom);
+  string listen = rootAttrs.get("listen", "127.0.0.1:8888");
+  string remote = rootAttrs.get("remote", "");
+  auto home = resolveHome(rootAttrs.get("home", ""), defaultHome);
   AssetConfig asset;
   MavenRepoConfig maven;
   NpmRepoConfig npm;
@@ -40,12 +58,12 @@ MicdnConfig parse(string home, string content) {
   WwwConfig www;
 
   if (dom.children.any!(c => c.name == "maven")) {
-    maven = parseMaven("~/.m2/repository", dom);
+    maven = parseMaven("~/maven", dom);
   } else {
     maven = MavenRepoConfig.defaultConfig();
   }
   if (dom.children.any!(c => c.name == "npmjs")) {
-    npm = parseNpm("~/.npm-repo", dom);
+    npm = parseNpm("~/npm", dom);
   } else {
     npm = NpmRepoConfig.defaultConfig();
   }
@@ -58,16 +76,16 @@ MicdnConfig parse(string home, string content) {
   if (dom.children.any!(c => c.name == "www")) {
     www = parseWww(home, dom);
   }
-  return new MicdnConfig(asset, maven, blob, www, npm);
+  return new MicdnConfig(asset, maven, blob, www, npm, listen, remote, home);
 }
 
 /** 从本地 XML 文件解析 MicdnConfig。
 */
-MicdnConfig parseFile(string home, string xmlFile) {
+MicdnConfig parseFile(string xmlFile) {
   if (!exists(xmlFile)) {
     throw new Exception(xmlFile ~ " is not exists!");
   }
-  return parse(home, readXml(xmlFile));
+  return parse(dirName(xmlFile), cast(string) read(xmlFile));
 }
 
 /** 将 MicdnConfig 序列化为 micdn.xml 格式的字符串。
@@ -76,7 +94,12 @@ string toXml(const MicdnConfig config) {
   auto app = appender!string();
   app.put(`<?xml version="1.0" encoding="UTF-8"?>`);
   app.put("\n");
-  app.put("<micdn>");
+  app.put(`<micdn listen="` ~ config.listen ~ `"`);
+  if (config.remote !is null && config.remote.length > 0)
+    app.put(` remote="` ~ config.remote ~ `"`);
+  if (config.home.length > 0)
+    app.put(` home="` ~ config.home ~ `"`);
+  app.put(">");
 
   app.put(`  <maven endpoint="` ~ config.maven.endpoint ~ `" base="` ~ config.maven.base
       ~ `">` ~ "\n");

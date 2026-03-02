@@ -7,7 +7,7 @@
  */
 
 module micdn.npm.web;
-/// NPM 仓库浏览 HTTP 服务，提供本地 npm-repo 目录列表与文件下载。
+/// NPM 仓库浏览 HTTP 服务，提供本地npm目录列表与文件下载。
 
 import std.algorithm;
 import std.exception;

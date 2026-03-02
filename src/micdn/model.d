@@ -37,6 +37,12 @@ import micdn.config;
     通过 parse/parseFile 从 XML 加载，通过 staticToXml 序列化回 XML。
 */
 class MicdnConfig {
+  /// 监听地址，格式 host:port，默认 127.0.0.1:8888
+  const string listen;
+  /// 远程配置 URL，加载时会下载并覆盖本地 micdn.xml
+  const string remote;
+  /// 根目录，空表示 xml 所在目录，~ 表示用户主目录
+  const string home;
   /// 静态资源配置（endpoint、bundles 等）
   const AssetConfig asset;
   /// Maven 仓库配置（远程镜像、本地路径等）
@@ -48,8 +54,12 @@ class MicdnConfig {
   /// WWW 文档配置（多 doc，每 doc 独立 endpoint）
   const WwwConfig www;
 
-  this(AssetConfig asset, MavenRepoConfig maven, BlobConfig blob,
-      WwwConfig www = null, NpmRepoConfig npm = null) {
+  this(AssetConfig asset, MavenRepoConfig maven, BlobConfig blob, WwwConfig www = null,
+      NpmRepoConfig npm = null, string listen = "127.0.0.1:8888",
+      string remote = null, string home = "") {
+    this.listen = listen;
+    this.remote = remote;
+    this.home = home;
     this.asset = asset;
     this.maven = maven;
     this.blob = blob;
@@ -161,7 +171,7 @@ class AssetConfig {
 class MavenRepoConfig {
   /// HTTP 访问路径前缀（如 /repo）
   const string endpoint;
-  /// 本地 Maven 仓库根路径（如 ~/.m2/repository）
+  /// 本地 Maven 仓库根路径（如 ~/maven
   const string base;
   /// 远程仓库 URL 列表，按优先级排序
   const string[] remotes;
@@ -176,7 +186,7 @@ class MavenRepoConfig {
   }
 
   static MavenRepoConfig defaultConfig() {
-    return new MavenRepoConfig("/repo", "~/.m2/repository", [
+    return new MavenRepoConfig("/repo", "~/maven", [
       "https://repo1.maven.org/maven2"
     ]);
   }
@@ -221,7 +231,7 @@ class MavenRepoConfig {
 class NpmRepoConfig {
   /// HTTP 访问路径前缀（如 /npm）
   const string endpoint;
-  /// 本地 NPM 仓库根路径（如 ~/.npm-repo）
+  /// 本地 NPM 仓库根路径（如 ~/npm）
   const string base;
   /// 远程 registry 列表，默认含 registry.npmmirror.com
   const string[] remotes;
@@ -236,9 +246,7 @@ class NpmRepoConfig {
   }
 
   static NpmRepoConfig defaultConfig() {
-    return new NpmRepoConfig("/npm", "~/.npm-repo", [
-      "https://registry.npmmirror.com"
-    ]);
+    return new NpmRepoConfig("/npm", "~/npm", ["https://registry.npmmirror.com"]);
   }
 
   /** 返回包规格对应的本地 tgz 路径。scopePart 无 scope 时传 "_"。
