@@ -78,7 +78,8 @@ string toXml(const MicdnConfig config) {
   app.put("\n");
   app.put("<micdn>");
 
-  app.put(`  <maven endpoint="` ~ config.maven.endpoint ~ `" base="` ~ config.maven.base ~ `">` ~ "\n");
+  app.put(`  <maven endpoint="` ~ config.maven.endpoint ~ `" base="` ~ config.maven.base
+      ~ `">` ~ "\n");
   foreach (remote; config.maven.remotes) {
     app.put(`    <remote url="` ~ remote ~ `"/>` ~ "\n");
   }
@@ -93,28 +94,28 @@ string toXml(const MicdnConfig config) {
   }
 
   if (config.asset) {
-  app.put(`  <static endpoint="` ~ config.asset.endpoint ~ `" base="` ~ config.asset.base ~ `">` ~ "\n");
-  auto bundleKeys = config.asset.bundles.keys.array.sort;
-  foreach (key; bundleKeys) {
-    auto bundle = config.asset.bundles[key];
-    app.put(`    <bundle name="` ~ bundle.name ~ `">` ~ "\n");
-    foreach (provider; bundle.providers) {
-      if (ZipProvider zp = cast(ZipProvider) provider) {
-        app.put(`      <zip file="` ~ zp.file ~ `" dir="` ~ zp.dir ~ `"/>` ~ "\n");
-      } else if (DirProvider dp = cast(DirProvider) provider) {
-        app.put(`      <dir location="` ~ dp.location ~ `"/>` ~ "\n");
-      } else if (GavJarProvider gjp = cast(GavJarProvider) provider) {
-        if (gjp.dir.length > 0)
-          app.put(`      <jar gav="` ~ gjp.gav ~ `" dir="` ~ gjp.dir ~ `"/>` ~ "\n");
-        else
-          app.put(`      <jar gav="` ~ gjp.gav ~ `"/>` ~ "\n");
-      } else if (NpmProvider np = cast(NpmProvider) provider) {
-        app.put(`      <npm package="` ~ np.packageSpec ~ `" dir="` ~ np.dir ~ `"/>` ~ "\n");
+    app.put(
+        `  <static endpoint="` ~ config.asset.endpoint ~ `" base="` ~ config.asset.base ~ `">`
+        ~ "\n");
+    auto bundleKeys = config.asset.bundles.keys.array.sort;
+    foreach (key; bundleKeys) {
+      auto bundle = config.asset.bundles[key];
+      app.put(`    <bundle name="` ~ bundle.name ~ `">` ~ "\n");
+      foreach (provider; bundle.providers) {
+        if (DirProvider dp = cast(DirProvider) provider) {
+          app.put(`      <dir location="` ~ dp.location ~ `"/>` ~ "\n");
+        } else if (GavJarProvider gjp = cast(GavJarProvider) provider) {
+          if (gjp.dir.length > 0)
+            app.put(`      <jar gav="` ~ gjp.gav ~ `" dir="` ~ gjp.dir ~ `"/>` ~ "\n");
+          else
+            app.put(`      <jar gav="` ~ gjp.gav ~ `"/>` ~ "\n");
+        } else if (NpmProvider np = cast(NpmProvider) provider) {
+          app.put(`      <npm package="` ~ np.packageSpec ~ `" dir="` ~ np.dir ~ `"/>` ~ "\n");
+        }
       }
+      app.put("    </bundle>\n");
     }
-    app.put("    </bundle>\n");
-  }
-  app.put("  </static>\n");
+    app.put("  </static>\n");
   }
 
   if (config.blob) {
@@ -217,13 +218,7 @@ AssetConfig parseAsset(T)(string home, ref DOMEntity!T micdnDom) {
       string location = expandTilde(attrs["location"].replace("${micdn.home}", home));
       bundle.addProvider(new DirProvider(location));
     }
-    auto zips = children(c, "zip");
-    foreach (zip; zips) {
-      attrs = getAttrs(zip);
-      string file = attrs["file"];
-      auto dir = stripLeadingSlash(attrs.get("dir", ""));
-      bundle.addProvider(new ZipProvider(file, dir));
-    }
+    // AssetBundle 不支持 zip，仅 www doc 支持
     bundles[bundle.name] = bundle;
   }
   return new AssetConfig(endpoint, base, bundles.rehash());

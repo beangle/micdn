@@ -17,6 +17,7 @@
 module micdn.asset;
 /// 静态资源子模块：根据配置构建/刷新本地资源仓库，并按 URI 解析并返回物理路径列表。
 
+import std.algorithm;
 import std.file;
 import std.path;
 import std.string;
@@ -116,9 +117,11 @@ class AssetRepo {
       //rmdirRecurse( base);
     }
     mkdirRecurse(base);
+
     logInfo("Building static resources at %s", base);
     foreach (c; asset.bundles) {
       auto bundlePath = "/" ~ c.name;
+      string[] allowedVersionDirs = [];
       foreach (p; c.providers) {
         if (DirProvider dp = cast(DirProvider) p) {
           auto bundleBase = base ~ "/" ~ c.name;
@@ -132,21 +135,22 @@ class AssetRepo {
             logWarn("Cannot link " ~ dp.location ~ " to " ~ bundleBase);
           }
         } else if (GavJarProvider gap = cast(GavJarProvider) p) {
+          allowedVersionDirs ~= gap.getVersion();
           logInfo("Mounting %s", gap.gav);
-          string local = maven.localFile(gap.gav);
+          string localJar = maven.localFile(gap.gav);
           string innerDir = gap.dir;
-          innerDir ~= bundlePath;
-          if (exists(local)) {
-            mount(base, local, bundlePath, innerDir);
-          } else if (!local.endsWith("SNAPSHOT.jar")) {
+          innerDir ~= bundlePath ~ "/" ~ gap.getVersion();
+          if (exists(localJar)) {
+            mount(localJar, base ~ bundlePath ~ "/" ~ gap.getVersion(), innerDir);
+          } else if (!localJar.endsWith("SNAPSHOT.jar")) {
             string[] remotes = maven.remoteUrls(gap.gav);
-            mkdirRecurse(dirName(local));
+            mkdirRecurse(dirName(localJar));
             foreach (remote; remotes) {
               logInfo("Downloading %s", remote);
               import micdn.web.file;
 
-              if (curlDownload(remote, local)) {
-                mount(base, local, bundlePath, innerDir);
+              if (curlDownload(remote, localJar)) {
+                mount(localJar, base ~ "/" ~ gap.getVersion(), innerDir);
                 break;
               }
             }
@@ -159,6 +163,7 @@ class AssetRepo {
           if (namePart.length == 0 || versionPart.length == 0) {
             logWarn("Invalid npm package spec: %s", np.packageSpec);
           } else {
+            allowedVersionDirs ~= versionPart;
             logInfo("Mounting %s", np.packageSpec);
             auto npmRepo = NpmRepo.build(config);
             if (npmRepo.fetch(scopePart, namePart, versionPart)) {
@@ -171,28 +176,44 @@ class AssetRepo {
               logWarn("Cannot resolve npm package %s", np.packageSpec);
             }
           }
-        } else if (ZipProvider zp = cast(ZipProvider) p) {
-          logInfo("Mounting %s", zp.file);
-          mount(base, zp.file, bundlePath, zp.dir);
-        } else {
-          //throw new R
         }
+      }
+      // 清理 bundle 下已从配置移除的 version 文件夹（仅当仅含 NpmProvider 时执行，jar 会创建 webjars 等顶层目录，不能误删）
+      if (allowedVersionDirs.length > 0 && exists(bundleBase) && !bundleBase.isSymlink) {
+        cleanStaleVersionDirs(bundleBase, allowedVersionDirs);
       }
     }
     setReadOnly(base);
     return new AssetRepo(base);
   }
 
+  /** 删除 bundle 目录下不在配置中的 version 子目录（仅 NpmProvider 会创建 version 顶层目录）。
+     dirEntries 返回的 entry.name 是完整路径，需用 baseName 提取目录名再比较。
+  */
+  private static void cleanStaleVersionDirs(string bundleBase, const string[] allowedVersionDirs) {
+    import std.algorithm;
+    import std.path;
+
+    foreach (entry; dirEntries(bundleBase, SpanMode.shallow, false)) {
+      if (entry.isDir && !entry.isSymlink) {
+        auto dirName = baseName(entry.name);
+        if (!allowedVersionDirs.canFind(dirName)) {
+          logInfo("Removing stale version dir: %s", entry.name);
+          rmdirRecurse(entry.name);
+        }
+      }
+    }
+  }
+
   /** 将 zip/jar 中的指定子目录解压到仓库的 bundle 路径下。
 
       Params:
-          base       = 仓库根目录
           zipfile   = zip/jar 文件路径
-          bundlePath = bundle 在仓库中的路径（如 /bui）
+          docBase       = 仓库根目录/bundleName
           dir        = zip 内要解压的子目录（如 META-INF/resources）
   */
-  private static void mount(string base, string zipfile, string bundlePath, string dir) {
-    auto count = refreshUnzip(zipfile, base ~ bundlePath, dir);
+  private static void mount(string zipfile, string docBase, string dir) {
+    auto count = refreshUnzip(zipfile, docBase, dir);
     if (count == 0) {
       logWarn("Cannot find %s in %s", dir, zipfile);
     }

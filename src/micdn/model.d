@@ -88,8 +88,8 @@ class MicdnConfig {
         auto a = endpoints[i];
         auto b = endpoints[j];
         if (isEndpointPrefix(a, b) || isEndpointPrefix(b, a)) {
-          throw new Exception("Endpoint conflict: " ~ names[i] ~ " '" ~ a ~ "' vs " ~ names[j]
-              ~ " '" ~ b ~ "'. One must not be a prefix of the other.");
+          throw new Exception("Endpoint conflict: " ~ names[i] ~ " '" ~ a ~ "' vs "
+              ~ names[j] ~ " '" ~ b ~ "'. One must not be a prefix of the other.");
         }
       }
     }
@@ -254,7 +254,7 @@ class NpmRepoConfig {
 
 /** 静态资源 bundle，对应配置中的一个 <bundle> 节点。
 
-    每个 bundle 有唯一名称和若干 provider（ZipProvider、DirProvider、GavJarProvider、NpmProvider），
+    每个 bundle 有唯一名称和若干 provider（DirProvider、GavJarProvider、NpmProvider），
     用于从 zip 包、本地目录、Maven jar 或 NPM 包加载前端资源。
 */
 class AssetBundle {
@@ -271,7 +271,7 @@ class AssetBundle {
   /** 向当前 bundle 追加一个资源提供者。
 
       Params:
-          p = ZipProvider、DirProvider、GavJarProvider 或 NpmProvider 实例
+          p = DirProvider、GavJarProvider 或 NpmProvider 实例
   */
   void addProvider(BundleProvider p) {
     providers.length += 1;
@@ -345,6 +345,12 @@ class GavJarProvider : BundleProvider {
 
   override string path() const {
     return gav;
+  }
+
+  /// 从 GAV 提取 version 部分（最后一组冒号后的内容）。
+  string getVersion() const {
+    auto idx = gav.lastIndexOf(':');
+    return (idx != size_t.max && idx + 1 <= gav.length) ? gav[idx + 1 .. $] : gav;
   }
 }
 

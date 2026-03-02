@@ -48,14 +48,14 @@ string encodeAttachmentName(string name) @safe {
 
 /**
  * Fetch url and store at local.
- * Downloads to a temp file first, then creates target directory and moves on success.
- * No target directory is created when download fails.
+ * Downloads to a temp file in the same directory as target first (avoiding cross-device
+ * rename), then renames on success. No target directory is created when download fails.
  */
 bool curlDownload(string url, string local) {
   import std.process, std.file, std.path, std.conv, std.datetime;
 
-  auto tmpPath = tempDir() ~ "micdn_curl_" ~ to!string(
-      Clock.currTime.stdTime) ~ "_" ~ baseName(local);
+  mkdirRecurse(dirName(local));
+  auto tmpPath = dirName(local) ~ "/." ~ baseName(local) ~ ".part";
   scope (exit) {
     if (exists(tmpPath))
       remove(tmpPath);
@@ -72,7 +72,6 @@ bool curlDownload(string url, string local) {
     logWarn("Download failure %s due to %s", url, cmd.output);
     return false;
   }
-  mkdirRecurse(dirName(local));
   rename(tmpPath, local);
   return true;
 }
