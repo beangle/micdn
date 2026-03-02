@@ -67,6 +67,13 @@ html(lang="zh")
         text-decoration: underline;
       }
       .icon { opacity: 0.9; }
+      .footer {
+        margin-top: 1.5rem;
+        font-size: 0.75rem;
+        color: #999;
+      }
+      .footer a { color: #999; text-decoration: none; }
+      .footer a:hover { color: #666; }
       @media (prefers-color-scheme: dark) {
         body { background: #1a1a1a; color: #e4e4e4; }
         .list-wrap {
@@ -82,6 +89,9 @@ html(lang="zh")
         .listing a { color: #6ea8fe; }
         .listing a:hover { color: #93c5fe; }
         .icon { opacity: 0.85; }
+        .footer { color: #6b6b6b; }
+        .footer a { color: #6b6b6b; }
+        .footer a:hover { color: #909090; }
       }
   body
     .list-wrap
@@ -96,3 +106,6 @@ html(lang="zh")
                 a(href="#{entry.href}")= entry.name
               td= entry.lastModified
               td= entry.size
+    .footer
+      | Powered by
+      a(href="https://github.com/beangle/micdn") Beangle Micdn
