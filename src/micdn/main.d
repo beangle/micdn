@@ -31,6 +31,7 @@ import vibe.core.log;
 import vibe.http.router;
 import vibe.http.server;
 
+import micdn.admin.web;
 import micdn.asset.web;
 import micdn.blob.s3;
 import micdn.blob.store;
@@ -77,6 +78,10 @@ version (unittest) {
       auto routerPrefix = (options.contextPath == "/") ? "" : options.contextPath;
       auto router = new URLRouter(routerPrefix);
       auto settings = new HTTPServerSettings;
+
+      auto adminService = new AdminService(config);
+      router.get("/admin", &adminService.service);
+      router.get("/admin/*", &adminService.service);
 
       if (config.asset !is null) {
         auto assetService = new AssetService(config);
@@ -157,13 +162,3 @@ Examples:
 string getVersion() {
   return "0.2.0";
 }
-
-// void aaa(){
-//  auto uri = getPath(server.options.contextPath, req);
-//   if (uri == "/config.xml") {
-//     res.statusCode = 200;
-//     res.headers["Content-Type"] = "application/xml";
-//     res.writeBody(server.config.toXml());
-//   } else {
-//   }
-// }

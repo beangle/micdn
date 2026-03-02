@@ -260,9 +260,11 @@ uint refreshUnzip(string zipfile, string base, string innerDir = null) {
     Throws:
         Exception 创建失败时（Windows 上需管理员权限或开启开发者模式）
 */
-void makeSymlink(const string target, const string linkPath) in {
+void makeSymlink(const string target, const string linkPath)
+in {
   assert(target.length > 0, "makeSymlink: target must not be empty");
-} do {
+}
+do {
   auto resolved = std.path.expandTilde(target);
   if (!std.path.isAbsolute(resolved)) {
     resolved = std.path.absolutePath(resolved);

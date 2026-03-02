@@ -32,7 +32,7 @@ unittest {
   props["user"] = "openurp";
   props["schema"] = "blb";
   //props["password"]="openurp";
-  auto config = new BlobConfig("local.openurp.net", "~/tmp");
+  auto config = new BlobConfig("/blob", "~/tmp");
   MetaDao dao;
   if ("password" in props) {
     dao = new MetaDao(props, config);

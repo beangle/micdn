@@ -234,7 +234,7 @@ static MavenRepoConfig parseMavenConfig(T)(string defaultBase, ref DOMEntity!T m
   import std.path;
 
   string base = expandTilde(attrs.get("base", defaultBase));
-  string endpoint = attrs.get("endpoint", "/maven");
+  string endpoint = normalizeEndpoint(attrs.get("endpoint", "/maven"));
   string[] remoteRepos = [];
   auto remoteEntries = children(dom, "remote");
   foreach (remoteEntry; remoteEntries) {
@@ -253,7 +253,7 @@ static NpmRepoConfig parseNpmConfig(T)(string defaultBase, ref DOMEntity!T micdn
   import std.path;
 
   string base = expandTilde(attrs.get("base", defaultBase));
-  string endpoint = attrs.get("endpoint", "/npm");
+  string endpoint = normalizeEndpoint(attrs.get("endpoint", "/npm"));
   string[] remoteRepos = [];
   auto remoteEntries = children(dom, "remote");
   foreach (remoteEntry; remoteEntries) {
@@ -269,7 +269,7 @@ static NpmRepoConfig parseNpmConfig(T)(string defaultBase, ref DOMEntity!T micdn
 static AssetConfig parseAssetConfig(T)(string home, ref DOMEntity!T micdnDom) {
   auto dom = children(micdnDom, "static").front;
   auto attrs = getAttrs(dom);
-  string endpoint = attrs.get("endpoint", "/static");
+  string endpoint = normalizeEndpoint(attrs.get("endpoint", "/static"));
   string base = attrs.get("base", "~/.micdn/asset");
 
   import std.path;
@@ -320,7 +320,7 @@ static BlobConfig parseBlobConfig(T)(string home, ref DOMEntity!T micdnDom) {
   auto attrs = getAttrs(dom);
   import std.path;
 
-  string endpoint = attrs.get("endpoint", "/static");
+  string endpoint = normalizeEndpoint(attrs.get("endpoint", "/static"));
   string base = expandTilde(attrs.get("base", "~/.micdn/blob"));
   string sizeLimit = attrs.get("maxSize", "50M");
 
@@ -387,15 +387,29 @@ static ulong parseSize(string size) {
   }
 }
 
-/// 规范化 endpoint 路径：空或 "/" 变为空串，末尾 "/" 去掉。
-private static string normalizeEndpoint(string base) {
-  if (base == null || base == "/") {
+/** 规范化 endpoint 路径。
+
+    合法形式：空串、"/"、或以 "/" 开头且不以 "/" 结尾（如 /static）。
+    空或 null 或者/ 变为 ""；不以 "/" 开头的添加前导 "/"。
+*/
+string normalizeEndpoint(string s) {
+  if (s is null || s.length == 0)
     return "";
-  } else if (base.endsWith("/")) {
-    return base[0 .. $ - 1];
-  } else {
-    return base;
-  }
+  s = s.strip;
+  if (s.length == 0 || s == "/")
+    return "";
+  if (s[0] != '/')
+    s = "/" ~ s;
+  while (s.length > 1 && s[$ - 1] == '/')
+    s = s[0 .. $ - 1];
+  return s;
+}
+
+/// 校验 endpoint 是否合法：空串或以 "/" 开头且不以 "/" 结尾。
+bool isValidEndpoint(string s) pure {
+  if (s.length == 0)
+    return true;
+  return s[0] == '/' && s.length > 1 && s[$ - 1] != '/';
 }
 
 /** 静态资源配置，定义前端资源（JS/CSS 等）的加载来源。
@@ -412,7 +426,9 @@ class AssetConfig {
   const AssetBundle[string] bundles;
 
   this(string endpoint, string base, AssetBundle[string] bundles) {
-    this.endpoint = normalizeEndpoint(endpoint);
+    assert(isValidEndpoint(endpoint),
+        "endpoint must be empty, '/', or start with '/' and not end with '/'");
+    this.endpoint = endpoint;
     this.base = base;
     this.bundles = bundles;
   }
@@ -433,7 +449,9 @@ class MavenRepoConfig {
 
   this(string endpoint, string base, string[] remotes) {
     assert(remotes.all!(r => !r.endsWith("/")), "Maven remote URL must not end with '/'");
-    this.endpoint = normalizeEndpoint(endpoint);
+    assert(isValidEndpoint(endpoint),
+        "endpoint must be empty, '/', or start with '/' and not end with '/'");
+    this.endpoint = endpoint;
     this.remotes = remotes.idup;
     this.base = base;
   }
@@ -491,7 +509,9 @@ class NpmRepoConfig {
 
   this(string endpoint, string base, string[] remotes) {
     assert(remotes.all!(r => !r.endsWith("/")), "NPM remote URL must not end with '/'");
-    this.endpoint = normalizeEndpoint(endpoint);
+    assert(isValidEndpoint(endpoint),
+        "endpoint must be empty, or start with '/' and not end with '/'");
+    this.endpoint = endpoint;
     this.remotes = remotes.idup;
     this.base = base;
   }
@@ -648,7 +668,9 @@ class BlobConfig {
   string[string] dataSourceProps;
 
   this(string endpoint, string base) {
-    this.endpoint = normalizeEndpoint(endpoint);
+    assert(isValidEndpoint(endpoint),
+        "endpoint must be empty, '/', or start with '/' and not end with '/'");
+    this.endpoint = endpoint;
     this.base = base;
   }
 
@@ -677,7 +699,9 @@ class WwwDocConfig {
   const BundleProvider provider;
 
   this(string location, BundleProvider provider) {
-    this.location = normalizeEndpoint(location);
+    assert(isValidEndpoint(location),
+        "location must be empty, '/', or start with '/' and not end with '/'");
+    this.location = location;
     this.provider = provider;
   }
 }

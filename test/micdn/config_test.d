@@ -97,6 +97,29 @@ unittest {
 }
 
 
+@("normalizeEndpoint and isValidEndpoint")
+unittest {
+  assert(normalizeEndpoint("") == "");
+  assert(normalizeEndpoint(null) == "");
+  assert(normalizeEndpoint("/") == "");
+  assert(normalizeEndpoint("  ") == "");
+  assert(normalizeEndpoint("static") == "/static");
+  assert(normalizeEndpoint("/static") == "/static");
+  assert(normalizeEndpoint("/static/") == "/static");
+  assert(normalizeEndpoint("  /static/  ") == "/static");
+
+  assert(isValidEndpoint(""));
+  assert(isValidEndpoint("/static"));
+  assert(isValidEndpoint("/maven"));
+  assert(!isValidEndpoint("/"));
+  assert(!isValidEndpoint("/static/"));
+  assert(!isValidEndpoint("static"));
+
+  assert(isValidEndpoint(normalizeEndpoint("/maven")));
+  assert(isValidEndpoint(normalizeEndpoint("/static/")));
+  assert(isValidEndpoint(normalizeEndpoint("asset")));
+}
+
 @("blob profile token verify")
 unittest {
   import std.datetime.systime;

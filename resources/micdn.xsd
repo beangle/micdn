@@ -4,6 +4,16 @@
   elementFormDefault="qualified"
   version="1.0.0">
 
+  <!-- endpoint 路径：空串，或以 / 开头且不以 / 结尾（如 /static、/maven） -->
+  <xs:simpleType name="endpointType">
+    <xs:annotation>
+      <xs:documentation> 空串，或以 / 开头且不以 / 结尾 </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="|/.*[^/]"/>
+    </xs:restriction>
+  </xs:simpleType>
+
   <!-- Root element -->
   <xs:element name="micdn">
     <xs:complexType>
@@ -104,7 +114,11 @@
       <xs:element name="zip" type="zipType" />
       <xs:element name="dir" type="dirType" />
     </xs:choice>
-    <xs:attribute name="location" type="xs:string" use="required" />
+    <xs:attribute name="location" type="endpointType" use="required">
+      <xs:annotation>
+        <xs:documentation> 空串，或以 / 开头且不以 / 结尾（如 /manual） </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
   </xs:complexType>
 
   <!-- mavenType (Maven 仓库) -->
@@ -118,7 +132,11 @@
       </xs:element>
     </xs:sequence>
     <xs:attribute name="base" type="xs:string" default="~/.m2/repository" use="optional" />
-    <xs:attribute name="endpoint" type="xs:string" default="/maven" use="optional" />
+    <xs:attribute name="endpoint" type="endpointType" default="/maven" use="optional">
+      <xs:annotation>
+        <xs:documentation> 空串，或以 / 开头且不以 / 结尾 </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
   </xs:complexType>
 
   <!-- npmjsType (NPM 仓库) -->
@@ -132,7 +150,11 @@
       </xs:element>
     </xs:sequence>
     <xs:attribute name="base" type="xs:string" default="~/.npm-repo" use="optional" />
-    <xs:attribute name="endpoint" type="xs:string" default="/npm" use="optional" />
+    <xs:attribute name="endpoint" type="endpointType" default="/npm" use="optional">
+      <xs:annotation>
+        <xs:documentation> 空串，或以 / 开头且不以 / 结尾 </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
   </xs:complexType>
 
   <!-- blobType -->
@@ -142,7 +164,11 @@
     </xs:sequence>
     <xs:attribute name="base" type="xs:string" default="./micdn/blob" use="optional" />
     <xs:attribute name="maxSize" type="xs:string" default="50M" use="optional" />
-    <xs:attribute name="endpoint" type="xs:string" default="/blob" use="optional" />
+    <xs:attribute name="endpoint" type="endpointType" default="/blob" use="optional">
+      <xs:annotation>
+        <xs:documentation> 空串，或以 / 开头且不以 / 结尾 </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
   </xs:complexType>
 
   <!-- staticType -->
@@ -150,7 +176,11 @@
     <xs:sequence>
       <xs:element name="bundle" type="bundleType" minOccurs="0" maxOccurs="unbounded" />
     </xs:sequence>
-    <xs:attribute name="endpoint" type="xs:string" default="/static" use="optional" />
+    <xs:attribute name="endpoint" type="endpointType" default="/static" use="optional">
+      <xs:annotation>
+        <xs:documentation> 空串，或以 / 开头且不以 / 结尾 </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
     <xs:attribute name="base" type="xs:string" default="~/.micdn/static" use="optional" />
   </xs:complexType>
 
