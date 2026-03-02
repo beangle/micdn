@@ -250,28 +250,37 @@ uint refreshUnzip(string zipfile, string base, string innerDir = null) {
 
 /** 创建符号链接。
 
+    先对 target 做 expandTilde 展开 ~，若仍为相对路径则转为基于当前工作目录的绝对路径。
+    确保符号链接存储绝对路径，解析时不受链接所在目录影响。
+
     Params:
-        target   = 目标路径（已存在的文件或目录）
+        target   = 目标路径（已存在的文件或目录，建议使用绝对路径）
         linkPath = 符号链接的创建路径
 
     Throws:
         Exception 创建失败时（Windows 上需管理员权限或开启开发者模式）
 */
-void makeSymlink(string target, string linkPath) {
+void makeSymlink(const string target, const string linkPath) in {
+  assert(target.length > 0, "makeSymlink: target must not be empty");
+} do {
+  auto resolved = std.path.expandTilde(target);
+  if (!std.path.isAbsolute(resolved)) {
+    resolved = std.path.absolutePath(resolved);
+  }
   version (Windows) {
     enum SYMBOLIC_LINK_FLAG_DIRECTORY = 0x1;
     enum SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE = 0x2;
 
     uint flags = SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE; // DWORD
-    if (exists(target) && isDir(target)) {
+    if (exists(resolved) && isDir(resolved)) {
       flags |= SYMBOLIC_LINK_FLAG_DIRECTORY;
     }
-    if (CreateSymbolicLinkW(linkPath.toUTF16z, target.toUTF16z, flags) == 0) {
-      throw new Exception("Failed to create symlink: " ~ linkPath ~ " -> " ~ target ~ " (error " ~ GetLastError()
+    if (CreateSymbolicLinkW(linkPath.toUTF16z, resolved.toUTF16z, flags) == 0) {
+      throw new Exception("Failed to create symlink: " ~ linkPath ~ " -> " ~ resolved ~ " (error " ~ GetLastError()
           .to!string ~ "; require Admin or Developer Mode on Windows)");
     }
   } else {
-    symlink(target, linkPath);
+    symlink(resolved, linkPath);
   }
 }
 

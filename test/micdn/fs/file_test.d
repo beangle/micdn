@@ -18,7 +18,39 @@ module test.micdn.fs.file_test;
 
 import micdn.fs.file;
 import std.file;
+import std.path;
 import std.stdio;
+
+@("makeSymlink stores absolute path for relative and tilde")
+unittest {
+  auto base = tempDir() ~ "micdn_symlink_test";
+  scope (exit) {
+    if (exists(base))
+      rmdirRecurse(base);
+  }
+  auto targetDir = base ~ "/target";
+  auto linkPath = base ~ "/link";
+  mkdirRecurse(targetDir);
+  std.file.write(targetDir ~ "/f", "x");
+
+  auto cwd = getcwd();
+  scope (exit)
+    chdir(cwd);
+  chdir(base);
+  makeSymlink("target", linkPath);
+  chdir(cwd);
+
+  assert(exists(linkPath), "symlink should exist");
+  auto stored = readLink(linkPath);
+  assert(isAbsolute(stored), "symlink target should be absolute, got: " ~ stored);
+  assert(exists(linkPath ~ "/f"), "content should be reachable via symlink");
+  remove(linkPath);
+
+  makeSymlink("~", linkPath);
+  stored = readLink(linkPath);
+  assert(isAbsolute(stored), "tilde path should expand to absolute, got: " ~ stored);
+  remove(linkPath);
+}
 
 @("fs unzip and permissions")
 unittest {
