@@ -81,22 +81,18 @@ version (unittest) {
       auto settings = new HTTPServerSettings;
 
       auto adminService = new AdminService(config);
-      router.get("/admin", &adminService.service);
-      router.get("/admin/*", &adminService.service);
+      registerEndpoint(router, "/admin", &adminService.service);
 
       if (config.asset !is null) {
         auto assetService = new AssetService(config);
-        router.get(config.asset.endpoint, &assetService.service);
-        router.get(config.asset.endpoint ~ "/*", &assetService.service);
+        registerEndpoint(router, config.asset.endpoint, &assetService.service);
       }
 
       auto mavenService = new MavenService(config);
-      router.get(config.maven.endpoint ~ "/*", &mavenService.service);
-      router.get(config.maven.endpoint, &mavenService.service);
+      registerEndpoint(router, config.maven.endpoint, &mavenService.service);
 
       auto npmService = new NpmService(config);
-      router.get(config.npm.endpoint ~ "/*", &npmService.service);
-      router.get(config.npm.endpoint, &npmService.service);
+      registerEndpoint(router, config.npm.endpoint, &npmService.service);
 
       if (config.blob !is null) {
         MetaDao metaDao = null;
@@ -105,7 +101,7 @@ version (unittest) {
         }
         auto blobService = new BlobService(config, metaDao);
         auto s3Service = new S3Service(config, metaDao);
-        router.get(config.blob.endpoint ~ "/*", &blobService.service);
+        registerEndpoint(router, config.blob.endpoint, &blobService.service);
         router.get(config.blob.endpoint ~ "/s3/*", &s3Service.service);
         settings.maxRequestSize = config.blob.maxSize;
       }
@@ -119,8 +115,7 @@ version (unittest) {
           }
           auto repo = WwwDocRepo.build(config, doc);
           auto svc = new WwwDocService(doc, repo);
-          router.get(doc.location, &svc.service);
-          router.get(doc.location ~ "/*", &svc.service);
+          registerEndpoint(router, doc.location, &svc.service);
         }
       }
 
@@ -138,6 +133,12 @@ version (unittest) {
       return 1;
     }
   }
+}
+
+/// 为 endpoint 及其子路径注册同一 handler：endpoint 与 endpoint/*
+void registerEndpoint(T)(URLRouter router, string endpoint, T handler) {
+  router.get(endpoint, handler);
+  router.get(endpoint ~ "/*", handler);
 }
 
 void showHelpInfo(string programName) {
