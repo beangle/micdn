@@ -30,9 +30,7 @@ import std.file;
 import std.string;
 import std.uni;
 
-import dxml.dom;
-
-import micdn.xml;
+import micdn.config;
 
 /** 根配置类，聚合静态资源、Maven 仓库、NPM 仓库、Blob 存储、WWW 文档等子配置。
 
@@ -57,334 +55,55 @@ class MicdnConfig {
     this.blob = blob;
     this.www = www;
     this.npm = npm;
-  }
-  /** 从 XML 字符串解析配置。
-
-      Params:
-          home    = 根目录路径，用于展开 ~ 和 ${micdn.home}
-          content = micdn.xml 格式的 XML 字符串
-
-      Returns:
-          解析得到的 MicdnConfig 实例
-  */
-  static MicdnConfig parse(string home, string content) {
-    auto dom = parseDOM!simpleXML(content).children[0];
-    AssetConfig asset;
-    MavenRepoConfig maven;
-    NpmRepoConfig npm;
-    BlobConfig blob;
-    WwwConfig www;
-
-    if (dom.children.any!(c => c.name == "maven")) {
-      maven = parseMavenConfig("~/.m2/repository", dom);
-    } else {
-      maven = MavenRepoConfig.defaultConfig();
-    }
-    if (dom.children.any!(c => c.name == "npmjs")) {
-      npm = parseNpmConfig("~/.npm-repo", dom);
-    } else {
-      npm = NpmRepoConfig.defaultConfig();
-    }
-    if (dom.children.any!(c => c.name == "static")) {
-      asset = parseAssetConfig(home, dom);
-    }
-    if (dom.children.any!(c => c.name == "blob")) {
-      blob = parseBlobConfig(home, dom);
-    }
-    if (dom.children.any!(c => c.name == "www")) {
-      www = parseWwwConfig(home, dom);
-    }
-    return new MicdnConfig(asset, maven, blob, www, npm);
+    validateEndpoints();
   }
 
-  /** 从本地 XML 文件解析配置。
-
-      Params:
-          home    = 根目录路径，用于展开路径变量
-          xmlFile = micdn.xml 文件路径（支持 ~ 展开）
-
-      Returns:
-          解析得到的 MicdnConfig 实例
-
-      Throws:
-          Exception 当文件不存在时
+  /** 校验所有 endpoint 是否存在冲突（含默认 /admin）。冲突指一个为另一个的前缀。
   */
-  static MicdnConfig parseFile(string home, string xmlFile) {
-    if (!exists(xmlFile)) {
-      throw new Exception(xmlFile ~ " is not exists!");
+  private void validateEndpoints() const {
+    string[] names, endpoints;
+    if (asset !is null) {
+      names ~= "static";
+      endpoints ~= asset.endpoint;
     }
-    return parse(home, readXml(xmlFile));
-  }
-
-  /** 将当前配置序列化为 micdn.xml 格式的字符串。
-
-      输出包含 maven、static、blob 三个子节点，bundle 按名称排序。
-
-      Returns:
-          完整的 micdn.xml 文本
-  */
-  string staticToXml() const {
-    import std.array;
-
-    auto app = appender!string();
-    app.put(`<?xml version="1.0" encoding="UTF-8"?>`);
-    app.put("\n");
-    app.put("<micdn>");
-
-    // 输出 Maven 配置
-    app.put(`  <maven endpoint="` ~ maven.endpoint ~ `" base="` ~ maven.base ~ `">` ~ "\n");
-    foreach (remote; maven.remotes) {
-      app.put(`    <remote url="` ~ remote ~ `"/>` ~ "\n");
+    names ~= "maven";
+    endpoints ~= maven.endpoint;
+    names ~= "npm";
+    endpoints ~= npm.endpoint;
+    if (blob !is null) {
+      names ~= "blob";
+      endpoints ~= blob.endpoint;
     }
-    app.put("  </maven>\n");
-
-    // 输出 NPM 配置
-    if (npm) {
-      app.put(`  <npmjs endpoint="` ~ npm.endpoint ~ `" base="` ~ npm.base ~ `">` ~ "\n");
-      foreach (remote; npm.remotes) {
-        app.put(`    <remote url="` ~ remote ~ `"/>` ~ "\n");
+    if (www !is null) {
+      foreach (i, doc; www.docs) {
+        names ~= "www.doc[" ~ i.to!string ~ "]";
+        endpoints ~= doc.location;
       }
-      app.put("  </npmjs>\n");
     }
+    names ~= "admin";
+    endpoints ~= "/admin";
 
-    //output asset config
-    app.put(`  <static endpoint="` ~ asset.endpoint ~ `" base="` ~ asset.base ~ `">` ~ "\n");
-    auto bundleKeys = asset.bundles.keys.array.sort;
-    foreach (key; bundleKeys) {
-      auto bundle = asset.bundles[key];
-      app.put(`    <bundle name="` ~ bundle.name ~ `">` ~ "\n");
-      foreach (provider; bundle.providers) {
-        if (ZipProvider zp = cast(ZipProvider) provider) {
-          app.put(`      <zip file="` ~ zp.file ~ `" dir="` ~ zp.dir ~ `"/>` ~ "\n");
-        } else if (DirProvider dp = cast(DirProvider) provider) {
-          app.put(`      <dir location="` ~ dp.location ~ `"/>` ~ "\n");
-        } else if (GavJarProvider gjp = cast(GavJarProvider) provider) {
-          if (gjp.dir.length > 0)
-            app.put(`      <jar gav="` ~ gjp.gav ~ `" dir="` ~ gjp.dir ~ `"/>` ~ "\n");
-          else
-            app.put(`      <jar gav="` ~ gjp.gav ~ `"/>` ~ "\n");
-        } else if (NpmProvider np = cast(NpmProvider) provider) {
-          app.put(`      <npm package="` ~ np.packageSpec ~ `" dir="` ~ np.dir ~ `"/>` ~ "\n");
+    foreach (i; 0 .. endpoints.length) {
+      foreach (j; i + 1 .. endpoints.length) {
+        auto a = endpoints[i];
+        auto b = endpoints[j];
+        if (isEndpointPrefix(a, b) || isEndpointPrefix(b, a)) {
+          throw new Exception("Endpoint conflict: " ~ names[i] ~ " '" ~ a ~ "' vs " ~ names[j]
+              ~ " '" ~ b ~ "'. One must not be a prefix of the other.");
         }
       }
-      app.put("    </bundle>\n");
     }
-    app.put("  </static>\n");
-
-    // 输出 Blob 配置
-    if (blob) {
-      app.put(`<blob endpoint="` ~ blob.endpoint ~ `" base="` ~ blob.base ~ `">` ~ "\n");
-      app.put(`<xi:include href="blob.xml" />`);
-      app.put("  </blob>\n");
-    }
-
-    // 输出 WWW 配置
-    if (www) {
-      app.put("  <www base=\"" ~ www.base ~ "\">\n");
-      foreach (doc; www.docs) {
-        app.put(`    <doc location="` ~ doc.location ~ `">` ~ "\n");
-        if (doc.provider) {
-          if (auto zp = cast(ZipProvider) doc.provider)
-            app.put(`      <zip file="` ~ zp.file ~ `" dir="` ~ zp.dir ~ `"/>` ~ "\n");
-          else if (auto dp = cast(DirProvider) doc.provider)
-            app.put(`      <dir location="` ~ dp.location ~ `"/>` ~ "\n");
-          else if (auto np = cast(NpmProvider) doc.provider)
-            app.put(`      <npm package="` ~ np.packageSpec ~ `" dir="` ~ np.dir ~ `"/>` ~ "\n");
-        }
-        app.put("    </doc>\n");
-      }
-      app.put("  </www>\n");
-    }
-
-    app.put("</micdn>\n");
-    return app.data;
   }
 
-}
-
-/** 向远程仓库列表末尾追加一项。
-
-    Params:
-        remotes = 远程 URL 数组，会被原地修改
-        remote  = 要追加的远程仓库地址
-*/
-private void add(ref string[] remotes, string remote) {
-  remotes.length += 1;
-  remotes[$ - 1] = remote;
-}
-
-/// 去掉 URL 末尾的 /，保证为无斜杠结尾的地址。
-private string stripTrailingSlash(string url) {
-  return (url.length > 1 && url.endsWith("/")) ? url[0 .. $ - 1] : url;
-}
-
-/// 去掉路径开头的 /，zip/npm 的 dir 属性必须为相对路径。
-private string stripLeadingSlash(string path) {
-  while (path.length > 0 && path[0] == '/')
-    path = path[1 .. $];
-  return path;
-}
-
-/// 解析 Maven 仓库配置（endpoint、本地路径、远程地址）。支持标签 maven 或 repo。
-static MavenRepoConfig parseMavenConfig(T)(string defaultBase, ref DOMEntity!T micdnDom) {
-  auto mavenEntries = children(micdnDom, "maven");
-  auto repoEntries = children(micdnDom, "repo");
-  auto dom = !mavenEntries.empty ? mavenEntries.front : repoEntries.front;
-  auto attrs = getAttrs(dom);
-  import std.path;
-
-  string base = expandTilde(attrs.get("base", defaultBase));
-  string endpoint = normalizeEndpoint(attrs.get("endpoint", "/maven"));
-  string[] remoteRepos = [];
-  auto remoteEntries = children(dom, "remote");
-  foreach (remoteEntry; remoteEntries) {
-    remoteRepos.add(stripTrailingSlash(getAttrs(remoteEntry)["url"]));
+  /// 判断 e1 是否为 e2 的前缀（相同或 e2 以 e1/ 开头）。
+  private static bool isEndpointPrefix(string e1, string e2) pure {
+    if (e1.length > e2.length)
+      return false;
+    if (e1.length == e2.length)
+      return e1 == e2;
+    return e2.startsWith(e1) && e2[e1.length] == '/';
   }
-  if (remoteRepos.length == 0) {
-    remoteRepos.add("https://repo1.maven.org/maven2"); // 无配置时使用 Maven 中央仓库
-  }
-  return new MavenRepoConfig(endpoint, base, remoteRepos);
-}
 
-/// 解析 NPM 仓库配置（endpoint、base、remotes）。XML 标签为 npmjs。
-static NpmRepoConfig parseNpmConfig(T)(string defaultBase, ref DOMEntity!T micdnDom) {
-  auto dom = children(micdnDom, "npmjs").front;
-  auto attrs = getAttrs(dom);
-  import std.path;
-
-  string base = expandTilde(attrs.get("base", defaultBase));
-  string endpoint = normalizeEndpoint(attrs.get("endpoint", "/npm"));
-  string[] remoteRepos = [];
-  auto remoteEntries = children(dom, "remote");
-  foreach (remoteEntry; remoteEntries) {
-    remoteRepos.add(stripTrailingSlash(getAttrs(remoteEntry)["url"]));
-  }
-  if (remoteRepos.length == 0) {
-    remoteRepos.add("https://registry.npmmirror.com");
-  }
-  return new NpmRepoConfig(endpoint, base, remoteRepos);
-}
-
-/// 从 DOM 节点解析静态资源配置（endpoint、bundle 及 zip/dir/jar 等 provider）。
-static AssetConfig parseAssetConfig(T)(string home, ref DOMEntity!T micdnDom) {
-  auto dom = children(micdnDom, "static").front;
-  auto attrs = getAttrs(dom);
-  string endpoint = normalizeEndpoint(attrs.get("endpoint", "/static"));
-  string base = attrs.get("base", "~/.micdn/asset");
-
-  import std.path;
-
-  base = expandTilde(base);
-  AssetBundle[string] bundles;
-  auto bundleEntries = children(dom, "bundle");
-
-  foreach (c; bundleEntries) {
-    auto bundle = new AssetBundle(getAttrs(c).get("name", ""));
-    auto jars = children(c, "jar");
-    foreach (jar; jars) {
-      attrs = getAttrs(jar);
-      string gav = attrs["gav"];
-      auto rawDir = attrs.get("dir", "");
-      string dir = rawDir.length == 0 ? (gav.startsWith("org.webjars")
-          ? "META-INF/resources/webjars" : "META-INF/resources") : stripLeadingSlash(rawDir);
-      bundle.addProvider(new GavJarProvider(gav, dir));
-    }
-    auto npms = children(c, "npm");
-    foreach (npm; npms) {
-      attrs = getAttrs(npm);
-      string packageSpec = attrs["package"];
-      auto dir = stripLeadingSlash(attrs.get("dir", "dist"));
-      bundle.addProvider(new NpmProvider(packageSpec, dir));
-    }
-    auto dirs = children(c, "dir");
-    foreach (dir; dirs) {
-      attrs = getAttrs(dir);
-      string location = expandTilde(attrs["location"].replace("${micdn.home}", home));
-      bundle.addProvider(new DirProvider(location));
-    }
-    auto zips = children(c, "zip");
-    foreach (zip; zips) {
-      attrs = getAttrs(zip);
-      string file = attrs["file"];
-      auto dir = stripLeadingSlash(attrs.get("dir", ""));
-      bundle.addProvider(new ZipProvider(file, dir));
-    }
-    bundles[bundle.name] = bundle;
-  }
-  return new AssetConfig(endpoint, base, bundles.rehash());
-}
-
-/// 从 DOM 节点解析 Blob 配置（endpoint、dataSource 等）。
-static BlobConfig parseBlobConfig(T)(string home, ref DOMEntity!T micdnDom) {
-  auto dom = children(micdnDom, "blob").front;
-  auto attrs = getAttrs(dom);
-  import std.path;
-
-  string endpoint = normalizeEndpoint(attrs.get("endpoint", "/static"));
-  string base = expandTilde(attrs.get("base", "~/.micdn/blob"));
-  string sizeLimit = attrs.get("maxSize", "50M");
-
-  auto config = new BlobConfig(endpoint, base);
-  config.maxSize = parseSize(sizeLimit);
-  // 解析数据源属性（如 serverName、databaseName 等）
-  auto dataSource = children(dom, "dataSource").front;
-  foreach (p; dataSource.children) {
-    // FIXME: 应检查 p.children.size
-    config.dataSourceProps[p.name] = p.children[0].text;
-  }
-  return config;
-}
-
-/// 从 DOM 节点解析 WWW 配置（多 doc，每 doc 有 location 和至多一个 dir/npm/zip）。
-static WwwConfig parseWwwConfig(T)(string home, ref DOMEntity!T micdnDom) {
-  auto dom = children(micdnDom, "www").front;
-  auto attrs = getAttrs(dom);
-  import std.path;
-
-  string base = expandTilde(attrs.get("base", "~/.micdn/www"));
-  WwwDocConfig[] docs;
-  foreach (c; children(dom, "doc")) {
-    auto docAttrs = getAttrs(c);
-    string location = normalizeEndpoint(docAttrs.get("location", ""));
-    if (location.empty)
-      continue;
-    BundleProvider provider = null;
-    auto npms = children(c, "npm");
-    if (!npms.empty) {
-      attrs = getAttrs(npms.front);
-      string packageSpec = attrs["package"];
-      auto dir = stripLeadingSlash(attrs.get("dir", "dist"));
-      provider = new NpmProvider(packageSpec, dir);
-    }
-    auto dirs = children(c, "dir");
-    if (!dirs.empty && provider is null) {
-      attrs = getAttrs(dirs.front);
-      string loc = expandTilde(attrs["location"].replace("${micdn.home}", home));
-      provider = new DirProvider(loc);
-    }
-    auto zips = children(c, "zip");
-    if (!zips.empty && provider is null) {
-      attrs = getAttrs(zips.front);
-      string file = expandTilde(attrs["file"].replace("${micdn.home}", home));
-      auto dir = stripLeadingSlash(attrs.get("dir", ""));
-      provider = new ZipProvider(file, dir);
-    }
-    docs ~= new WwwDocConfig(location, provider);
-  }
-  return new WwwConfig(base, docs);
-}
-
-/// 解析大小字符串，支持 M/G 后缀（如 "50M"、"1G"）。
-static ulong parseSize(string size) {
-  assert(size.length > 0, "size cannot be empty.");
-  string s = size.toLower;
-  if (s.endsWith("m")) {
-    return s[0 .. $ - 1].to!ulong * 1024 * 1024;
-  } else if (s.endsWith("g")) {
-    return s[0 .. $ - 1].to!ulong * 1024 * 1024 * 1024;
-  } else {
-    return s[0 .. $ - 1].to!ulong;
-  }
 }
 
 /** 规范化 endpoint 路径。

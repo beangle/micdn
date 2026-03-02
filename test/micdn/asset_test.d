@@ -17,6 +17,7 @@
 module micdn.asset_test;
 
 import micdn.asset;
+import micdn.config;
 import micdn.model;
 import micdn.xml;
 import std.path;
@@ -57,7 +58,7 @@ unittest {
 </micdn>`;
 
   auto dom = parseXml(content);
-  auto config = parseAssetConfig("~/tmp", dom);
+  auto config = parseAsset("~/tmp", dom);
   assert(config.base == expandTilde("~/tmp/static"));
   assert(config.endpoint == "/asset");
 }

@@ -42,6 +42,7 @@ import micdn.npm.web;
 import micdn.web.server;
 import micdn.www;
 import micdn.www.web;
+import micdn.config;
 
 // 跑 dub test 时由测试运行器提供 main，此处不编译
 version (unittest) {
@@ -73,7 +74,7 @@ version (unittest) {
       logInfo("Find config: %s", configFile);
 
       auto home = dirName(configFile);
-      auto config = MicdnConfig.parseFile(home, configFile);
+      auto config = parseFile(home, configFile);
       // contextPath "/" 会导致注册 "/repo/*" 变成 "//repo/*" 无法匹配请求路径 "/repo/xxx"
       auto routerPrefix = (options.contextPath == "/") ? "" : options.contextPath;
       auto router = new URLRouter(routerPrefix);

@@ -23,6 +23,7 @@ import vibe.http.server;
 
 import micdn.model;
 import micdn.web;
+import micdn.config;
 
 /// 管理服务，挂载于 /admin 下，提供配置查看等接口。
 class AdminService {
@@ -39,7 +40,7 @@ class AdminService {
     if (path == "/config.xml") {
       res.statusCode = HTTPStatus.ok;
       res.headers["Content-Type"] = "application/xml; charset=utf-8";
-      res.writeBody(config.staticToXml());
+      res.writeBody(config.toXml());
     } else {
       throw new HTTPStatusException(HTTPStatus.notFound);
     }
