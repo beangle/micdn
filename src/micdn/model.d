@@ -478,12 +478,18 @@ class BlobMeta {
 
     每个 profile 对应一个路径前缀（如 /public），有密钥的用户可上传，
     支持 namedBySha（以 SHA 命名文件）和 publicDownload（公开下载）。
+
+    base 与 domainDir 规范：/开头，不/结尾，不能为空。拼接路径为 base~domainDir~profile.base~rel。
 */
 class BlobProfile {
   /// profile 主键 id
   const int id;
-  /// 路径前缀（如 /public）
+  /// 路径前缀（如 /uploads），/开头、不/结尾、不能为空
   const string base;
+  /// 所属 domain 的目录（如 /localhost_8080），/开头、不/结尾。默认 profile 为空
+  const string domainDir;
+  /// 所属 domain id，0 表示非 domain 专属
+  const int domainId;
   /// 用户名 -> 密钥，有密钥的用户可上传到此 profile
   const string[string] keys;
   /// 是否以 SHA 摘要命名文件
@@ -491,13 +497,20 @@ class BlobProfile {
   /// 是否允许公开下载
   const bool publicDownload;
 
-  this(int id, string base, string[string] keys, bool namedBySha, bool publicDownload) {
+  /// 无匹配 domain 时返回的默认 profile，base 为 /missing。
+  static __gshared BlobProfile defaultProfile;
+
+  static this() {
+    defaultProfile = new BlobProfile(0, "/missing", null, false, false, 0, "");
+  }
+
+  this(int id, string base, string[string] keys, bool namedBySha,
+      bool publicDownload, int domainId, string domainDir) {
+    assert(base.startsWith("/") && !base.endsWith("/"), "base must start with / and not end with /");
     this.id = id;
-    if (base.endsWith("/")) {
-      this.base = base[0 .. $ - 1];
-    } else {
-      this.base = base;
-    }
+    this.base = base;
+    this.domainId = domainId;
+    this.domainDir = domainDir;
     this.keys = keys;
     this.namedBySha = namedBySha;
     this.publicDownload = publicDownload;
@@ -511,7 +524,8 @@ class BlobProfile {
     string[string] keysCopy;
     foreach (k, v; p.keys)
       keysCopy[k] = v;
-    return new BlobProfile(p.id, p.base, keysCopy, p.namedBySha, p.publicDownload);
+    return new BlobProfile(p.id, p.base, keysCopy, p.namedBySha,
+        p.publicDownload, p.domainId, p.domainDir);
   }
 
   /** 根据 path、user、key、时间戳生成签名 token。
@@ -556,5 +570,39 @@ class BlobProfile {
       string content = path ~ user ~ key ~ timestamp.toISOString;
       return toHexString(sha1Of(content)).toLower == token;
     }
+  }
+}
+
+/** 按域名组织的 Blob 配置，每个 DomainProfile 包含若干 BlobProfile。
+ *  路径拼接：repo.base ~ domainDir ~ profile.base ~ rel。domainDir 与 base 规范：/开头、不/结尾、不能为空。
+ */
+class DomainProfile {
+  /// 数据库 blb_domains 表主键
+  const int domainId;
+  /// 域名（如 example.com、localhost）
+  const string hostname;
+  /// base 下的子目录名（如 /localhost_8080），/开头、不/结尾、不能为空
+  const string domainDir;
+  /// 路径前缀 -> BlobProfile
+  const BlobProfile[string] profiles;
+  /// 用户名 -> 密钥
+  const string[string] keys;
+
+  this(int domainId, string hostname, string domainDir,
+      BlobProfile[string] profiles, string[string] keys) {
+    this.domainId = domainId;
+    this.hostname = hostname;
+    this.domainDir = domainDir;
+    this.profiles = profiles;
+    this.keys = keys;
+  }
+
+  const(BlobProfile) getProfile(string path) const {
+    foreach (k, v; profiles) {
+      if (path.startsWith(k)) {
+        return v;
+      }
+    }
+    return BlobProfile.defaultProfile;
   }
 }

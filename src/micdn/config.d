@@ -96,7 +96,8 @@ string toXml(const MicdnConfig config) {
   app.put("\n");
   app.put(`<micdn xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"` ~ "\n");
   app.put(`  xmlns:xi="http://www.w3.org/2001/XInclude"` ~ "\n");
-  app.put(`  xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.0.0.xsd"` ~ "\n");
+  app.put(
+      `  xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.0.0.xsd"` ~ "\n");
   app.put(`  listen="` ~ config.listen ~ `"`);
   if (config.remote !is null && config.remote.length > 0)
     app.put(` remote="` ~ config.remote ~ `"`);

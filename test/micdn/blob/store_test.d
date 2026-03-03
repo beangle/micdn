@@ -50,6 +50,6 @@ unittest {
     meta.filePath = "/a.txt";
     meta.updatedAt = Clock.currTime();
     dao.remove(profile, "/a.txt");
-    assert(dao.create(profile, meta));
+    assert(dao.create(profile, meta, 1));
   }
 }

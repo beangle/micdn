@@ -34,7 +34,6 @@ class MetaDao {
 
   PostgresClient client;
   string schema;
-  int domainId;
 
   this(const(string[string]) props, const(BlobConfig) config) {
     import std.format;
@@ -48,6 +47,7 @@ class MetaDao {
     client = new PostgresClient(url, maximumPoolSize);
   }
 
+  /// 删除指定 profile 和路径的元数据记录。
   void remove(const(BlobProfile) profile, string path) {
     client.pickConnection((scope conn) {
       QueryParams query;
@@ -58,6 +58,7 @@ class MetaDao {
     });
   }
 
+  /// 插入 blob 元数据记录，domain_id 取自 profile.domainId。
   public bool create(const(BlobProfile) profile, BlobMeta m) {
     bool success = false;
     client.pickConnection((scope conn) {
@@ -66,13 +67,14 @@ class MetaDao {
       import std.conv;
 
       query.argsVariadic(m.owner, m.name, m.fileSize.to!long, m.sha,
-        m.mediaType, m.profileId, m.filePath, this.domainId);
+        m.mediaType, m.profileId, m.filePath, profile.domainId);
       conn.execParams(query);
       success = true;
     });
     return success;
   }
 
+  /// 根据 profile 和路径查询元数据中的原始文件名。
   public string getFilename(const(BlobProfile) profile, string path) {
     string filename = "";
     client.pickConnection((scope conn) {
@@ -88,86 +90,104 @@ class MetaDao {
     return filename;
   }
 
-  public void loadProfiles(BlobRepo repo) {
+  /// 域名转 OS 友好目录名：替换 : 为 _
+  static string hostnameToDir(string hostname) {
+    import std.algorithm;
+
+    return hostname.replace(":", "_");
+  }
+
+  /// 路径段规范化：/开头，不/结尾，不能为空
+  static string normalizeBase(string s) {
+    s = s.strip();
+    if (s.empty)
+      return s;
+    if (!s.startsWith("/"))
+      s = "/" ~ s;
+    if (s.length > 1 && s.endsWith("/"))
+      s = s[0 .. $ - 1];
+    return s;
+  }
+
+  /// 从数据库加载所有 domain，填充到 repo.domains。
+  public void loadAllDomains(BlobRepo repo) {
     client.pickConnection((scope conn) {
-      QueryParams query;
-      query.sqlCommand = "select  id from " ~ schema ~ ".blb_domains where hostname=$1";
-      query.argsVariadic(repo.hostname);
-      auto r0 = conn.execParams(query);
-      for (auto row = 0; row < r0.length; row++) {
-        this.domainId = r0[row]["id"].as!PGinteger;
-        break;
-      }
-      if (this.domainId == 0) {
-        throw new Exception("cannot find domain with hostname " ~ repo.hostname);
-      }
       import std.conv;
+      import std.array;
 
-      auto r = conn.exec(
-        "select name,key from " ~ schema ~ ".blb_users where domain_id=" ~ domainId.to!string);
-      for (auto row = 0; row < r.length; row++) {
-        string name = r[row]["name"].as!PGtext;
-        string key = r[row]["key"].as!PGtext;
-        repo.keys[name] = key;
-      }
-      auto r2 = conn.exec("select id,base,users,named_by_sha,public_download from "
-        ~ schema ~ ".blb_profiles where domain_id=" ~ this.domainId.to!string);
-      for (auto row = 0; row < r2.length; row++) {
-        int id = r2[row]["id"].as!PGinteger;
-        string base = r2[row]["base"].as!PGtext;
-        string users = r2[row]["users"].as!PGtext;
-        bool namedBySha = r2[row]["named_by_sha"].as!PGboolean;
-        bool publicDownload = r2[row]["public_download"].as!PGboolean;
-        import std.array;
+      auto r0 = conn.exec("select id,hostname from " ~ schema ~ ".blb_domains");
+      foreach (row; 0 .. r0.length) {
+        int domainId = r0[row]["id"].as!PGinteger;
+        string hostname = r0[row]["hostname"].as!PGtext;
+        string domainDir = normalizeBase(hostnameToDir(hostname));
+        if (domainDir.empty) {
+          logInfo("skip domain with empty domainDir: " ~ hostname);
+          continue;
+        }
 
-        string[string] profileKeys;
-        if (!users.empty) {
-          foreach (u; users.split(",")) {
-            if (u in repo.keys) {
-              profileKeys[u] = repo.keys[u];
-            } else {
-              logInfo("ignore illegal user " ~ u);
+        string[string] keys;
+        auto r = conn.exec(
+          "select name,key from " ~ schema ~ ".blb_users where domain_id=" ~ domainId.to!string);
+        foreach (ur; 0 .. r.length) {
+          string name = r[ur]["name"].as!PGtext;
+          string key = r[ur]["key"].as!PGtext;
+          keys[name] = key;
+        }
+
+        BlobProfile[string] profiles;
+        auto r2 = conn.exec("select id,base,users,named_by_sha,public_download from "
+          ~ schema ~ ".blb_profiles where domain_id=" ~ domainId.to!string);
+        foreach (pr; 0 .. r2.length) {
+          int id = r2[pr]["id"].as!PGinteger;
+          string baseRaw = r2[pr]["base"].as!PGtext;
+          string base = normalizeBase(baseRaw);
+          if (base.empty) {
+            logInfo("skip profile with empty base in domain " ~ hostname);
+            continue;
+          }
+          string users = r2[pr]["users"].as!PGtext;
+          bool namedBySha = r2[pr]["named_by_sha"].as!PGboolean;
+          bool publicDownload = r2[pr]["public_download"].as!PGboolean;
+
+          string[string] profileKeys;
+          if (!users.empty) {
+            foreach (u; users.split(",")) {
+              if (u in keys) {
+                profileKeys[u] = keys[u];
+              } else {
+                logInfo("ignore illegal user " ~ u ~ " in domain " ~ hostname);
+              }
             }
           }
+          profiles[base] = new BlobProfile(id, base, profileKeys, namedBySha,
+            publicDownload, domainId, domainDir);
         }
-        repo.profiles[base] = new BlobProfile(id, base, profileKeys, namedBySha, publicDownload);
+        repo.domains[hostname] = new DomainProfile(domainId, hostname, domainDir, profiles, keys);
       }
-      logInfo("find " ~ r2.length.to!string ~ " blob profiles");
+      logInfo("load " ~ r0.length.to!string ~ " blob domains");
     });
   }
 }
 
-/// 单个 Blob 仓库，负责在磁盘目录与数据库元数据之间做协调。
+/// 多域名 Blob 仓库，按请求域名分别存储到 base 下对应子目录。
 class BlobRepo {
-  /// 仓库根目录（实际文件存放的根路径，以 "/" 结尾）。
+  /// 仓库根目录
   const string base;
-  /// 元数据访问对象，为空时仅使用文件系统，不记录数据库。
+  /// 元数据访问对象，为空时仅使用文件系统。
   MetaDao metaDao;
   /// 需要特殊处理为图片的扩展名集合。
   bool[string] images;
 
-  /**upload file limit*/
-  ulong maxSize = 50 * 1024 * 1024; //default 50m
-  /**url profile for management*/
-  BlobProfile[string] profiles;
-  /**every key for profile*/
-  string[string] keys;
+  ulong maxSize = 50 * 1024 * 1024;
+  /// 域名 -> DomainProfile
+  DomainProfile[string] domains;
 
-  string hostname = "localhost";
-
-  private BlobProfile defaultProfile = new BlobProfile(0, "", null, false, false);
-  /** 构造一个仓库。
-
-      Params:
-          b       = 仓库根目录（如 "/var/blob/"）
-          metaDao = 元数据 DAO，可为空表示不持久化元数据
-  */
   this(const(BlobConfig) config, MetaDao metaDao) {
     this.base = config.base;
     this.maxSize = config.maxSize;
     this.metaDao = metaDao;
     if (metaDao !is null) {
-      metaDao.loadProfiles(this);
+      metaDao.loadAllDomains(this);
     }
     this.images[".jpg"] = true;
     this.images[".png"] = true;
@@ -181,31 +201,33 @@ class BlobRepo {
     this.images[".tif"] = true;
   }
 
-  /** 检查给定逻辑路径对应的资源类型。
-
-      Returns:
-         0 = 不存在或路径非法（包含 ".."）
-         1 = 目录
-         2 = 普通文件
-  */
-  int check(string path) const {
-    if (path.indexOf("..") > -1)
-      return 0;
-    if (exists(base ~ path)) {
-      if (isDir(base ~ path)) {
-        return 1;
-      } else {
-        return 2;
-      }
-    } else {
-      return 0;
-    }
+  /// 从 path 中剥离 prefix，得到相对路径。prefix 规范：/开头、不/结尾
+  static string pathAfterPrefix(string path, string prefix) {
+    return path[prefix.length .. $];
   }
 
-  /** 从元数据中解析出逻辑路径对应的真实文件名。
+  /// 将逻辑路径转为物理路径，path 须以 / 开头，由调用方保证。
+  /// path 包含 profile.base 前缀。
+  string toPhysicalPath(const(BlobProfile) profile, string path) const {
+    return base ~ profile.domainDir ~ path;
+  }
 
-      当未配置 `metaDao` 时返回空字符串。
+  /** 检查给定 profile 和逻辑路径对应的资源类型。
+      Returns: 0=不存在, 1=目录, 2=文件
   */
+  int check(const(BlobProfile) profile, string path) const {
+    assert(path.startsWith("/"), "path must start with /");
+    assert(profile.domainId > 0 && path.startsWith(profile.base),"path must start with profile.base");
+    if (path.indexOf("..") > -1)
+      return 0;
+    auto fullPath = toPhysicalPath(profile, path);
+    if (exists(fullPath)) {
+      return isDir(fullPath) ? 1 : 2;
+    }
+    return 0;
+  }
+
+  /// 从元数据获取文件的原始下载名，用于 Content-Disposition。
   public string getRealname(const(BlobProfile) profile, string path) {
     if (metaDao !is null) {
       return metaDao.getFilename(profile, path);
@@ -233,6 +255,8 @@ class BlobRepo {
   */
   public BlobMeta create(const(BlobProfile) profile, string tmpfile,
       string filename, string dir, string owner, string mediaType) {
+    assert(profile.domainId > 0 && dir.startsWith(profile.base), "path must start with profile.base");
+
     auto meta = new BlobMeta();
     import std.digest, std.digest.sha;
 
@@ -264,9 +288,10 @@ class BlobRepo {
         filePath = dir ~ "/" ~ meta.name;
       }
     }
-    meta.filePath = filePath[profile.base.length .. $];
-    mkdirRecurse(dirName(this.base ~ profile.base ~ meta.filePath));
-    copy(tmpfile, this.base ~ profile.base ~ meta.filePath);
+    meta.filePath = pathAfterPrefix(filePath, profile.base);
+    auto physicalPath = toPhysicalPath(profile, filePath);
+    mkdirRecurse(dirName(physicalPath));
+    copy(tmpfile, physicalPath);
     if (metaDao !is null) {
       metaDao.remove(profile, meta.filePath);
       metaDao.create(profile, meta);
@@ -274,35 +299,37 @@ class BlobRepo {
     return meta;
   }
 
-  /** 删除仓库中的物理文件及其元数据。
+  /** 删除指定路径对应的文件及其元数据。
 
       Params:
           profile = 所属 profile
-          path    = 相对于仓库根目录的完整路径（包含 profile.base）
+          path   = 相对于仓库根目录的完整路径（包含 profile.base）
 
       Returns:
-          true  = 文件存在并已删除
-          false = 文件不存在
+          true  = 删除成功，false = profile 无效或文件不存在
   */
   public bool remove(const(BlobProfile) profile, string path) {
-    if (std.file.exists(this.base ~ path)) {
-      std.file.remove(this.base ~ path);
+    assert(profile.domainId > 0 && path.startsWith(profile.base), "path must start with profile.base");
+
+    auto fullPath = toPhysicalPath(profile, path);
+    if (std.file.exists(fullPath)) {
+      std.file.remove(fullPath);
       if (metaDao !is null) {
-        metaDao.remove(profile, path[profile.base.length .. $]);
+        metaDao.remove(profile, pathAfterPrefix(path, profile.base));
       }
       return true;
-    } else {
-      return false;
     }
+    return false;
   }
 
-  const(BlobProfile) getProfile(string path) const {
-    foreach (k, v; profiles) {
-      if (path.startsWith(k)) {
-        return v;
-      }
-    }
-    return defaultProfile;
+  /// 获取域名对应的 DomainProfile，无则返回 null。
+  const(DomainProfile)* getDomain(string hostname) const {
+    return hostname in domains;
   }
 
+  /// 根据 hostname 和 path 获取匹配的 BlobProfile，无匹配 domain 时返回 defaultProfile。
+  const(BlobProfile) getProfile(string hostname, string path) const {
+    auto domain = hostname in domains;
+    return domain !is null ? (*domain).getProfile(path) : BlobProfile.defaultProfile;
+  }
 }

@@ -233,38 +233,34 @@ class S3Service {
   }
 
   void getObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    // Implement S3 GetObject
-    auto rs = repo.check(uri);
-    if (rs == 2) {
-      auto profile = repo.getProfile(uri);
-
-      // Add S3-specific response headers
-      string requestId = generateUuid();
-      string amzId2 = generateAmzId2();
-      res.headers["x-amz-request-id"] = requestId;
-      res.headers["x-amz-id-2"] = amzId2;
-
-      import micdn.blob.web;
-
-      sendObject(repo, profile, req, res, uri);
-    } else {
-      // S3-style error response
+    auto host = req.host.length > 0 ? req.host : "localhost";
+    auto profile = repo.getProfile(host, uri);
+    if (profile.domainId == 0 || repo.check(profile, uri) != 2) {
       res.statusCode = HTTPStatus.notFound;
       res.contentType = "application/xml";
       res.writeBody(`<?xml version="1.0" encoding="UTF-8"?>
   <Error>
     <Code>NoSuchKey</Code>
     <Message>The specified key does not exist.</Message>
-    <Key>` ~ uri ~ `</Key>f
+    <Key>` ~ uri ~ `</Key>
     <RequestId>` ~ generateUuid() ~ `</RequestId>
     <HostId>` ~ generateAmzId2() ~ `</HostId>
   </Error>`, "application/xml");
+      return;
     }
+    string requestId = generateUuid();
+    string amzId2 = generateAmzId2();
+    res.headers["x-amz-request-id"] = requestId;
+    res.headers["x-amz-id-2"] = amzId2;
+
+    import micdn.blob.web;
+
+    sendObject(repo, profile, req, res, uri);
   }
 
   void putObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    // Implement S3 PutObject
-    auto profile = repo.getProfile(uri);
+    auto host = req.host.length > 0 ? req.host : "localhost";
+    auto profile = repo.getProfile(host, uri);
     try {
       import vibe.core.path;
       import std.file;
@@ -323,8 +319,8 @@ class S3Service {
   }
 
   void deleteObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    // Implement S3 DeleteObject
-    auto profile = repo.getProfile(uri);
+    auto host = req.host.length > 0 ? req.host : "localhost";
+    auto profile = repo.getProfile(host, uri);
     if (repo.remove(profile, uri)) {
       // Add S3-specific response headers
       string requestId = generateUuid();
@@ -350,29 +346,9 @@ class S3Service {
   }
 
   void headObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    // Implement S3 HeadObject
-    auto rs = repo.check(uri);
-    if (rs == 2) {
-      auto profile = repo.getProfile(uri);
-      import std.file;
-
-      auto filePath = repo.base ~ uri;
-      auto fileSize = getSize(filePath);
-
-      // Add S3-specific response headers
-      string requestId = generateUuid();
-      string amzId2 = generateAmzId2();
-      string etag = generateEtag(filePath);
-      res.headers["x-amz-request-id"] = requestId;
-      res.headers["x-amz-id-2"] = amzId2;
-      res.headers["Content-Length"] = fileSize.to!string;
-      res.headers["Content-Type"] = "application/octet-stream";
-      res.headers["ETag"] = etag;
-
-      res.statusCode = HTTPStatus.ok;
-      res.writeBody("", "");
-    } else {
-      // S3-style error response
+    auto host = req.host.length > 0 ? req.host : "localhost";
+    auto profile = repo.getProfile(host, uri);
+    if (profile.domainId == 0 || repo.check(profile, uri) != 2) {
       res.statusCode = HTTPStatus.notFound;
       res.contentType = "application/xml";
       res.writeBody(`<?xml version="1.0" encoding="UTF-8"?>
@@ -383,28 +359,55 @@ class S3Service {
     <RequestId>` ~ generateUuid() ~ `</RequestId>
     <HostId>` ~ generateAmzId2() ~ `</HostId>
   </Error>`, "application/xml");
+      return;
     }
+    import std.file;
+
+    auto filePath = repo.toPhysicalPath(profile, uri);
+    auto fileSize = getSize(filePath);
+
+    string requestId = generateUuid();
+    string amzId2 = generateAmzId2();
+    string etag = generateEtag(filePath);
+    res.headers["x-amz-request-id"] = requestId;
+    res.headers["x-amz-id-2"] = amzId2;
+    res.headers["Content-Length"] = fileSize.to!string;
+    res.headers["Content-Type"] = "application/octet-stream";
+    res.headers["ETag"] = etag;
+
+    res.statusCode = HTTPStatus.ok;
+    res.writeBody("", "");
   }
 
   void listObjects(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    // Implement S3 ListObjects
-    auto profile = repo.getProfile(uri);
+    auto host = req.host.length > 0 ? req.host : "localhost";
+    auto profile = repo.getProfile(host, uri);
+    if (profile.domainId == 0) {
+      res.statusCode = HTTPStatus.notFound;
+      res.contentType = "application/xml";
+      res.writeBody(`<?xml version="1.0" encoding="UTF-8"?>
+  <Error>
+    <Code>NoSuchBucket</Code>
+    <Message>The specified bucket does not exist.</Message>
+    <BucketName>` ~ uri ~ `</BucketName>
+    <RequestId>` ~ generateUuid() ~ `</RequestId>
+    <HostId>` ~ generateAmzId2() ~ `</HostId>
+  </Error>`, "application/xml");
+      return;
+    }
     import std.file;
 
-    auto basePath = repo.base ~ uri;
-    if (exists(basePath) && isDir(basePath)) {
-      // Add S3-specific response headers
+    auto basePath = repo.toPhysicalPath(profile, uri);
+    if (!basePath.empty && exists(basePath) && isDir(basePath)) {
       string requestId = generateUuid();
       string amzId2 = generateAmzId2();
       res.headers["x-amz-request-id"] = requestId;
       res.headers["x-amz-id-2"] = amzId2;
 
-      // Generate XML response using core function
       string xmlResponse = generateListObjectsXml(basePath, uri);
       res.contentType = "application/xml";
       res.writeBody(xmlResponse, "application/xml");
     } else {
-      // S3-style error response
       res.statusCode = HTTPStatus.notFound;
       res.contentType = "application/xml";
       res.writeBody(`<?xml version="1.0" encoding="UTF-8"?>
@@ -441,14 +444,14 @@ class S3Service {
           if (credentialParts.length >= 5) {
             auto accessKey = credentialParts[0];
 
-            // Get the profile for the requested URL
             auto uri = getPath(this.endpoint, req);
             if (uri.startsWith("/s3")) {
               uri = uri[3 .. $];
               if (uri.empty)
                 uri = "/";
             }
-            auto profile = repo.getProfile(uri);
+            auto host = req.host.length > 0 ? req.host : "localhost";
+            auto profile = repo.getProfile(host, uri);
 
             // Check if access key exists in profile keys
             if (accessKey in profile.keys) {

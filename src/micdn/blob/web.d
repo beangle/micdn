@@ -68,13 +68,17 @@ class BlobService {
   }
 
   private void getObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    auto rs = repo.check(uri);
+    auto host = req.host.length > 0 ? req.host : "localhost";
+    auto profile = repo.getProfile(host, uri);
+    if (profile.domainId == 0) {
+      throw new HTTPStatusException(HTTPStatus.notFound);
+    }
+    auto rs = repo.check(profile, uri);
     if (rs == 0) {
       throw new HTTPStatusException(HTTPStatus.notFound);
     } else if (rs == 1) { // dir
       throw new HTTPStatusException(HTTPStatus.notFound);
     } else { //file
-      auto profile = repo.getProfile(uri);
       if (profile.publicDownload) {
         sendObject(repo, profile, req, res, uri);
       } else {
@@ -96,7 +100,8 @@ class BlobService {
   }
 
   private void putObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    auto profile = repo.getProfile(uri);
+    auto host = req.host.length > 0 ? req.host : "localhost";
+    auto profile = repo.getProfile(host, uri);
     if (basicAuth(req, res, profile)) {
       auto pf = "file" in req.files;
       enforce(pf !is null, "No file uploaded!");
@@ -122,7 +127,8 @@ class BlobService {
   }
 
   private void deleteObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    auto profile = repo.getProfile(uri);
+    auto host = req.host.length > 0 ? req.host : "localhost";
+    auto profile = repo.getProfile(host, uri);
     if (basicAuth(req, res, profile)) {
       try {
         if (repo.remove(profile, uri)) {
@@ -168,16 +174,18 @@ class BlobService {
 
 }
 
-//fixme for realname detection
 void sendObject(BlobRepo repo, const(BlobProfile) profile, HTTPServerRequest req,
     HTTPServerResponse res, string path) {
   import std.path;
+  import micdn.blob.store;
 
+  auto physicalPath = repo.toPhysicalPath(profile, path);
   auto ext = extension(path);
   if (ext in repo.images) {
-    sendFile(req, res, repo.base ~ path, null);
+    sendFile(req, res, physicalPath, null);
   } else {
-    auto realname = repo.getRealname(profile, path[profile.base.length .. $]);
+    auto rel = BlobRepo.pathAfterPrefix(path, profile.base);
+    auto realname = repo.getRealname(profile, rel);
     if (realname.length > 0) {
       void setContextDisposition(scope HTTPServerRequest req,
           scope HTTPServerResponse res, ref string physicalPath) @safe {
@@ -186,9 +194,9 @@ void sendObject(BlobRepo repo, const(BlobProfile) profile, HTTPServerRequest req
 
       auto settings = new CacheSetting;
       settings.preWrite = &setContextDisposition;
-      sendFile(req, res, repo.base ~ path, settings);
+      sendFile(req, res, physicalPath, settings);
     } else {
-      sendFile(req, res, repo.base ~ path, null);
+      sendFile(req, res, physicalPath, null);
     }
   }
 }
