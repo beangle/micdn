@@ -30,7 +30,7 @@ struct ListEntry {
   string name; /// 显示名称（如 ".."、"dirname/"、"file.txt"）
   string href; /// 链接地址（相对路径）
   bool isDir; /// 是否为目录
-  string icon; /// 图标（emoji，按扩展名区分常见文件类型）
+  string iconKey; /// 图标键，用于从 fileIcons 中查找 emoji（如 "dir"、"js"、"default"）
   string lastModified; /// 最后修改时间（已格式化）
   string size; /// 大小显示（目录为 "-"，文件为字节数）
 }
@@ -39,6 +39,7 @@ struct ListEntry {
 struct FileListData {
   string uri; /// 当前路径（用于标题）
   ListEntry[] entries; /// 列表项（含父目录 ".." 及当前目录下的条目）
+  string[string] fileIcons; /// 图标键 -> emoji 的映射，供前端按 iconKey 获取图标
 }
 
 class FileEntry {
@@ -60,21 +61,33 @@ class FileEntry {
     Returns:
         FileListData，可直接传给 index.dt 模板
 */
+/// 扩展名/类型 -> emoji 的图标映射，供前端显示使用。
+enum fileIcons = [
+  "dir" : "📁",
+  "js" : "📜",
+  "css" : "🎨",
+  "img" : "🖼️",
+  "zip" : "📦",
+  "sha1" : "🔏",
+  "xml" : "📋",
+  "default" : "📄",
+];
+
 FileListData genListContents(string dir, string prefix, string uri) {
   auto rawEntries = list(dir);
   ListEntry[] entries;
   auto lastSlash = uri.length > 1 ? uri[0 .. $ - 1].lastIndexOf("/") : -1;
   if (lastSlash > -1) {
-    entries ~= ListEntry("..", "..", true, "📁", "-", "-");
+    entries ~= ListEntry("..", "..", true, "dir", "-", "-");
   }
   foreach (fe; rawEntries) {
     auto href = fe.isDir ? fe.name ~ "/" : fe.name;
     auto displayName = fe.isDir ? fe.name ~ "/" : fe.name;
     auto sizeStr = fe.isDir ? "-" : formatSize(fe.size);
-    auto icon = iconFor(fe.name, fe.isDir);
-    entries ~= ListEntry(displayName, href, fe.isDir, icon, fe.lastModified.toString, sizeStr);
+    auto iconKey = iconKeyFor(fe.name, fe.isDir);
+    entries ~= ListEntry(displayName, href, fe.isDir, iconKey, fe.lastModified.toString, sizeStr);
   }
-  return FileListData(uri, entries);
+  return FileListData(uri, entries, fileIcons);
 }
 
 /// 将字节数格式化为可读形式：如 "1.2 KB"、"345 MB"。
@@ -88,27 +101,27 @@ private string formatSize(ulong bytes) {
   return format("%.1f GB", bytes / (1024.0 * 1024 * 1024));
 }
 
-/// 按扩展名返回 emoji 图标：📁目录 📜js 🎨css 📦zip/jar/war 🔏sha1 📋xml/pom 🖼️图片 📄其他
-private string iconFor(string name, bool isDir) {
+/// 按扩展名返回图标键（对应 fileIcons 的 key）：dir/js/css/img/zip/sha1/xml/default
+private string iconKeyFor(string name, bool isDir) {
   if (isDir)
-    return "📁";
+    return "dir";
   auto dot = name.lastIndexOf('.');
   if (dot < 0)
-    return "📄";
+    return "default";
   auto ext = name[dot + 1 .. $].toLower;
   if (ext == "js")
-    return "📜";
+    return "js";
   if (ext == "css")
-    return "🎨";
+    return "css";
   if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "gif")
-    return "🖼️";
+    return "img";
   if (ext == "zip" || ext == "jar" || ext == "war")
-    return "📦";
+    return "zip";
   if (ext == "sha1")
-    return "🔏";
+    return "sha1";
   if (ext == "xml" || ext == "pom")
-    return "📋";
-  return "📄";
+    return "xml";
+  return "default";
 }
 
 private auto list(string path) {

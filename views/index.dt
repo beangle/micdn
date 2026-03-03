@@ -101,7 +101,7 @@ html(lang="zh")
           - foreach (entry; listData.entries)
             tr
               td
-                span.icon= entry.icon
+                span.icon= listData.fileIcons[entry.iconKey]
               td
                 a(href="#{entry.href}")= entry.name
               td= entry.lastModified
