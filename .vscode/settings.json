@@ -13,11 +13,17 @@
     "editor.defaultFormatter": "webfreak.code-d",
     "editor.formatOnSave": true
   },
-  "workbench.tree.indent": 10,
+  "workbench.tree.indent": 16,
   "workbench.tree.renderIndentGuides": "onHover",
+  "explorer.compactFolders": true,
   "d.overrideDfmtEditorconfig": false,
   "dfmt.braceStyle": "otbs",
   "files.watcherExclude": {
     "**/target": true
+  },
+  "files.exclude": {
+    "**/.*": true,
+    "**/.vscode": false,
+    "**/.cursor": false
   }
 }
