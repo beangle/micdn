@@ -130,7 +130,7 @@ unittest {
   auto content = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn>
   <maven endpoint="/maven"/>
-  <npmjs endpoint="/npm"/>
+  <npm endpoint="/npm"/>
   <static endpoint="/static" base="~/tmp/static">
     <bundle name="x"><dir location="~/x"/></bundle>
   </static>
@@ -145,7 +145,7 @@ unittest {
   auto ok = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn>
   <maven endpoint="/maven"/>
-  <npmjs endpoint="/npm"/>
+  <npm endpoint="/npm"/>
   <static endpoint="/static" base="~/tmp/static">
     <bundle name="x"><dir location="~/x"/></bundle>
   </static>
@@ -167,7 +167,7 @@ unittest {
   auto mavenPrefix = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn>
   <maven endpoint="/maven"/>
-  <npmjs endpoint="/npm"/>
+  <npm endpoint="/npm"/>
   <static endpoint="/maven/lib" base="~/tmp/static">
     <bundle name="x"><dir location="~/x"/></bundle>
   </static>
@@ -179,7 +179,7 @@ unittest {
   auto staticBlob = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn>
   <maven endpoint="/maven"/>
-  <npmjs endpoint="/npm"/>
+  <npm endpoint="/npm"/>
   <static endpoint="/static" base="~/tmp/static">
     <bundle name="x"><dir location="~/x"/></bundle>
   </static>
@@ -194,7 +194,7 @@ unittest {
   auto wwwPrefix = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn>
   <maven endpoint="/maven"/>
-  <npmjs endpoint="/npm"/>
+  <npm endpoint="/npm"/>
   <www base="~/tmp/www">
     <doc location="/doc"><dir location="~/d1"/></doc>
     <doc location="/doc/guide"><dir location="~/d2"/></doc>
@@ -207,7 +207,7 @@ unittest {
   auto noConflict = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn>
   <maven endpoint="/maven"/>
-  <npmjs endpoint="/npm"/>
+  <npm endpoint="/npm"/>
   <static endpoint="/static" base="~/tmp/static">
     <bundle name="x"><dir location="~/x"/></bundle>
   </static>
@@ -226,7 +226,7 @@ unittest {
   import std.datetime.systime;
   string[string] keys;
   keys["default"] = "--";
-  auto profile = new BlobProfile(0, "", keys, false, false);
+  auto profile = new BlobProfile(0, "/blob", keys, false, false, 0, "");
   SysTime now = Clock.currTime();
   import core.time;
 

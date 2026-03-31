@@ -38,7 +38,7 @@ unittest {
     dao = new MetaDao(props, config);
   }
   if (dao !is null) {
-    auto profile = new BlobProfile(1, "", null, false, false);
+    auto profile = new BlobProfile(1, "", null, false, false, 0, "");
     dao.remove(profile, "/a");
     BlobMeta meta = new BlobMeta();
     meta.profileId = profile.id;
@@ -50,6 +50,6 @@ unittest {
     meta.filePath = "/a.txt";
     meta.updatedAt = Clock.currTime();
     dao.remove(profile, "/a.txt");
-    assert(dao.create(profile, meta, 1));
+    assert(dao.create(profile, meta));
   }
 }

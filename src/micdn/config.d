@@ -62,7 +62,7 @@ MicdnConfig parse(string defaultHome, string content) {
   } else {
     maven = MavenRepoConfig.defaultConfig();
   }
-  if (dom.children.any!(c => c.name == "npmjs")) {
+  if (dom.children.any!(c => c.name == "npm")) {
     npm = parseNpm("~/npm", dom);
   } else {
     npm = NpmRepoConfig.defaultConfig();
@@ -113,11 +113,11 @@ string toXml(const MicdnConfig config) {
   app.put("  </maven>\n");
 
   if (config.npm) {
-    app.put(`  <npmjs endpoint="` ~ config.npm.endpoint ~ `" base="` ~ config.npm.base ~ `">` ~ "\n");
+    app.put(`  <npm endpoint="` ~ config.npm.endpoint ~ `" base="` ~ config.npm.base ~ `">` ~ "\n");
     foreach (remote; config.npm.remotes) {
       app.put(`    <remote url="` ~ remote ~ `"/>` ~ "\n");
     }
-    app.put("  </npmjs>\n");
+    app.put("  </npm>\n");
   }
 
   if (config.asset) {
@@ -192,9 +192,9 @@ MavenRepoConfig parseMaven(T)(string defaultBase, ref DOMEntity!T micdnDom) {
   return new MavenRepoConfig(endpoint, base, remoteRepos);
 }
 
-/// 解析 NPM 仓库配置（endpoint、base、remotes）。XML 标签为 npmjs。
+/// 解析 NPM 仓库配置（endpoint、base、remotes）。根级 XML 标签为 npm。
 NpmRepoConfig parseNpm(T)(string defaultBase, ref DOMEntity!T micdnDom) {
-  auto dom = children(micdnDom, "npmjs").front;
+  auto dom = children(micdnDom, "npm").front;
   auto attrs = getAttrs(dom);
 
   string base = expandTilde(attrs.get("base", defaultBase));

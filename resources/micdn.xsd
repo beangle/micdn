@@ -34,7 +34,7 @@
       </xs:attribute>
       <xs:choice minOccurs="0" maxOccurs="5">
         <xs:element name="maven" type="mavenType" minOccurs="0" maxOccurs="1" />
-        <xs:element name="npmjs" type="npmjsType" minOccurs="0" maxOccurs="1" />
+        <xs:element name="npm" type="npmRepoType" minOccurs="0" maxOccurs="1" />
         <xs:element name="blob" type="blobType" minOccurs="0" maxOccurs="1" />
         <xs:element name="static" type="staticType" minOccurs="0" maxOccurs="1" />
         <xs:element name="www" type="wwwType" minOccurs="0" maxOccurs="1" />
@@ -153,8 +153,8 @@
     </xs:attribute>
   </xs:complexType>
 
-  <!-- npmjsType (NPM 仓库) -->
-  <xs:complexType name="npmjsType">
+  <!-- npmRepoType：根级 NPM 仓库（与 bundle 内的 npm 包引用 npmType 区分） -->
+  <xs:complexType name="npmRepoType">
     <xs:sequence>
       <xs:element name="remote" minOccurs="0" maxOccurs="unbounded">
         <xs:complexType>
