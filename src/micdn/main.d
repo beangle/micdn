@@ -30,6 +30,7 @@ import std.path : dirName, expandTilde;
 import vibe.core.args;
 import vibe.core.core;
 import vibe.core.log;
+
 import vibe.http.router;
 import vibe.http.server;
 

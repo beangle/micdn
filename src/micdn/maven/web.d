@@ -19,6 +19,7 @@ module micdn.maven.web;
 
 import std.exception;
 import std.file;
+import std.path;
 import std.stdio;
 import std.string;
 
@@ -36,6 +37,12 @@ import micdn.web.file;
 import micdn.fs.browser;
 import micdn.web.server;
 import micdn.xml;
+
+/// 末段路径含 `.` 则按文件处理（可拉取）；不含则按目录。不解析具体后缀名。
+private bool looksLikeMavenArtifactFile(string uri) {
+  auto name = baseName(uri);
+  return name.length > 0 && name.indexOf('.') >= 0;
+}
 
 class MavenService {
   private const string endpoint;
@@ -60,14 +67,18 @@ class MavenService {
           auto listData = genListContents(repo.base ~ uri, endpoint, uri);
           render!("index.dt", listData)(res);
         } else {
-          uri = endpoint ~ uri;
-          res.redirect(req.requestURI.replace(uri, uri ~ "/"));
+          auto pub = endpoint ~ uri;
+          res.redirect(req.requestURI.replace(pub, pub ~ "/"));
         }
       } else {
         sendFile(req, res, file);
       }
     } else {
       if (uri.endsWith(".diff")) {
+        throw new HTTPStatusException(HTTPStatus.notFound);
+      }
+      // 目录型 URL：本地不存在则直接 404，不重定向（重定向后仍无列表内容）
+      if (uri.endsWith("/") || !looksLikeMavenArtifactFile(uri)) {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
       if (repo.fetch(uri)) {

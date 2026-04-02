@@ -22,17 +22,8 @@
       "name": "executable",
       "targetType": "executable",
       "targetPath": "target",
-      "targetName": "micdn"
-    },
-    {
-      "name": "executable-windows",
-      "targetType": "executable",
-      "targetPath": "target",
       "targetName": "micdn",
-      "dependencies": {
-        "vibe-d-postgresql": {"path": "packages/vibe-d-postgresql"}
-      },
-      "lflags-windows": ["/LIBPATH:lib"]
+      "versions": ["EventCoreSilenceLeakWarnings"]
     },
     {
       "name": "unittest",
