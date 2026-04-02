@@ -1,6 +1,7 @@
 #!/bin/bash
-PRGDIR=`dirname "$0"`
-export MICDN_HOME=`cd "$PRGDIR" >/dev/null; pwd`
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+export MICDN_HOME="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$MICDN_HOME"
 
 set -e -o pipefail
 # error function
@@ -68,8 +69,8 @@ fi
     pushd $DESTDIR"/"$CDNDIR > /dev/null
     mkdir -p usr/bin etc/micdn usr/lib/systemd/system
     cp -f $MICDN_HOME/target/micdn usr/bin/micdn
-    cp -f $MICDN_HOME/deploy/micdn.xml etc/micdn/micdn.xml
-    cp -f $MICDN_HOME/deploy/micdn.service usr/lib/systemd/system/micdn.service
+    cp -f $MICDN_HOME/scripts/package/micdn.xml etc/micdn/micdn.xml
+    cp -f $MICDN_HOME/scripts/package/micdn.service usr/lib/systemd/system/micdn.service
 
     # change folders and files permissions
     chmod -R 0755 .

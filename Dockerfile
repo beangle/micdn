@@ -1,131 +1,74 @@
 # syntax=docker/dockerfile:1
-# Multi-stage: debian:trixie-slim 自带 dub ≥1.34、ldc（与 trixie 仓库一致），glibc 与动态库 ABI 一致。
-# 构建与运行阶段使用同一 Debian 基础镜像。
+# Alpine（musl）多阶段构建：在镜像内用 apk 的 ldc+dub 编译，与运行时同为 musl。
 #
-# 重复构建仍从网上拉 apt 包时，常见原因：
-#   - 使用了 podman/docker build --pull / --pull-always（每次拉新基础镜像，整段缓存失效）
-#   - 使用了 --no-cache
-#   - 改了本 Dockerfile 里 apt 所在 RUN 之上的内容（含 FROM），或改了该 RUN 的包列表
-# 下方 RUN 使用 BuildKit 的 apt 缓存挂载，层失效时仍尽量复用本机已下过的 deb。
-# dub 依赖缓存在默认的 ~/.dub（builder 内为 /root/.dub）；对 dub build 挂载该目录以加速重复构建。
-#
-# Build: docker build -t micdn .
-# Run:   docker run --rm -p 8888:8888 micdn
-#        Optional persistence: -v micdn-cache:/var/cache/micdn -v micdn-data:/var/lib/micdn
-#        进程以非 root 用户 micdn 运行（与 deploy/micdn.service 一致）。
-#
-# 若更倾向 Fedora，可将两阶段改为例如 fedora:42，并：dnf install -y ldc dub git ca-certificates curl unzip libpq-devel && dnf clean all
-#
-# 进一步缩小：ldc 静态链接 / distroless 等需单独评估；构建时可 docker build --squash（若引擎支持）。
-#
-# 国内加速 apt（可选，两阶段都要传；镜像地址可含 http 或 https）：
-#   podman build --build-arg APT_MIRROR=https://mirrors.aliyun.com/debian \
-#     --build-arg APT_SECURITY_MIRROR=https://mirrors.aliyun.com/debian-security -t micdn .
-# 清华：APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
-#   APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
-#
-# 若出现「SSL connection failed / certificate verify failed」：多为 HTTPS 被中间人检查或与镜像站证书链不一致。
-# Debian apt 传统上允许用明文访问官方镜像；可改用 HTTP 镜像根（避免 TLS）：
-#   --build-arg APT_MIRROR=http://mirrors.aliyun.com/debian \
-#   --build-arg APT_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security
+# 构建：./scripts/build_image.sh（见 docs/CONTAINER_BUILD.md）
+# apk 源已固定为华为云（见下方 sed）；拉取 FROM 需代理时在运行 podman 的 shell 里 export。详见 docs/CONTAINER_BUILD.md。
 
-FROM debian:trixie-slim AS builder
-ENV DEBIAN_FRONTEND=noninteractive
+FROM alpine:3.23 AS builder
+ENV DUB_HOME=/root/.dub
 
-# 构建时访问外网需代理时：podman build --build-arg HTTPS_PROXY=$https_proxy ...
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG NO_PROXY
-ENV HTTP_PROXY=${HTTP_PROXY} HTTPS_PROXY=${HTTPS_PROXY} NO_PROXY=${NO_PROXY}
-
-ARG APT_MIRROR=
-ARG APT_SECURITY_MIRROR=
+# /var/cache/apk：由 ./scripts/build_image.sh 挂载宿主机目录（默认 ~/.cache/alpine-apk），与 ~/.dub 同理；勿无挂载构建。
+# apk-tools v3（Alpine 3.23+）默认不把 .apk 写入缓存，只会留下 APKINDEX；须加 --cache-packages 才会复用宿主机卷里的包。
+# 勿用 apk add --no-cache（会清空 /var/cache/apk，与持久挂载冲突）。
 RUN set -eux; \
-  if [ -n "$APT_SECURITY_MIRROR" ]; then \
-    for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list.d/*.list; do \
-      [ -f "$f" ] || continue; \
-      sed -i "s|https://deb.debian.org/debian-security|${APT_SECURITY_MIRROR}|g" "$f"; \
-      sed -i "s|http://deb.debian.org/debian-security|${APT_SECURITY_MIRROR}|g" "$f"; \
-    done; \
-  fi; \
-  if [ -n "$APT_MIRROR" ]; then \
-    for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list.d/*.list; do \
-      [ -f "$f" ] || continue; \
-      sed -i "s|https://deb.debian.org/debian|${APT_MIRROR}|g" "$f"; \
-      sed -i "s|http://deb.debian.org/debian|${APT_MIRROR}|g" "$f"; \
-    done; \
-  fi
-
-# LDC 链接需 cc + C 运行时（crt*.o 在 libc6-dev，随 build-essential）；-lz 需 zlib1g-dev。
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
+  sed -i \
+    -e 's|https://dl-cdn.alpinelinux.org/alpine|https://mirrors.huaweicloud.com/alpine|g' \
+    -e 's|http://dl-cdn.alpinelinux.org/alpine|https://mirrors.huaweicloud.com/alpine|g' \
+    /etc/apk/repositories; \
+  apk add --cache-packages \
     ldc \
     dub \
-    build-essential \
-    zlib1g-dev \
+    build-base \
+    binutils \
+    zlib-dev \
+    openssl-dev \
+    postgresql-dev \
     git \
     ca-certificates \
     curl \
     unzip \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && dub --version
+    bash
 
 WORKDIR /build
 
-# 部分 dub 版本下无参 `dub fetch` 会报错；依赖获取与编译合并为一次 dub build（需含 views）。
+# dub 依赖：由宿主机 ./scripts/build_image.sh 先 dub fetch，再 -v $HOME/.dub:/root/.dub；此处不再 RUN dub fetch。
+# 勿手写无挂载的 podman build，否则 dub 会把包写入镜像层、体积暴涨。
+# 另可选：mkdir -p scripts/container/host-dub-cache && cp -a ~/.dub/. scripts/container/host-dub-cache/ 后取消下一行 COPY（勿提交该目录，见 .gitignore）。
+# COPY scripts/container/host-dub-cache/ /root/.dub/
 COPY dub.json dub.selections.json ./
+
 COPY src ./src
 COPY views ./views
 
-ENV DUB_HOME=/root/.dub
-RUN --mount=type=cache,target=/root/.dub,sharing=locked \
-    dub build --build=release-nobounds --compiler=ldc2 \
+RUN dub build --build=release-nobounds --compiler=ldc2 \
     && strip --strip-all target/micdn
 
-# Collect dynamic deps (exclude glibc / dynamic loader — use those from the runtime base image).
+# musl：跳过 libc 与动态加载器，其余 .so 打进 /pack
 RUN mkdir -p /pack \
     && for f in $(ldd target/micdn | awk '/=>/ {print $3}' | sort -u); do \
          [ -f "$f" ] || continue; \
          b=$(basename "$f"); \
          case "$b" in \
-           libc.so*|ld-linux*) ;; \
+           libc.so*|ld-linux*|ld-musl*|libc.musl*) ;; \
            *) cp -L "$f" /pack/ ;; \
          esac; \
        done
 
 # ---
 
-FROM debian:trixie-slim
-ENV DEBIAN_FRONTEND=noninteractive
-
-ARG APT_MIRROR=
-ARG APT_SECURITY_MIRROR=
+FROM alpine:3.23
 RUN set -eux; \
-  if [ -n "$APT_SECURITY_MIRROR" ]; then \
-    for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list.d/*.list; do \
-      [ -f "$f" ] || continue; \
-      sed -i "s|https://deb.debian.org/debian-security|${APT_SECURITY_MIRROR}|g" "$f"; \
-      sed -i "s|http://deb.debian.org/debian-security|${APT_SECURITY_MIRROR}|g" "$f"; \
-    done; \
-  fi; \
-  if [ -n "$APT_MIRROR" ]; then \
-    for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list.d/*.list; do \
-      [ -f "$f" ] || continue; \
-      sed -i "s|https://deb.debian.org/debian|${APT_MIRROR}|g" "$f"; \
-      sed -i "s|http://deb.debian.org/debian|${APT_MIRROR}|g" "$f"; \
-    done; \
-  fi
-
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
+  sed -i \
+    -e 's|https://dl-cdn.alpinelinux.org/alpine|https://mirrors.huaweicloud.com/alpine|g' \
+    -e 's|http://dl-cdn.alpinelinux.org/alpine|https://mirrors.huaweicloud.com/alpine|g' \
+    /etc/apk/repositories; \
+  apk add --cache-packages \
     ca-certificates \
     curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd -r micdn \
-    && useradd -r -g micdn -d /var/lib/micdn -s /usr/sbin/nologin micdn \
+    libpq \
+    su-exec \
+    && addgroup -S micdn \
+    && adduser -S -D -G micdn -h /var/lib/micdn -s /sbin/nologin micdn \
     && mkdir -p /var/cache/micdn/asset /var/cache/micdn/www \
        /var/lib/micdn/maven /var/lib/micdn/npm /var/lib/micdn/local \
        /etc/micdn
@@ -135,19 +78,17 @@ COPY --from=builder /build/target/micdn /usr/bin/micdn
 
 ENV LD_LIBRARY_PATH=/usr/lib/micdn
 
-COPY docker/micdn.xml /etc/micdn/micdn.xml
+COPY scripts/container/micdn.xml /etc/micdn/micdn.xml
+COPY scripts/container/entrypoint.sh /entrypoint.sh
 
 RUN chown -R micdn:micdn /var/cache/micdn /var/lib/micdn \
     && chown micdn:micdn /etc/micdn/micdn.xml \
-    && chmod 755 /usr/bin/micdn
+    && chmod 755 /usr/bin/micdn /entrypoint.sh
 
 WORKDIR /var/lib/micdn
 
-USER micdn
-
 EXPOSE 8888
+# 不设 HEALTHCHECK：Podman 默认以 OCI 格式提交时会忽略该指令并告警；探活请在编排层（如 K8s probe）配置。
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -fsS http://127.0.0.1:8888/admin/config.xml >/dev/null || exit 1
-
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["micdn", "-f", "/etc/micdn/micdn.xml"]

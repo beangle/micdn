@@ -1,0 +1,17 @@
+.git
+.github
+.cursor
+.idea
+.vscode
+.metals
+target
+.dub
+*.md
+docs
+test
+# scripts/container 需参与镜像 COPY；仅忽略脚本与 deb/rpm 资源以减小上下文
+scripts/build_*.sh
+scripts/setup-windows.ps1
+scripts/README.md
+scripts/package
+LICENSE

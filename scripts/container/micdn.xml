@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<micdn xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:xi="http://www.w3.org/2001/XInclude"
+  xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.0.0.xsd"
+  listen="0.0.0.0:8888">
+
+  <maven base="/var/lib/micdn/maven" endpoint="/maven">
+    <remote url="https://maven.aliyun.com/repository/public" />
+    <remote url="https://repo1.maven.org/maven2/" />
+  </maven>
+
+  <npm base="/var/lib/micdn/npm" endpoint="/npm">
+    <remote url="https://registry.npmmirror.com" />
+  </npm>
+
+  <!-- 可选：取消注释并配置 blob.xml 后启用 Blob 服务 -->
+  <!-- <xi:include href="blob.xml" /> -->
+
+  <static endpoint="/static" base="/var/cache/micdn/asset">
+    <bundle name="local">
+      <dir location="/var/lib/micdn/local" />
+    </bundle>
+  </static>
+
+  <www base="/var/cache/micdn/www">
+  </www>
+
+</micdn>

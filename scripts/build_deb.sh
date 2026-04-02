@@ -1,7 +1,8 @@
 #!/bin/bash
 # Debian/Ubuntu 打包脚本。需在 Debian 系系统运行，或安装 dpkg：apt install dpkg-dev fakeroot
-PRGDIR=`dirname "$0"`
-export MICDN_HOME=`cd "$PRGDIR" >/dev/null; pwd`
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+export MICDN_HOME="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$MICDN_HOME"
 
 set -e -o pipefail
 ferror(){
@@ -50,8 +51,8 @@ pushd "$PKGDIR" > /dev/null
 # 文件布局（与 RPM 一致）
 mkdir -p usr/bin etc/micdn usr/lib/systemd/system
 cp -f $MICDN_HOME/target/micdn usr/bin/micdn
-cp -f $MICDN_HOME/deploy/micdn.xml etc/micdn/micdn.xml
-cp -f $MICDN_HOME/deploy/micdn.service usr/lib/systemd/system/micdn.service
+cp -f $MICDN_HOME/scripts/package/micdn.xml etc/micdn/micdn.xml
+cp -f $MICDN_HOME/scripts/package/micdn.service usr/lib/systemd/system/micdn.service
 
 chmod 0755 usr/bin/micdn
 chmod 0644 etc/micdn/micdn.xml usr/lib/systemd/system/micdn.service
