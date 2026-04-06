@@ -20,16 +20,14 @@ module micdn.config;
 import std.algorithm;
 import std.array;
 import std.conv;
-import std.file;
 import std.path;
 import std.process;
-import std.regex;
 import std.string;
+import std.uni : icmp;
 
 import dxml.dom;
 
-import vibe.core.log;
-
+import micdn.logging;
 import micdn.model;
 import micdn.xml;
 
@@ -51,6 +49,19 @@ MicdnConfig parse(string defaultHome, string content) {
   string listen = rootAttrs.get("listen", "127.0.0.1:8888");
   string remote = rootAttrs.get("remote", "");
   auto home = resolveHome(rootAttrs.get("home", ""), defaultHome);
+
+  string logFile = rootAttrs.get("log-file", "console").strip();
+  if (logFile.length == 0)
+    logFile = "console";
+  if (icmp(logFile, "console") == 0)
+    logFile = "console";
+  else
+    logFile = expandTilde(logFile);
+  string logLevel = rootAttrs.get("log-level", "info").strip();
+  if (logLevel.length == 0)
+    logLevel = "info";
+  parseLogLevel(logLevel);
+
   AssetConfig asset;
   MavenRepoConfig maven;
   NpmRepoConfig npm;
@@ -76,16 +87,15 @@ MicdnConfig parse(string defaultHome, string content) {
   if (dom.children.any!(c => c.name == "www")) {
     www = parseWww(home, dom);
   }
-  return new MicdnConfig(asset, maven, blob, www, npm, listen, remote, home);
+  return new MicdnConfig(asset, maven, blob, www, npm, listen, remote, home, logFile, logLevel);
 }
 
 /** 从本地 XML 文件解析 MicdnConfig。
 */
 MicdnConfig parseFile(string xmlFile) {
-  if (!exists(xmlFile)) {
-    throw new Exception(xmlFile ~ " is not exists!");
-  }
-  return parse(std.path.absolutePath(dirName(xmlFile)), cast(string) read(xmlFile));
+  string content = readXml(xmlFile);
+  string abs = absolutePath(expandTilde(xmlFile));
+  return parse(dirName(abs), content);
 }
 
 /** 将 MicdnConfig 序列化为 micdn.xml 格式的字符串。
@@ -103,6 +113,10 @@ string toXml(const MicdnConfig config) {
     app.put(` remote="` ~ config.remote ~ `"`);
   if (config.home.length > 0)
     app.put(` home="` ~ config.home ~ `"`);
+  if (config.logFile != "console")
+    app.put(` log-file="` ~ config.logFile ~ `"`);
+  if (config.logLevel != "info")
+    app.put(` log-level="` ~ config.logLevel ~ `"`);
   app.put(">");
 
   app.put(`  <maven endpoint="` ~ config.maven.endpoint ~ `" base="` ~ config.maven.base
@@ -251,24 +265,58 @@ AssetConfig parseAsset(T)(string home, ref DOMEntity!T micdnDom) {
   return new AssetConfig(endpoint, base, bundles.rehash());
 }
 
-/// 从 DOM 节点解析 Blob 配置（endpoint、dataSource 等）。
+/// 解析单个 `<bucket>` 节点为 `Bucket`。
+Bucket parseBlobBucket(T)(ref DOMEntity!T dom) {
+  auto attrs = getAttrs(dom);
+  string name = attrs.get("name", "").strip();
+  if (name.length == 0)
+    throw new Exception("blob <bucket> requires a non-empty name attribute");
+  if (name.indexOf('/') >= 0 || name.indexOf('\\') >= 0)
+    throw new Exception("blob <bucket> name must not contain '/' or '\\'");
+
+  string key = attrs.get("key", "").strip();
+  if (key.length == 0)
+    throw new Exception("blob <bucket> requires a non-empty key attribute");
+
+  return Bucket(name, key);
+}
+
+private BucketResolveStyle parseBucketResolveStyle(string s) {
+  import std.string : strip, toLower;
+
+  auto t = strip(s).toLower();
+  if (t.length == 0)
+    return BucketResolveStyle.host;
+  if (t == "host")
+    return BucketResolveStyle.host;
+  if (t == "path")
+    return BucketResolveStyle.path;
+  throw new Exception("blob bucket-resolve-style must be host or path, got: " ~ s);
+}
+
+/// 从 DOM 节点解析 Blob 配置（endpoint、`<bucket>` 的 name/key、bucket-resolve-style）。
 BlobConfig parseBlob(T)(string home, ref DOMEntity!T micdnDom) {
   auto dom = children(micdnDom, "blob").front;
   auto attrs = getAttrs(dom);
 
-  string endpoint = normalizeEndpoint(attrs.get("endpoint", "/static"));
-  string base = expandTilde(attrs.get("base", "~/.micdn/blob"));
-  string sizeLimit = attrs.get("maxSize", "50M");
+  string endpoint = normalizeEndpoint(attrs.get("endpoint", "/blob"));
+  string base = attrs.get("base", "~/.micdn/blob").replace("${micdn.home}", home);
+  base = expandTilde(base);
+  string sizeLimit = attrs.get("maxSize", "100M");
 
   auto config = new BlobConfig(endpoint, base);
   config.maxSize = parseSize(sizeLimit);
-  auto dataSourceEntries = children(dom, "dataSource");
-  if (!dataSourceEntries.empty) {
-    foreach (p; dataSourceEntries.front.children) {
-      if (!p.children.empty)
-        config.dataSourceProps[p.name] = p.children[0].text;
-    }
+  config.bucketResolveStyle = parseBucketResolveStyle(attrs.get("bucket-resolve-style", "host"));
+
+  Bucket[] buckets;
+  foreach (dn; children(dom, "bucket")) {
+    buckets ~= parseBlobBucket(dn);
   }
+  config.buckets = buckets;
+
+  if (config.buckets.length == 0)
+    throw new Exception("blob: no <bucket> configured under <blob>");
+
   return config;
 }
 

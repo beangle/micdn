@@ -1,25 +1,22 @@
 # Windows 构建说明
 
-Linux 使用 dub  registry 的 vibe-d-postgresql，无需额外文件。Windows 需先运行前置脚本，然后使用独立配置构建。
+Blob 元数据在 **Linux** 上通过文件 **`user.*` 扩展属性** 存储（`user.owner`、`user.sha1` 等）；**非 Linux** 目标上为占位实现，不写入扩展属性，仅适合本地编译或联调。
 
-## 已处理问题
+## 依赖
 
-1. **createFileDescriptorEvent(ulong) 类型不匹配**  
-   vibe-core 只接受 `int`，而 Windows 下 socket 为 `ulong`。  
-   由 `scripts/setup-windows.ps1` 自动对 vibe-d-postgresql 打补丁。
-
-2. **dpq2 std.conv 缺失**  
-   vibe-d-postgresql 固定到 `3.2.1`（dpq2 1.2.4），避免 1.3.0-alpha 的 Windows 编译错误。
+- **LDC** 或 DMD（满足 `dub.json` 中 `toolchainRequirements`）。
+- 无需 SQLite；已移除 `d2sqlite3` 依赖。
 
 ## 构建步骤
 
-**首次在 Windows 上构建时**：
-
 ```powershell
-.\scripts\setup-windows.ps1
-dub build -c executable-windows
+dub build
 ```
 
-脚本会：获取 vibe-d-postgresql、打补丁到 `packages/`、复制 `libpq.lib` 为 `lib/pq.lib`（PostgreSQL 默认路径 `D:\Program Files\PostgreSQL\17`，其他路径需自行修改脚本）。
+（若项目日后增加 `executable-windows` 等配置，以 `dub.json` 为准。）
 
-**运行**：将 PostgreSQL 的 `bin` 目录加入 PATH，或将 `libpq.dll` 放到可执行文件同目录。
+可选：预先拉取依赖以便离线构建：
+
+```powershell
+dub fetch
+```

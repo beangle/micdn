@@ -18,7 +18,9 @@ module micdn.main;
 /// 应用入口，根据命令行参数选择并启动 maven/asset/blob 三种服务。
 
 import std.algorithm : canFind, any;
+import std.array : join;
 import std.conv : to;
+import std.format : format;
 import std.exception;
 import std.typecons : tuple, Tuple;
 import std.file : getcwd, exists;
@@ -31,6 +33,7 @@ import vibe.core.args;
 import vibe.core.core;
 import vibe.core.log;
 
+import vibe.http.common : HTTPMethod;
 import vibe.http.router;
 import vibe.http.server;
 
@@ -46,6 +49,7 @@ import micdn.web.server;
 import micdn.www;
 import micdn.www.web;
 import micdn.config;
+import micdn.logging;
 
 /// 可热加载的请求分发器：持有一个可替换的 URLRouter，支持通过 SIGHUP 完整热加载配置。
 class ReloadableDispatcher : HTTPServerRequestHandler {
@@ -94,24 +98,21 @@ URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
 
   if (config.asset !is null) {
     auto assetService = new AssetService(config);
-    registerEndpoint(router, config.asset.endpoint, &assetService.service);
+    registerEndpointGetHead(router, config.asset.endpoint, &assetService.service);
   }
 
   auto mavenService = new MavenService(config);
-  registerEndpoint(router, config.maven.endpoint, &mavenService.service);
+  registerEndpointGetHead(router, config.maven.endpoint, &mavenService.service);
 
   auto npmService = new NpmService(config);
-  registerEndpoint(router, config.npm.endpoint, &npmService.service);
+  registerEndpointGetHead(router, config.npm.endpoint, &npmService.service);
 
   if (config.blob !is null) {
-    MetaDao metaDao = null;
-    if (!config.blob.dataSourceProps.empty) {
-      metaDao = new MetaDao(config.blob.dataSourceProps, config.blob);
-    }
-    auto blobService = new BlobService(config, metaDao);
-    auto s3Service = new S3Service(config, metaDao);
-    registerEndpoint(router, config.blob.endpoint, &blobService.service);
-    router.get(config.blob.endpoint ~ "/s3/*", &s3Service.service);
+    auto blobRepo = new BlobRepo(config.blob);
+    auto blobService = new BlobService(config, blobRepo);
+    auto s3Service = new S3Service(config, blobRepo);
+    registerEndpointAny(router, config.blob.endpoint, &blobService.service);
+    router.any(config.blob.endpoint ~ "/s3/*", &s3Service.service);
     settings.maxRequestSize = config.blob.maxSize;
   }
 
@@ -124,11 +125,33 @@ URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
       }
       auto repo = WwwDocRepo.build(config, doc);
       auto svc = new WwwDocService(doc, repo);
-      registerEndpoint(router, doc.location, &svc.service);
+      registerEndpointGetHead(router, doc.location, &svc.service);
     }
   }
 
+  logRegisteredEndpoints(config);
   return router;
+}
+
+/// 打印已挂载的 HTTP 端点（与 `buildRouter` 中 `registerEndpoint` / `router.get` 一致）。
+void logRegisteredEndpoints(MicdnConfig config) {
+  string[] parts = ["/admin"];
+  if (config.asset !is null)
+    parts ~= format("%s", config.asset.endpoint);
+  parts ~= format("%s", config.maven.endpoint);
+  parts ~= format("%s", config.npm.endpoint);
+  if (config.blob !is null) {
+    parts ~= format("%s", config.blob.endpoint);
+    parts ~= format("%s/s3/*", config.blob.endpoint);
+  }
+  if (config.www !is null) {
+    foreach (doc; config.www.docs) {
+      if (doc.provider is null)
+        continue;
+      parts ~= format("%s", doc.location);
+    }
+  }
+  logInfo("Registered HTTP endpoints: %s", parts.join(", "));
 }
 
 // 跑 dub test 时由测试运行器提供 main，此处不编译
@@ -156,10 +179,12 @@ version (unittest) {
         logError("Config file[" ~ configFile ~ "] not exists!");
         return 1;
       }
-      logInfo("Find config: %s", configFile);
 
       auto configPath = expandTilde(configFile);
       auto config = parseFile(configPath);
+      applyMicdnLogging(config.logFile, config.logLevel);
+      logInfo("Find config: %s", configFile);
+
       auto listenPair = parseListen(config.listen);
       auto host = listenPair[0];
       auto port = listenPair[1];
@@ -217,10 +242,24 @@ version (Posix) {
   }
 }
 
-/// 为 endpoint 及其子路径注册同一 handler：endpoint 与 endpoint/*
+/// 为 endpoint 及其子路径注册同一 handler：endpoint 与 endpoint/*（仅 GET，适合静态/仓库读服务）。
 void registerEndpoint(T)(URLRouter router, string endpoint, T handler) {
   router.get(endpoint, handler);
   router.get(endpoint ~ "/*", handler);
+}
+
+/// 同上，并注册 HEAD（与 GET 同一 handler；目录列表/重定向等由各服务对 HEAD 单独返回 405）。
+void registerEndpointGetHead(T)(URLRouter router, string endpoint, T handler) {
+  router.get(endpoint, handler);
+  router.get(endpoint ~ "/*", handler);
+  router.match(HTTPMethod.HEAD, endpoint, handler);
+  router.match(HTTPMethod.HEAD, endpoint ~ "/*", handler);
+}
+
+/// 为 endpoint 及其子路径注册同一 handler（任意 HTTP 方法），由 handler 内按 `req.method` 分发（Blob、S3 等）。
+void registerEndpointAny(T)(URLRouter router, string endpoint, T handler) {
+  router.any(endpoint, handler);
+  router.any(endpoint ~ "/*", handler);
 }
 
 /// 解析 listen 字符串 "host:port"，返回 (host, port)。

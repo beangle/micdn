@@ -22,6 +22,7 @@ sys_release_version(){
   fi
 }
 
+
 dub build --build=release-nobounds --compiler=ldc2
 
 # needed commands function
@@ -35,6 +36,7 @@ fcheck(){
 fcheck gzip
 fcheck rpmbuild
 fcheck fakeroot
+fcheck strip
 if [ $E -eq 1 ]; then
     ferror "Missing commands on Your system:" "$LIST"
 fi
@@ -69,6 +71,7 @@ fi
     pushd $DESTDIR"/"$CDNDIR > /dev/null
     mkdir -p usr/bin etc/micdn usr/lib/systemd/system
     cp -f $MICDN_HOME/target/micdn usr/bin/micdn
+    strip --strip-unneeded usr/bin/micdn
     cp -f $MICDN_HOME/scripts/package/micdn.xml etc/micdn/micdn.xml
     cp -f $MICDN_HOME/scripts/package/micdn.service usr/lib/systemd/system/micdn.service
 
@@ -78,7 +81,7 @@ fi
     chmod 0755 usr/bin/micdn
 
     # find deb package dependencies
-    DEPEND="ldc libpq curl unzip"
+    DEPEND="ldc curl"
     # create micdn.spec file
     cd ..
     # Generate changelog
@@ -91,11 +94,11 @@ fi
             VERSION_INFO=$(echo "$line" | sed 's/## v//')
             VERSION_PART=$(echo "$VERSION_INFO" | cut -d ' ' -f 1)
             DATE_PART=$(echo "$VERSION_INFO" | cut -d ' ' -f 2 | sed 's/[()]//g')
-            # Convert date format to rpm format (Mon Jan 01 2024)
+            # RPM %changelog 要求英文星期/月份；须 LC_ALL=C，否则中文环境会得到「三 1月…」而 rpmbuild 报错
             if [ -n "$DATE_PART" ]; then
-              RPM_DATE=$(date -d "$DATE_PART" '+%a %b %d %Y' 2>/dev/null || date '+%a %b %d %Y')
+              RPM_DATE=$(LC_ALL=C date -d "$DATE_PART" '+%a %b %d %Y' 2>/dev/null || LC_ALL=C date '+%a %b %d %Y')
             else
-              RPM_DATE=$(date '+%a %b %d %Y')
+              RPM_DATE=$(LC_ALL=C date '+%a %b %d %Y')
             fi
             # Add changelog header with * prefix
             changes+="* $RPM_DATE $MAINTAINER - ${VERSION_PART}\n"
@@ -107,7 +110,7 @@ fi
       done < "$MICDN_HOME/CHANGELOG.md"
     else
       # Default changelog with * prefix
-      DATE=$(date '+%a %b %d %Y')
+      DATE=$(LC_ALL=C date '+%a %b %d %Y')
       changes="* $DATE $MAINTAINER - ${VERSION}-${REVISION}\n"
       changes+="  - Initial release of micdn\n"
       changes+="  - Supports maven, asset, and blob services\n"
@@ -115,7 +118,7 @@ fi
     fi
     # Ensure changelog is not empty and starts with *
     if [ -z "$changes" ]; then
-      DATE=$(date '+%a %b %d %Y')
+      DATE=$(LC_ALL=C date '+%a %b %d %Y')
       changes="* $DATE $MAINTAINER - ${VERSION}-${REVISION}\n"
       changes+="  - No changelog available\n"
     fi

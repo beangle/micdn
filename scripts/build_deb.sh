@@ -24,6 +24,7 @@ fcheck(){
 }
 fcheck dpkg-deb
 fcheck fakeroot
+fcheck strip
 if [ $E -eq 1 ]; then
   ferror "Missing commands on your system:" "$LIST"
 fi
@@ -51,6 +52,7 @@ pushd "$PKGDIR" > /dev/null
 # 文件布局（与 RPM 一致）
 mkdir -p usr/bin etc/micdn usr/lib/systemd/system
 cp -f $MICDN_HOME/target/micdn usr/bin/micdn
+strip --strip-unneeded usr/bin/micdn
 cp -f $MICDN_HOME/scripts/package/micdn.xml etc/micdn/micdn.xml
 cp -f $MICDN_HOME/scripts/package/micdn.service usr/lib/systemd/system/micdn.service
 
@@ -68,7 +70,7 @@ Section: web
 Priority: optional
 Architecture: ${ARCH}
 Maintainer: ${MAINTAINER}
-Depends: ldc2 | ldc, libpq5, curl, unzip
+Depends: ldc2 | ldc, curl
 Description: Beangle Minimal CDN Server
  Mini CDN, serve static resource, maven artifacts and binary file storage.
  . 

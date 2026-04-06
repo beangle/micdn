@@ -32,6 +32,16 @@
           <xs:documentation> 根目录，空表示 xml 文件所在目录，~ 表示用户主目录 </xs:documentation>
         </xs:annotation>
       </xs:attribute>
+      <xs:attribute name="log-file" type="xs:string" default="console" use="optional">
+        <xs:annotation>
+          <xs:documentation> console（默认，大小写不敏感）仅控制台；否则为日志文件路径（FHS 常见 /var/log/micdn/micdn.log）。二者互斥，行格式固定 </xs:documentation>
+        </xs:annotation>
+      </xs:attribute>
+      <xs:attribute name="log-level" type="xs:string" default="info" use="optional">
+        <xs:annotation>
+          <xs:documentation> trace|debug|debugv|diagnostic|info|warn|error|critical|fatal </xs:documentation>
+        </xs:annotation>
+      </xs:attribute>
       <xs:choice minOccurs="0" maxOccurs="5">
         <xs:element name="maven" type="mavenType" minOccurs="0" maxOccurs="1" />
         <xs:element name="npm" type="npmRepoType" minOccurs="0" maxOccurs="1" />
@@ -93,15 +103,25 @@
     <xs:attribute name="base" type="xs:string" use="optional" />
   </xs:complexType>
 
-  <!-- dataSourceType for blob -->
-  <xs:complexType name="dataSourceType">
-    <xs:sequence>
-      <xs:element name="server-name" type="xs:string" minOccurs="1" />
-      <xs:element name="database-name" type="xs:string" minOccurs="1" />
-      <xs:element name="user" type="xs:string" minOccurs="1" />
-      <xs:element name="password" type="xs:string" minOccurs="1" />
-      <xs:element name="schema" type="xs:string" minOccurs="1" />
-    </xs:sequence>
+  <xs:simpleType name="bucketResolveStyleType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="host" />
+      <xs:enumeration value="path" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- blobBucketType：桶目录名（磁盘 base/name/…）与 Bearer/S3 密钥 -->
+  <xs:complexType name="blobBucketType">
+    <xs:attribute name="name" type="xs:string" use="required">
+      <xs:annotation>
+        <xs:documentation> 桶名，对应磁盘子目录，不含 / </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
+    <xs:attribute name="key" type="xs:string" use="required">
+      <xs:annotation>
+        <xs:documentation> 与 bucket key 一致：上传/删除用 Bearer；下载另可用 ?token=sha1hex(uri+key+t)&amp;t=yyyyMMddTHHmmss（UTC）。S3：Access Key 为 micdn </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
   </xs:complexType>
 
   <!-- npmType: package spec @scope/package@version, optional dir (default dist) -->
@@ -171,16 +191,20 @@
     </xs:attribute>
   </xs:complexType>
 
-  <!-- blobType -->
   <xs:complexType name="blobType">
     <xs:sequence>
-      <xs:element name="data-source" type="dataSourceType" minOccurs="1" maxOccurs="1" />
+      <xs:element name="bucket" type="blobBucketType" minOccurs="0" maxOccurs="unbounded" />
     </xs:sequence>
     <xs:attribute name="base" type="xs:string" default="~/blob" use="optional" />
-    <xs:attribute name="maxSize" type="xs:string" default="50M" use="optional" />
+    <xs:attribute name="maxSize" type="xs:string" default="100M" use="optional" />
     <xs:attribute name="endpoint" type="endpointType" default="/blob" use="optional">
       <xs:annotation>
         <xs:documentation> 空串，或以 / 开头且不以 / 结尾 </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
+    <xs:attribute name="bucket-resolve-style" type="bucketResolveStyleType" default="host" use="optional">
+      <xs:annotation>
+        <xs:documentation> host：Host 首段为桶名；path：endpoint 后路径首段为桶名 </xs:documentation>
       </xs:annotation>
     </xs:attribute>
   </xs:complexType>

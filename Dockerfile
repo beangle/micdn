@@ -22,7 +22,6 @@ RUN set -eux; \
     binutils \
     zlib-dev \
     openssl-dev \
-    postgresql-dev \
     git \
     ca-certificates \
     curl \
@@ -41,7 +40,7 @@ COPY src ./src
 COPY views ./views
 
 RUN dub build --build=release-nobounds --compiler=ldc2 \
-    && strip --strip-all target/micdn
+    && strip --strip-unneeded target/micdn
 
 # musl：跳过 libc 与动态加载器，其余 .so 打进 /pack
 RUN mkdir -p /pack \
@@ -65,7 +64,6 @@ RUN set -eux; \
   apk add --cache-packages \
     ca-certificates \
     curl \
-    libpq \
     su-exec \
     && addgroup -S micdn \
     && adduser -S -D -G micdn -h /var/lib/micdn -s /sbin/nologin micdn \

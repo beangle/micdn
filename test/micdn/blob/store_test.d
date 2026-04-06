@@ -4,52 +4,45 @@
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 module test.micdn.blob.store_test;
 
+import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+import std.path : buildPath;
+import std.uuid : randomUUID;
+
 import micdn.blob.store;
-import std.datetime.systime;
-import std.stdio;
-import micdn.model;
+import micdn.blob.xattr;
 
-@("blob db meta dao smoke")
+@("blob bucket key from host (host resolve style)")
 unittest {
-  /*import dpq2.conv.to_d_types;
-  toValue(Clock.currTime());*/
+  assert(blobBucketKeyFromHost("localhost") == "localhost");
+  assert(blobBucketKeyFromHost("127.0.0.1") == "localhost");
+  assert(blobBucketKeyFromHost("127.0.0.1:8080") == "localhost");
+  assert(blobBucketKeyFromHost("192.168.31.125") == "192");
+  assert(blobBucketKeyFromHost("bucket1.example.com") == "bucket1");
+  assert(blobBucketKeyFromHost("single") == "single");
+  assert(blobBucketKeyFromHost("") == "");
+}
 
-  string[string] props;
-  props["serverName"] = "localhost";
-  props["databaseName"] = "platform";
-  props["user"] = "openurp";
-  props["schema"] = "blb";
-  //props["password"]="openurp";
-  auto config = new BlobConfig("/blob", "~/tmp");
-  MetaDao dao;
-  if ("password" in props) {
-    dao = new MetaDao(props, config);
-  }
-  if (dao !is null) {
-    auto profile = new BlobProfile(1, "", null, false, false, 0, "");
-    dao.remove(profile, "/a");
-    BlobMeta meta = new BlobMeta();
-    meta.profileId = profile.id;
-    meta.owner = "me";
-    meta.name = "a.txt";
-    meta.fileSize = 3;
-    meta.mediaType = "text/plain";
-    meta.sha = "aa";
-    meta.filePath = "/a.txt";
-    meta.updatedAt = Clock.currTime();
-    dao.remove(profile, "/a.txt");
-    assert(dao.create(profile, meta));
+version (linux) {
+  @("blob user xattr roundtrip")
+  unittest {
+    string base = buildPath(tempDir(), "micdn-blob-xattr-" ~ randomUUID().toString);
+    mkdirRecurse(base);
+    scope (exit) {
+      if (exists(base))
+        rmdirRecurse(base);
+    }
+    string f = buildPath(base, "t.bin");
+    write(f, [ubyte(0), 1, 2]);
+    setBlobUserMeta(f, "me", "deadbeef", "n.txt");
+    assert(getUserXattr(f, "owner") == "me");
+    assert(getUserXattr(f, "sha1") == "deadbeef");
+    assert(getUserXattr(f, "original_name") == "n.txt");
+    auto xs = listUserXattrs(f);
+    assert("owner" in xs && xs["owner"] == "me");
+    assert("sha1" in xs);
   }
 }

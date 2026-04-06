@@ -60,6 +60,9 @@ class NpmService {
     auto path = urlDecode(repo.base ~ uri);
     if (exists(path)) {
       if (isDir(path)) {
+        if (req.method == HTTPMethod.HEAD) {
+          throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
+        }
         if (uri.endsWith("/")) {
           auto listData = genListContents(repo.base ~ uri, endpoint, uri);
           render!("index.dt", listData)(res);

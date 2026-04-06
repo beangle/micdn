@@ -189,9 +189,9 @@ class S3Service {
   private const string endpoint;
   private BlobRepo repo;
 
-  this(MicdnConfig config, MetaDao metadao) {
+  this(MicdnConfig config, BlobRepo repo) {
     this.endpoint = config.blob.endpoint;
-    this.repo = BlobRepo.build(config, metadao);
+    this.repo = repo;
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
@@ -233,9 +233,8 @@ class S3Service {
   }
 
   void getObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    auto host = req.host.length > 0 ? req.host : "localhost";
-    auto profile = repo.getProfile(host, uri);
-    if (profile.domainId == 0 || repo.check(profile, uri) != 2) {
+    auto br = repo.resolveBlob(req, uri);
+    if (br.bucket.name.length == 0 || repo.check(br.bucket, br.objectPath) != 2) {
       res.statusCode = HTTPStatus.notFound;
       res.contentType = "application/xml";
       res.writeBody(`<?xml version="1.0" encoding="UTF-8"?>
@@ -255,12 +254,11 @@ class S3Service {
 
     import micdn.blob.web;
 
-    sendObject(repo, profile, req, res, uri);
+    sendObject(repo, br.bucket, br.objectPath, req, res);
   }
 
   void putObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    auto host = req.host.length > 0 ? req.host : "localhost";
-    auto profile = repo.getProfile(host, uri);
+    auto br = repo.resolveBlob(req, uri);
     try {
       import vibe.core.path;
       import std.file;
@@ -282,15 +280,11 @@ class S3Service {
       // Get filename from uri
       import std.path;
 
-      auto filename = uri.baseName();
+      auto filename = br.objectPath.baseName();
 
-      // Create blob meta
-      import vibe.inet.mimetypes;
-
-      auto mediaType = getMimeTypeForFile(filename);
       string owner = "s3-user";
 
-      auto meta = repo.create(profile, tempPath, filename, uri.dirName(), owner, mediaType);
+      auto meta = repo.create(br.bucket, tempPath, filename, dirName(br.objectPath), owner);
 
       // Clean up temp file
       std.file.remove(tempPath);
@@ -319,9 +313,8 @@ class S3Service {
   }
 
   void deleteObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    auto host = req.host.length > 0 ? req.host : "localhost";
-    auto profile = repo.getProfile(host, uri);
-    if (repo.remove(profile, uri)) {
+    auto br = repo.resolveBlob(req, uri);
+    if (repo.remove(br.bucket, br.objectPath)) {
       // Add S3-specific response headers
       string requestId = generateUuid();
       string amzId2 = generateAmzId2();
@@ -346,9 +339,8 @@ class S3Service {
   }
 
   void headObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    auto host = req.host.length > 0 ? req.host : "localhost";
-    auto profile = repo.getProfile(host, uri);
-    if (profile.domainId == 0 || repo.check(profile, uri) != 2) {
+    auto br = repo.resolveBlob(req, uri);
+    if (br.bucket.name.length == 0 || repo.check(br.bucket, br.objectPath) != 2) {
       res.statusCode = HTTPStatus.notFound;
       res.contentType = "application/xml";
       res.writeBody(`<?xml version="1.0" encoding="UTF-8"?>
@@ -363,7 +355,7 @@ class S3Service {
     }
     import std.file;
 
-    auto filePath = repo.toPhysicalPath(profile, uri);
+    auto filePath = repo.toPhysicalPath(br.bucket, br.objectPath);
     auto fileSize = getSize(filePath);
 
     string requestId = generateUuid();
@@ -380,9 +372,8 @@ class S3Service {
   }
 
   void listObjects(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    auto host = req.host.length > 0 ? req.host : "localhost";
-    auto profile = repo.getProfile(host, uri);
-    if (profile.domainId == 0) {
+    auto br = repo.resolveBlob(req, uri);
+    if (br.bucket.name.length == 0) {
       res.statusCode = HTTPStatus.notFound;
       res.contentType = "application/xml";
       res.writeBody(`<?xml version="1.0" encoding="UTF-8"?>
@@ -397,7 +388,7 @@ class S3Service {
     }
     import std.file;
 
-    auto basePath = repo.toPhysicalPath(profile, uri);
+    auto basePath = repo.toPhysicalPath(br.bucket, br.objectPath);
     if (!basePath.empty && exists(basePath) && isDir(basePath)) {
       string requestId = generateUuid();
       string amzId2 = generateAmzId2();
@@ -450,13 +441,11 @@ class S3Service {
               if (uri.empty)
                 uri = "/";
             }
-            auto host = req.host.length > 0 ? req.host : "localhost";
-            auto profile = repo.getProfile(host, uri);
+            auto br = repo.resolveBlob(req, uri);
 
-            // Check if access key exists in profile keys
-            if (accessKey in profile.keys) {
-              // Get secret key
-              auto secretKey = profile.keys[accessKey];
+            // Access Key 固定为 micdn，Secret 为 micdn.xml 中 bucket 的 key
+            if (accessKey == "micdn" && br.bucket.key.length > 0) {
+              auto secretKey = br.bucket.key;
 
               // Generate canonical request
               string canonicalRequest = generateCanonicalRequest(req, uri);

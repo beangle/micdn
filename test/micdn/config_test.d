@@ -80,22 +80,19 @@ unittest
 unittest {
   auto content = `<?xml version="1.0"?>
 <micdn>
-  <blob port="9080" context="/micdn" base="/home/chaostone/tmp">
-    <dataSource>
-      <serverName>localhost</serverName>
-      <databaseName>platform</databaseName>
-      <user>postgres</user>
-      <password>1</password>
-      <tableName>public.blb_blob_metas</tableName>
-    </dataSource>
+  <blob endpoint="/blob" base="/tmp/blob" maxSize="10G">
+    <bucket name="local" key="test-key-123"/>
   </blob>
 </micdn>
 `;
   auto dom = parseXml(content);
   auto config = parseBlob("~/tmp", dom);
-  import std.stdio;
-
-  assert("databaseName" in config.dataSourceProps);
+  assert(config.endpoint == "/blob");
+  assert(config.base == "/tmp/blob");
+  assert(config.buckets.length == 1);
+  assert(config.buckets[0].name == "local");
+  assert(config.buckets[0].key == "test-key-123");
+  assert(config.maxSize == 10L * 1024 * 1024 * 1024);
   assert(10L * 1024 * 1024 * 1024 == parseSize("10g"));
 }
 
@@ -184,7 +181,7 @@ unittest {
     <bundle name="x"><dir location="~/x"/></bundle>
   </static>
   <blob endpoint="/static/blob" base="~/tmp/blob">
-    <dataSource><serverName>localhost</serverName></dataSource>
+    <bucket name="b" key="k"/>
   </blob>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", staticBlob),
@@ -221,18 +218,30 @@ unittest {
   assert(config.www.docs[0].location == "/manual");
 }
 
-@("blob profile token verify")
+@("micdn log attributes parse")
 unittest {
-  import std.datetime.systime;
-  string[string] keys;
-  keys["default"] = "--";
-  auto profile = new BlobProfile(0, "/blob", keys, false, false, 0, "");
-  SysTime now = Clock.currTime();
-  import core.time;
+  auto defaultConsole = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn>
+  <maven endpoint="/maven"/>
+  <npm endpoint="/npm"/>
+</micdn>`;
+  auto c0 = parse("~/tmp", defaultConsole);
+  assert(c0.logFile == "console");
+  assert(c0.logLevel == "info");
 
-  now.fracSecs = msecs(0);
-  string uri = "/netinstall.sh";
-  string token = profile.genToken(uri, "default", "--", now);
-  assert(profile.verifyToken(uri, "default", "--", token, now));
+  auto ok = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn log-file="/var/log/micdn/micdn.log" log-level="warn">
+  <maven endpoint="/maven"/>
+  <npm endpoint="/npm"/>
+</micdn>`;
+  auto config = parse("~/tmp", ok);
+  assert(config.logFile == "/var/log/micdn/micdn.log");
+  assert(config.logLevel == "warn");
+
+  auto consoleCi = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn log-file="Console">
+  <maven endpoint="/maven"/>
+  <npm endpoint="/npm"/>
+</micdn>`;
+  assert(parse("~/tmp", consoleCi).logFile == "console");
 }
-

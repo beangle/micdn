@@ -54,6 +54,9 @@ class AssetService {
     } else {
       // dir
       if (isDir(rs[0])) {
+        if (req.method == HTTPMethod.HEAD) {
+          throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
+        }
         if (uri.endsWith("/")) {
           auto listData = genListContents(repo.base ~ uri, endpoint, uri);
           render!("index.dt", listData)(res);

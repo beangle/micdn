@@ -14,8 +14,7 @@
     "vibe-inet": "~>1.2.0",
     "vibe-d:web": "~>0.10.2",
     "vibe-http": "~>1.3.2",
-    "vibe-stream:tls": "~>1.3.0",
-    "vibe-d-postgresql": "~>3.2.1"
+    "vibe-stream:tls": "~>1.3.0"
   },
   "configurations": [
     {

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <micdn xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xmlns:xi="http://www.w3.org/2001/XInclude"
-  xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.0.0.xsd">
+  xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.0.0.xsd"
+  listen="127.0.0.1:8080">
 
   <maven base="~/.m2/repository" endpoint="/maven">
     <remote url="https://maven.aliyun.com/repository/public" />
@@ -12,26 +13,88 @@
     <remote url="https://registry.npmmirror.com" />
   </npm>
 
-  <xi:include href="blob.xml" />
+  <blob base="${micdn.home}/blob" maxSize="50M" endpoint="/blob" bucket-resolve-style="host">
+    <bucket name="local" key="65KhzfJQme4jApTZ2EZ-58hKDUpZrbzwhsKd2dRPP08"/>
+  </blob>
 
   <static endpoint="/static" base="~/.micdn/static">
-    <bundle name="local">
-      <dir location="${micdn.home}/local" />
-    </bundle>
     <bundle name="AdminLTE">
       <jar gav="org.webjars:AdminLTE:3.2.0" />
     </bundle>
     <bundle name="bootstrap">
       <jar gav="org.webjars:bootstrap:4.6.1" />
-      <npm package="bootstrap@5.3.8" />
-      <npm package="bootstrap@5.3.7" />
     </bundle>
     <bundle name="bui">
       <jar gav="org.beangle.bundles:beangle-bundles-bui:0.6.7" />
+      <jar gav="org.beangle.bundles:beangle-bundles-bui:0.6.6" />
+    </bundle>
+    <bundle name="chosen">
+      <jar gav="org.webjars:chosen:1.8.7" />
+    </bundle>
+    <bundle name="cryptojs">
+      <jar gav="org.webjars:cryptojs:3.1.2" />
     </bundle>
     <bundle name="echarts">
-      <jar gav="org.webjars.bower:echarts:4.5.0"/>
-      <jar gav="org.webjars.npm:echarts:5.3.1"/>
+      <jar gav="org.webjars.npm:echarts:5.3.1" />
+    </bundle>
+    <bundle name="ems">
+      <jar gav="org.beangle.ems:beangle-ems-static:4.11.0" />
+    </bundle>
+    <bundle name="font-awesome">
+      <jar gav="org.webjars:font-awesome:6.1.0" />
+    </bundle>
+    <bundle name="fullcalendar">
+      <jar gav="org.webjars:fullcalendar:5.10.2" />
+    </bundle>
+    <bundle name="jquery">
+      <jar gav="org.webjars:jquery:3.6.0" />
+    </bundle>
+    <bundle name="jquery-colorbox">
+      <jar gav="org.webjars.bower:jquery-colorbox:1.6.4" />
+    </bundle>
+    <bundle name="jquery-form">
+      <jar gav="org.webjars:jquery-form:4.2.2" />
+    </bundle>
+    <bundle name="jquery-treetable">
+      <jar gav="org.webjars.bower:jquery-treetable:3.2.0" />
+    </bundle>
+    <bundle name="jquery-ui">
+      <jar gav="org.webjars:jquery-ui:1.12.1" />
+      <jar gav="org.webjars:jquery-ui:1.13.1" />
+    </bundle>
+    <bundle name="jsbarcode">
+      <jar gav="org.beangle.bundles:beangle-bundles-jsbarcode:3.9.0" />
+    </bundle>
+    <bundle name="kindeditor">
+      <jar gav="org.beangle.bundles:beangle-bundles-kindeditor:4.1.12" />
+    </bundle>
+    <bundle name="layer">
+      <jar gav="org.webjars.bower:layer:3.1.1" />
+    </bundle>
+    <bundle name="local">
+      <dir location="${micdn.home}/local" />
+    </bundle>
+    <bundle name="my97">
+      <jar gav="org.beangle.bundles:beangle-bundles-my97:4.8.5" />
+    </bundle>
+    <bundle name="pdfjs">
+      <jar gav="org.beangle.bundles:beangle-bundles-pdfjs:1.9.426" />
+    </bundle>
+    <bundle name="popper.js">
+      <jar gav="org.webjars:popper.js:2.0.2" />
+    </bundle>
+    <bundle name="raphael">
+      <jar gav="org.webjars.bower:raphael:2.2.8" />
+    </bundle>
+    <bundle name="requirejs">
+      <jar gav="org.webjars:requirejs:2.3.6" />
+    </bundle>
+    <bundle name="virtual-keyboard">
+      <jar gav="org.webjars.npm:virtual-keyboard:1.30.3" />
+      <jar gav="org.webjars.npm:virtual-keyboard:1.30.2" />
+    </bundle>
+    <bundle name="vue">
+      <jar gav="org.webjars:vue:2.6.11" />
     </bundle>
   </static>
 

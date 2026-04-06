@@ -17,17 +17,19 @@
 module micdn.blob.web;
 /// Blob HTTP 服务入口，提供上传、下载与元数据操作接口。
 
-import std.conv;
+import core.time : dur;
+
+import std.conv : to;
 import std.datetime.systime;
+import std.datetime.timezone : UTC;
+import std.digest : toHexString, LetterCase;
+import std.digest.sha : sha1Of;
 import std.exception;
-import std.file;
-import std.stdio;
 import std.string;
 
 import vibe.core.core;
 import vibe.core.file;
 import vibe.core.log;
-import vibe.http.auth.basic_auth;
 import vibe.http.router;
 import vibe.http.server;
 import vibe.web.web;
@@ -36,17 +38,14 @@ import micdn.blob.store;
 import micdn.model;
 import micdn.web;
 import micdn.web.file;
-import micdn.fs.browser;
-import micdn.web.server;
-import micdn.xml;
 
 class BlobService {
   private const string endpoint;
   private BlobRepo repo;
 
-  this(MicdnConfig config, MetaDao metadao) {
+  this(MicdnConfig config, BlobRepo repo) {
     this.endpoint = config.blob.endpoint;
-    this.repo = BlobRepo.build(config, metadao);
+    this.repo = repo;
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
@@ -68,124 +67,145 @@ class BlobService {
   }
 
   private void getObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    auto host = req.host.length > 0 ? req.host : "localhost";
-    auto profile = repo.getProfile(host, uri);
-    if (profile.domainId == 0) {
+    auto br = repo.resolveBlob(req, uri);
+    if (br.bucket.name.length == 0) {
       throw new HTTPStatusException(HTTPStatus.notFound);
     }
-    auto rs = repo.check(profile, uri);
+
+    auto rs = repo.check(br.bucket, br.objectPath);
     if (rs == 0) {
       throw new HTTPStatusException(HTTPStatus.notFound);
     } else if (rs == 1) { // dir
       throw new HTTPStatusException(HTTPStatus.notFound);
-    } else { //file
-      if (profile.publicDownload) {
-        sendObject(repo, profile, req, res, uri);
+    } else { // file：Bearer 或 ?token=&t=（SHA1(uri+key+t)，t 起 5 分钟内有效）
+      if (downloadAuthorized(br.bucket, req, uri)) {
+        sendObject(repo, br.bucket, br.objectPath, req, res);
       } else {
-        auto token = ("token" in req.query);
-        auto t = ("t" in req.query);
-        auto user = ("u" in req.query);
-        if (null == user || null == token || null == t) {
-          if (basicAuth(req, res, profile)) {
-            sendObject(repo, profile, req, res, uri);
-          }
-        } else if (checkToken(profile, uri, *user, profile.keys.get(*user, ""), *token, *t)) {
-          sendObject(repo, profile, req, res, uri);
-        } else {
-          res.statusCode = HTTPStatus.forbidden;
-          res.writeBody("bad token!", "text/plain");
-        }
+        res.statusCode = HTTPStatus.unauthorized;
+        res.headers["WWW-Authenticate"] = `Bearer realm="micdn"`;
+        res.writeBody("Authorization required (Bearer or ?token=&t=)", "text/plain");
       }
     }
   }
 
   private void putObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    auto host = req.host.length > 0 ? req.host : "localhost";
-    auto profile = repo.getProfile(host, uri);
-    if (basicAuth(req, res, profile)) {
-      auto pf = "file" in req.files;
-      enforce(pf !is null, "No file uploaded!");
-      import vibe.core.path;
+    auto br = repo.resolveBlob(req, uri);
+    if (!bearerMatches(br.bucket, req)) {
+      res.statusCode = HTTPStatus.unauthorized;
+      res.headers["WWW-Authenticate"] = `Bearer realm="micdn"`;
+      res.writeBody("Authorization required", "text/plain");
+      return;
+    }
+    auto pf = "file" in req.files;
+    enforce(pf !is null, "No file uploaded!");
+    import vibe.core.path;
 
-      try {
-        string owner = req.form.get("owner", "--");
-        import vibe.inet.mimetypes;
-
-        auto mediaType = getMimeTypeForFile(pf.toString);
-        auto meta = repo.create(profile, pf.tempPath.toNativeString,
-            pf.toString, uri, owner, mediaType);
-        logInfo(
-            "upload " ~ profile.base ~ meta.filePath ~ " at "
-            ~ meta.updatedAt.toISOExtString ~ "(" ~ meta.owner ~ ")");
-        res.writeBody(meta.toJson(), "application/json");
-      } catch (Exception e) {
-        logInfo("Performing copy failed.Cause %s", e.msg);
-        res.statusCode = HTTPStatus.internalServerError;
-        res.writeBody(e.msg, "text/plain");
-      }
+    try {
+      string owner = req.form.get("owner", "--");
+      auto meta = repo.create(br.bucket, pf.tempPath.toNativeString, pf.toString, uri, owner);
+      logInfo("Uploaded " ~ uri);
+      res.writeBody(meta.toJson(), "application/json");
+    } catch (Exception e) {
+      logInfo("Performing copy failed.Cause %s", e.msg);
+      res.statusCode = HTTPStatus.internalServerError;
+      res.writeBody(e.msg, "text/plain");
     }
   }
 
   private void deleteObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    auto host = req.host.length > 0 ? req.host : "localhost";
-    auto profile = repo.getProfile(host, uri);
-    if (basicAuth(req, res, profile)) {
-      try {
-        if (repo.remove(profile, uri)) {
-          logInfo("remove " ~ uri ~ " at " ~ Clock.currTime().toISOExtString);
-          res.writeBody("File removed!", "text/plain");
-        } else {
-          res.writeBody("File is not existed!", "text/plain");
-        }
-      } catch (Exception e) {
-        logInfo("Performing remove failed.Cause %s", e.msg);
-        res.statusCode = HTTPStatus.internalServerError;
-        res.writeBody(e.msg, "text/plain");
-      }
-    }
-  }
-
-  bool checkToken(const(BlobProfile) profile, string uri, string user, string key,
-      string token, string timestamp) {
-    try {
-      return profile.verifyToken(uri, user, key, token, SysTime.fromISOString(timestamp));
-    } catch (Exception e) {
-      return false;
-    }
-  }
-
-  bool basicAuth(HTTPServerRequest req, HTTPServerResponse res, const(BlobProfile) profile) {
-    bool checkPassword(string user, string password) @safe {
-      return !user.empty && !password.empty && profile.keys.get(user, "") == password;
-    }
-
-    import std.functional : toDelegate;
-
-    if (!checkBasicAuth(req, toDelegate(&checkPassword))) {
+    auto br = repo.resolveBlob(req, uri);
+    if (!bearerMatches(br.bucket, req)) {
       res.statusCode = HTTPStatus.unauthorized;
-      res.contentType = "text/plain";
-      res.headers["WWW-Authenticate"] = `Basic realm="micdn"`;
-      res.bodyWriter.write("Authorization required");
-      return false;
-    } else {
-      return true;
+      res.headers["WWW-Authenticate"] = `Bearer realm="micdn"`;
+      res.writeBody("Authorization required", "text/plain");
+      return;
+    }
+    try {
+      if (repo.remove(br.bucket, br.objectPath)) {
+        logInfo("Remove " ~ uri);
+        res.writeBody("File removed!", "text/plain");
+      } else {
+        res.writeBody("File is not existed!", "text/plain");
+      }
+    } catch (Exception e) {
+      logInfo("Performing remove failed.Cause %s", e.msg);
+      res.statusCode = HTTPStatus.internalServerError;
+      res.writeBody(e.msg, "text/plain");
     }
   }
-
 }
 
-void sendObject(BlobRepo repo, const(BlobProfile) profile, HTTPServerRequest req,
-    HTTPServerResponse res, string path) {
-  import std.path;
-  import micdn.blob.store;
+/// `Authorization: Bearer <key>`，`key` 与 micdn.xml 中 bucket 的 `key` 一致。
+bool bearerMatches(const Bucket bucket, HTTPServerRequest req) {
+  if (bucket.name.length == 0 || bucket.key.length == 0)
+    return false;
+  auto auth = req.headers.get("Authorization", "");
+  if (!auth.startsWith("Bearer "))
+    return false;
+  import std.string : strip;
 
-  auto physicalPath = repo.toPhysicalPath(profile, path);
-  auto ext = extension(path);
+  return strip(auth[7 .. $]) == bucket.key;
+}
+
+/// 解析 `t`（yyyyMMdd'T'HHmmss，UTC）。
+private SysTime parseBlobTokenTime(string t) {
+  import std.datetime.date : DateTime;
+  import std.string : strip;
+
+  t = strip(t);
+  enforce(t.length == 15 && t[8] == 'T', "invalid t");
+  int y = t[0 .. 4].to!int;
+  int mo = t[4 .. 6].to!int;
+  int d = t[6 .. 8].to!int;
+  int H = t[9 .. 11].to!int;
+  int mi = t[11 .. 13].to!int;
+  int sec = t[13 .. 15].to!int;
+  return SysTime(DateTime(y, mo, d, H, mi, sec), UTC());
+}
+
+/// `?token=hex&t=...`：token = sha1hex(uri + key + t)，且当前 UTC 时间在 [t, t+5min]。
+bool signedQueryTokenMatches(const Bucket bucket, string uri, HTTPServerRequest req) {
+  if (bucket.name.length == 0 || bucket.key.length == 0)
+    return false;
+  import std.string : strip;
+
+  string tok = strip(req.query.get("token", ""));
+  string ts = strip(req.query.get("t", ""));
+  if (tok.length == 0 || ts.length == 0)
+    return false;
+
+  string expected = toHexString!(LetterCase.lower)(sha1Of(uri ~ bucket.key ~ ts)).idup;
+  if (tok != expected)
+    return false;
+  try {
+    SysTime t0 = parseBlobTokenTime(ts);
+    SysTime now = Clock.currTime(UTC());
+
+    if (now < t0)
+      return false;
+    if (now > t0 + dur!"minutes"(5))
+      return false;
+    return true;
+  } catch (Exception e) {
+    return false;
+  }
+}
+
+/// GET 下载：Bearer，或带签名的 `?token=&t=`。
+bool downloadAuthorized(const Bucket bucket, HTTPServerRequest req, string uri) {
+  return bearerMatches(bucket, req) || signedQueryTokenMatches(bucket, uri, req);
+}
+
+void sendObject(BlobRepo repo, const Bucket bucket, string objectPath,
+    HTTPServerRequest req, HTTPServerResponse res) {
+  import std.path;
+
+  auto physicalPath = repo.toPhysicalPath(bucket, objectPath);
+  auto ext = extension(objectPath);
   if (ext in repo.images) {
     sendFile(req, res, physicalPath, null);
   } else {
-    auto rel = BlobRepo.pathAfterPrefix(path, profile.base);
-    auto realname = repo.getRealname(profile, rel);
+    auto realname = repo.getRealname(bucket, objectPath);
     if (realname.length > 0) {
       void setContextDisposition(scope HTTPServerRequest req,
           scope HTTPServerResponse res, ref string physicalPath) @safe {

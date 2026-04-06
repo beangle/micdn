@@ -2,7 +2,9 @@
 <micdn xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xmlns:xi="http://www.w3.org/2001/XInclude"
   xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.0.0.xsd"
-  listen="127.0.0.1:8888">
+  listen="127.0.0.1:8888"
+  log-file="/var/log/micdn/micdn.log"
+  log-level="info">
 
   <maven base="~/maven" endpoint="/maven">
     <remote url="https://maven.aliyun.com/repository/public" />

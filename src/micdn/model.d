@@ -25,7 +25,6 @@ import std.algorithm;
 import std.array;
 import std.conv;
 import std.datetime.systime;
-import std.digest.sha;
 import std.file;
 import std.string;
 import std.uni;
@@ -43,6 +42,10 @@ class MicdnConfig {
   const string remote;
   /// 根目录，空表示 xml 所在目录，~ 表示用户主目录
   const string home;
+  /// 日志输出：`console`（默认，大小写不敏感）为仅控制台；否则为日志文件路径（已展开 ~）。二者互斥。
+  const string logFile;
+  /// 日志级别：trace、debug、info、warn、error 等
+  const string logLevel;
   /// 静态资源配置（endpoint、bundles 等）
   const AssetConfig asset;
   /// Maven 仓库配置（远程镜像、本地路径等）
@@ -56,10 +59,12 @@ class MicdnConfig {
 
   this(AssetConfig asset, MavenRepoConfig maven, BlobConfig blob, WwwConfig www = null,
       NpmRepoConfig npm = null, string listen = "127.0.0.1:8888",
-      string remote = null, string home = "") {
+      string remote = null, string home = "", string logFile = "console", string logLevel = "info") {
     this.listen = listen;
     this.remote = remote;
     this.home = home;
+    this.logFile = logFile;
+    this.logLevel = logLevel;
     this.asset = asset;
     this.maven = maven;
     this.blob = blob;
@@ -385,24 +390,39 @@ class NpmProvider : BundleProvider {
   }
 }
 
-/** Blob 存储配置，定义文件上传、profile 及数据源。
+/** 如何从请求解析桶名：`host` 取 Host 首段；`path` 取 endpoint 之后路径的首段。
+*/
+enum BucketResolveStyle {
+  host,
+  path,
+}
 
-    包含 endpoint、本地路径、单文件大小限制、profiles 映射、用户密钥，
-    以及 PostgreSQL 等数据源的连接属性。
+/** Blob 桶：`name` 为磁盘子目录名（不含 `/`），`key` 用于 Bearer 与 S3。
+
+    配置中来自 `<bucket name="…" key="…"/>`；运行时放入 `BlobRepo.buckets`。
+    `name` 为空表示未匹配到配置（等价于 `Bucket.init`）。
+*/
+struct Bucket {
+  string name;
+  string key;
+}
+
+/** Blob 存储配置：endpoint、本地根路径、单文件上限、各 bucket（micdn.xml 内 `<blob>` 下 `<bucket>`）。
 */
 class BlobConfig {
   /// 访问路径前缀
   const string endpoint;
   /// 文件存储根目录
   const string base;
-  /// 单文件上传大小限制（字节），默认 50MB
-  ulong maxSize = 50 * 1024 * 1024;
-  /// 数据源连接属性（如 PostgreSQL）
-  string[string] dataSourceProps;
+  /// 单文件上传大小限制（字节），默认 100MB
+  ulong maxSize = 100 * 1024 * 1024;
+  /// 桶名解析方式（默认 `host`）
+  BucketResolveStyle bucketResolveStyle = BucketResolveStyle.host;
+  /// 各桶（物理路径仍为 `base`/`name`/…）
+  Bucket[] buckets;
 
   this(string endpoint, string base) {
-    assert(isValidEndpoint(endpoint),
-        "endpoint must be empty, '/', or start with '/' and not end with '/'");
+    assert(isValidEndpoint(endpoint), "endpoint must be empty, '/', or start with '/' and not end with '/'");
     this.endpoint = endpoint;
     this.base = base;
   }
@@ -439,170 +459,34 @@ class WwwDocConfig {
   }
 }
 
-/** Blob 元数据记录，对应数据库 blb_blob_metas 表中的一条记录。
-
-    记录上传文件的拥有者、文件名、大小、SHA、存储路径等信息。
+/** Blob 上传结果元数据（值类型；上传响应由 `toJson` 序列化）。
 */
-class BlobMeta {
-  /// 业务上的拥有者标识
-  string owner;
+struct BlobMeta {
   /// 客户端上传的原始文件名
   string name;
   /// 文件大小（字节）
   ulong fileSize;
   /// SHA 摘要
   string sha;
-  /// Content-Type
+  /// Content-Type（由扩展名推断）
   string mediaType;
-  /// 所属 profile 的 id
-  int profileId;
-  /// 相对于仓库根的存储路径
+  /// 桶内逻辑路径（以 `/` 开头，含 SHA 文件名）
   string filePath;
-  /// 更新时间
+  /// 更新时间（文件 mtime）
   SysTime updatedAt;
 
-  /** 序列化为 JSON 字符串。
-
-      使用简单字符串拼接，未对特殊字符转义，仅用于内部日志或调试。
-      FIXME: 存在注入风险，对外输出前应使用标准 JSON 库。
-  */
+  /** 序列化为 JSON 字符串（`std.json`，字段名与值均正确转义）。 */
   string toJson() const {
-    // FIXME: 简单字符串拼接，未做转义，存在注入风险
-    return `{owner:"` ~ owner ~ `",profileId:` ~ profileId.to!string ~ `,name:"` ~ name ~ `",fileSize:`
-      ~ fileSize.to!string ~ `,sha:"` ~ sha ~ `",mediaType:"` ~ mediaType
-      ~ `",filePath:"` ~ filePath ~ `",updatedAt:"` ~ updatedAt.toISOExtString ~ `"}`;
+    import std.json : JSONValue, toJSON;
+
+    JSONValue root = JSONValue.emptyObject;
+    root["name"] = JSONValue(name);
+    root["fileSize"] = JSONValue(fileSize.to!long);
+    root["sha"] = JSONValue(sha);
+    root["mediaType"] = JSONValue(mediaType);
+    root["filePath"] = JSONValue(filePath);
+    root["updatedAt"] = JSONValue(updatedAt.toISOExtString());
+    return toJSON(root);
   }
 }
 
-/** Blob 存储 profile，定义路径前缀、可写用户及命名策略。
-
-    每个 profile 对应一个路径前缀（如 /public），有密钥的用户可上传，
-    支持 namedBySha（以 SHA 命名文件）和 publicDownload（公开下载）。
-
-    base 与 domainDir 规范：/开头，不/结尾，不能为空。拼接路径为 base~domainDir~profile.base~rel。
-*/
-class BlobProfile {
-  /// profile 主键 id
-  const int id;
-  /// 路径前缀（如 /uploads），/开头、不/结尾、不能为空
-  const string base;
-  /// 所属 domain 的目录（如 /localhost_8080），/开头、不/结尾。默认 profile 为空
-  const string domainDir;
-  /// 所属 domain id，0 表示非 domain 专属
-  const int domainId;
-  /// 用户名 -> 密钥，有密钥的用户可上传到此 profile
-  const string[string] keys;
-  /// 是否以 SHA 摘要命名文件
-  const bool namedBySha;
-  /// 是否允许公开下载
-  const bool publicDownload;
-
-  /// 无匹配 domain 时返回的默认 profile，base 为 /missing。
-  static __gshared BlobProfile defaultProfile;
-
-  static this() {
-    defaultProfile = new BlobProfile(0, "/missing", null, false, false, 0, "");
-  }
-
-  this(int id, string base, string[string] keys, bool namedBySha,
-      bool publicDownload, int domainId, string domainDir) {
-    assert(base.startsWith("/") && !base.endsWith("/"), "base must start with / and not end with /");
-    this.id = id;
-    this.base = base;
-    this.domainId = domainId;
-    this.domainDir = domainDir;
-    this.keys = keys;
-    this.namedBySha = namedBySha;
-    this.publicDownload = publicDownload;
-  }
-
-  /** 从 const(BlobProfile) 拷贝构造一个新的 BlobProfile 实例。
-
-      keys 会复制为可变的 string[string]，其余字段按值拷贝。
-  */
-  static BlobProfile fromConst(const(BlobProfile) p) {
-    string[string] keysCopy;
-    foreach (k, v; p.keys)
-      keysCopy[k] = v;
-    return new BlobProfile(p.id, p.base, keysCopy, p.namedBySha,
-        p.publicDownload, p.domainId, p.domainDir);
-  }
-
-  /** 根据 path、user、key、时间戳生成签名 token。
-
-      Params:
-          path      = 请求路径
-          user      = 用户名
-          key       = 用户密钥
-          timestamp = 时间戳
-
-      Returns:
-          SHA1 小写十六进制字符串
-  */
-  string genToken(string path, string user, string key, SysTime timestamp) const {
-    string content = path ~ user ~ key ~ timestamp.toISOString;
-    return toHexString!(LetterCase.lower)(sha1Of(content)).idup;
-  }
-
-  /** 验证 token 是否有效。
-
-      检查时间戳在 15 分钟内，且根据 path、user、key、timestamp 重新计算的
-      签名与传入 token 一致。
-
-      Params:
-          path      = 请求路径
-          user      = 用户名
-          key       = 用户密钥
-          token     = 客户端传入的 token
-          timestamp = 请求中的时间戳
-
-      Returns:
-          true 表示验证通过，false 表示过期或签名不匹配
-  */
-  bool verifyToken(string path, string user, string key, string token, SysTime timestamp) const {
-    SysTime today = Clock.currTime();
-    import core.time;
-
-    immutable auto duration = abs(today - timestamp);
-    if (duration > dur!"minutes"(15)) {
-      return false;
-    } else {
-      string content = path ~ user ~ key ~ timestamp.toISOString;
-      return toHexString(sha1Of(content)).toLower == token;
-    }
-  }
-}
-
-/** 按域名组织的 Blob 配置，每个 DomainProfile 包含若干 BlobProfile。
- *  路径拼接：repo.base ~ domainDir ~ profile.base ~ rel。domainDir 与 base 规范：/开头、不/结尾、不能为空。
- */
-class DomainProfile {
-  /// 数据库 blb_domains 表主键
-  const int domainId;
-  /// 域名（如 example.com、localhost）
-  const string hostname;
-  /// base 下的子目录名（如 /localhost_8080），/开头、不/结尾、不能为空
-  const string domainDir;
-  /// 路径前缀 -> BlobProfile
-  const BlobProfile[string] profiles;
-  /// 用户名 -> 密钥
-  const string[string] keys;
-
-  this(int domainId, string hostname, string domainDir,
-      BlobProfile[string] profiles, string[string] keys) {
-    this.domainId = domainId;
-    this.hostname = hostname;
-    this.domainDir = domainDir;
-    this.profiles = profiles;
-    this.keys = keys;
-  }
-
-  const(BlobProfile) getProfile(string path) const {
-    foreach (k, v; profiles) {
-      if (path.startsWith(k)) {
-        return v;
-      }
-    }
-    return BlobProfile.defaultProfile;
-  }
-}
