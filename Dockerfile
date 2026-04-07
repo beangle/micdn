@@ -65,8 +65,8 @@ RUN set -eux; \
     ca-certificates \
     curl \
     su-exec \
-    && addgroup -S micdn \
-    && adduser -S -D -G micdn -h /var/lib/micdn -s /sbin/nologin micdn \
+    && addgroup -S beangle \
+    && adduser -S -D -G beangle -h /var/lib/micdn -s /sbin/nologin micdn \
     && mkdir -p /var/cache/micdn/asset /var/cache/micdn/www \
        /var/lib/micdn/maven /var/lib/micdn/npm /var/lib/micdn/local \
        /etc/micdn
@@ -79,8 +79,8 @@ ENV LD_LIBRARY_PATH=/usr/lib/micdn
 COPY scripts/container/micdn.xml /etc/micdn/micdn.xml
 COPY scripts/container/entrypoint.sh /entrypoint.sh
 
-RUN chown -R micdn:micdn /var/cache/micdn /var/lib/micdn \
-    && chown micdn:micdn /etc/micdn/micdn.xml \
+RUN chown -R micdn:beangle /var/cache/micdn /var/lib/micdn \
+    && chown micdn:beangle /etc/micdn/micdn.xml \
     && chmod 755 /usr/bin/micdn /entrypoint.sh
 
 WORKDIR /var/lib/micdn

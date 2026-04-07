@@ -139,8 +139,12 @@ fi
     Mini cdn,serve static resource, maven artifacts and binary file storage.
     Main designer: Duan TiHua
     %pre
-    getent group micdn >/dev/null 2>&1 || groupadd -r micdn
-    getent passwd micdn >/dev/null 2>&1 || useradd -r -g micdn -d /var/lib/micdn -s /sbin/nologin -c "Micdn CDN server" micdn
+    getent group beangle >/dev/null 2>&1 || groupadd -r beangle
+    if ! getent passwd micdn >/dev/null 2>&1; then
+      useradd -r -g beangle -d /var/lib/micdn -s /sbin/nologin -c "Micdn CDN server" micdn
+    else
+      usermod -g beangle micdn 2>/dev/null || :
+    fi
     mkdir -p /var/cache/micdn/asset /var/cache/micdn/www
     mkdir -p /var/lib/micdn/blob /var/lib/micdn/maven /var/lib/micdn/npm /var/lib/micdn/local
     mkdir -p /var/log/micdn
@@ -150,8 +154,8 @@ fi
       cp -f /usr/share/micdn/micdn.xml.default /etc/micdn/micdn.xml
       chmod 0644 /etc/micdn/micdn.xml
     fi
-    chown -R micdn:micdn /var/cache/micdn /var/lib/micdn /var/log/micdn
-    # 组可读写 + setgid，便于加入 micdn 组的管理员维护；配合 UMask=0002 使新文件对组可写
+    chown -R micdn:beangle /var/cache/micdn /var/lib/micdn /var/log/micdn
+    # 组可读写 + setgid，便于加入 beangle 组的管理员维护；配合 UMask=0002 使新文件对组可写
     chmod 2775 /var/cache/micdn /var/cache/micdn/asset /var/cache/micdn/www
     chmod 2775 /var/lib/micdn /var/lib/micdn/blob /var/lib/micdn/maven /var/lib/micdn/npm /var/lib/micdn/local
     chmod 2775 /var/log/micdn

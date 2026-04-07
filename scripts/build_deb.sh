@@ -84,16 +84,18 @@ echo "etc/micdn/micdn.xml" > DEBIAN/conffiles
 cat > DEBIAN/preinst << 'PREINST'
 #!/bin/sh
 set -e
-if ! getent group micdn >/dev/null 2>&1; then
-  addgroup --system micdn
+if ! getent group beangle >/dev/null 2>&1; then
+  addgroup --system beangle
 fi
 if ! getent passwd micdn >/dev/null 2>&1; then
-  adduser --system --ingroup micdn --home /var/lib/micdn --no-create-home --disabled-login micdn 2>/dev/null || \
-  useradd -r -g micdn -d /var/lib/micdn -s /usr/sbin/nologin -c "Micdn CDN server" micdn
+  adduser --system --ingroup beangle --home /var/lib/micdn --no-create-home --disabled-login micdn 2>/dev/null || \
+  useradd -r -g beangle -d /var/lib/micdn -s /usr/sbin/nologin -c "Micdn CDN server" micdn
+else
+  usermod -g beangle micdn 2>/dev/null || true
 fi
 mkdir -p /var/cache/micdn/asset /var/cache/micdn/www
 mkdir -p /var/lib/micdn/blob /var/lib/micdn/maven /var/lib/micdn/npm /var/lib/micdn/local
-chown -R micdn:micdn /var/cache/micdn /var/lib/micdn
+chown -R micdn:beangle /var/cache/micdn /var/lib/micdn
 PREINST
 
 # postinst：重载 systemd

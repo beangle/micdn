@@ -9,7 +9,7 @@ ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5
 User=micdn
-Group=micdn
+Group=beangle
 UMask=0002
 
 [Install]
