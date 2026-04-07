@@ -69,15 +69,16 @@ fi
     mkdir -p $DESTDIR"/"$CDNDIR
     # switch to temp dir
     pushd $DESTDIR"/"$CDNDIR > /dev/null
-    mkdir -p usr/bin etc/micdn usr/lib/systemd/system
+    mkdir -p usr/bin usr/share/micdn usr/lib/systemd/system
     cp -f $MICDN_HOME/target/micdn usr/bin/micdn
     strip --strip-unneeded usr/bin/micdn
-    cp -f $MICDN_HOME/scripts/package/micdn.xml etc/micdn/micdn.xml
+    # 默认配置放在 /usr/share，由 %%post 首次安装时复制到 /etc/micdn/micdn.xml，卸载时不删除用户配置
+    cp -f $MICDN_HOME/scripts/package/micdn.xml usr/share/micdn/micdn.xml.default
     cp -f $MICDN_HOME/scripts/package/micdn.service usr/lib/systemd/system/micdn.service
 
     # change folders and files permissions
     chmod -R 0755 .
-    chmod 0644 etc/micdn/micdn.xml usr/lib/systemd/system/micdn.service
+    chmod 0644 usr/share/micdn/micdn.xml.default usr/lib/systemd/system/micdn.service
     chmod 0755 usr/bin/micdn
 
     # 运行时依赖：ldc 仅在构建机需要（dub build），安装包的目标机无需 ldc（ldd 通常无 ldc.so）
@@ -144,6 +145,11 @@ fi
     mkdir -p /var/lib/micdn/blob /var/lib/micdn/maven /var/lib/micdn/npm /var/lib/micdn/local
     mkdir -p /var/log/micdn
     %post
+    mkdir -p /etc/micdn
+    if [ ! -f /etc/micdn/micdn.xml ]; then
+      cp -f /usr/share/micdn/micdn.xml.default /etc/micdn/micdn.xml
+      chmod 0644 /etc/micdn/micdn.xml
+    fi
     chown -R micdn:micdn /var/cache/micdn /var/lib/micdn /var/log/micdn
     systemctl daemon-reload 2>/dev/null || :
     %preun
@@ -156,10 +162,8 @@ fi
     '$changes'
     %files' | sed 's/^    //' > micdn.spec
 
-    # Config file: preserve user modifications on upgrade
-    echo '%config(noreplace) /etc/micdn/micdn.xml' >> micdn.spec
-    # Other files (exclude config already listed)
-    find $DESTDIR/$CDNDIR/ ! -type d ! -path '*/etc/micdn/micdn.xml' | \
+    # /etc/micdn/micdn.xml 不在 %%files 中，卸载 rpm 时保留配置与 /var 下数据目录
+    find $DESTDIR/$CDNDIR/ ! -type d | \
       sed 's|'$DESTDIR'/'$CDNDIR'|/|' >> micdn.spec
 
     echo >> micdn.spec

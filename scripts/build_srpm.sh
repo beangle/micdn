@@ -132,7 +132,7 @@ dub build --build=release-nobounds --compiler=ldc2
 rm -rf %{buildroot}
 install -D -m 0755 target/micdn %{buildroot}/usr/bin/micdn
 strip --strip-unneeded %{buildroot}/usr/bin/micdn
-install -D -m 0644 scripts/package/micdn.xml %{buildroot}/etc/micdn/micdn.xml
+install -D -m 0644 scripts/package/micdn.xml %{buildroot}/usr/share/micdn/micdn.xml.default
 install -D -m 0644 scripts/package/micdn.service %{buildroot}/usr/lib/systemd/system/micdn.service
 
 %pre
@@ -143,6 +143,11 @@ mkdir -p /var/lib/micdn/blob /var/lib/micdn/maven /var/lib/micdn/npm /var/lib/mi
 mkdir -p /var/log/micdn
 
 %post
+mkdir -p /etc/micdn
+if [ ! -f /etc/micdn/micdn.xml ]; then
+  cp -f /usr/share/micdn/micdn.xml.default /etc/micdn/micdn.xml
+  chmod 0644 /etc/micdn/micdn.xml
+fi
 chown -R micdn:micdn /var/cache/micdn /var/lib/micdn /var/log/micdn
 systemctl daemon-reload 2>/dev/null || :
 
@@ -156,7 +161,7 @@ systemctl daemon-reload 2>/dev/null || :
 
 %files
 %attr(0755,root,root) /usr/bin/micdn
-%config(noreplace) %attr(0644,root,root) /etc/micdn/micdn.xml
+%attr(0644,root,root) /usr/share/micdn/micdn.xml.default
 %attr(0644,root,root) /usr/lib/systemd/system/micdn.service
 
 %changelog
