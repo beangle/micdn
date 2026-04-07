@@ -49,15 +49,15 @@ rm -rf "$PKGDIR"
 mkdir -p "$PKGDIR"
 pushd "$PKGDIR" > /dev/null
 
-# 文件布局（与 RPM 一致）
-mkdir -p usr/bin etc/micdn usr/lib/systemd/system
+# 文件布局（与 RPM 一致）：默认配置在 /usr/share，卸载 deb 不删除 /etc/micdn/micdn.xml
+mkdir -p usr/bin usr/share/micdn usr/lib/systemd/system
 cp -f $MICDN_HOME/target/micdn usr/bin/micdn
 strip --strip-unneeded usr/bin/micdn
-cp -f $MICDN_HOME/scripts/package/micdn.xml etc/micdn/micdn.xml
+cp -f $MICDN_HOME/scripts/package/micdn.xml usr/share/micdn/micdn.xml.default
 cp -f $MICDN_HOME/scripts/package/micdn.service usr/lib/systemd/system/micdn.service
 
 chmod 0755 usr/bin/micdn
-chmod 0644 etc/micdn/micdn.xml usr/lib/systemd/system/micdn.service
+chmod 0644 usr/share/micdn/micdn.xml.default usr/lib/systemd/system/micdn.service
 
 # DEBIAN 控制文件
 mkdir -p DEBIAN
@@ -70,15 +70,14 @@ Section: web
 Priority: optional
 Architecture: ${ARCH}
 Maintainer: ${MAINTAINER}
-Depends: ldc2 | ldc, curl
+Depends: curl
 Description: Beangle Minimal CDN Server
  Mini CDN, serve static resource, maven artifacts and binary file storage.
  . 
  Main designer: Duan TiHua
 EOF
 
-# conffiles：升级时保留用户修改
-echo "etc/micdn/micdn.xml" > DEBIAN/conffiles
+# 不设 conffiles：/etc/micdn/micdn.xml 由 postinst 从 default 生成，不由包跟踪，卸载时保留
 
 # preinst：创建用户和目录
 cat > DEBIAN/preinst << 'PREINST'
@@ -95,13 +94,22 @@ else
 fi
 mkdir -p /var/cache/micdn/asset /var/cache/micdn/www
 mkdir -p /var/lib/micdn/blob /var/lib/micdn/maven /var/lib/micdn/npm /var/lib/micdn/local
-chown -R micdn:beangle /var/cache/micdn /var/lib/micdn
+mkdir -p /var/log/micdn
 PREINST
 
-# postinst：重载 systemd
+# postinst：首次生成配置、数据目录权限（与 RPM %post 一致）、重载 systemd
 cat > DEBIAN/postinst << 'POSTINST'
 #!/bin/sh
 set -e
+mkdir -p /etc/micdn
+if [ ! -f /etc/micdn/micdn.xml ]; then
+  cp -f /usr/share/micdn/micdn.xml.default /etc/micdn/micdn.xml
+  chmod 0644 /etc/micdn/micdn.xml
+fi
+chown -R micdn:beangle /var/cache/micdn /var/lib/micdn /var/log/micdn
+chmod 2775 /var/cache/micdn /var/cache/micdn/asset /var/cache/micdn/www
+chmod 2775 /var/lib/micdn /var/lib/micdn/blob /var/lib/micdn/maven /var/lib/micdn/npm /var/lib/micdn/local
+chmod 2775 /var/log/micdn
 if command -v systemctl >/dev/null 2>&1; then
   systemctl daemon-reload || true
 fi
