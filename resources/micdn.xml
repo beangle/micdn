@@ -17,6 +17,7 @@
     <bucket name="local" key="65KhzfJQme4jApTZ2EZ-58hKDUpZrbzwhsKd2dRPP08"/>
   </blob>
 
+  <!-- static bundles 由 resources/a.xml（contexts）转换：context base="/foo" → bundle name="foo" -->
   <static endpoint="/static" base="~/.micdn/static">
     <bundle name="AdminLTE">
       <jar gav="org.webjars:AdminLTE:3.2.0" />
@@ -24,9 +25,11 @@
     <bundle name="bootstrap">
       <jar gav="org.webjars:bootstrap:4.6.1" />
     </bundle>
+    <bundle name="bootstrap-combobox">
+      <jar gav="org.webjars.bowergithub.danielfarrell:bootstrap-combobox:1.2.0" />
+    </bundle>
     <bundle name="bui">
       <jar gav="org.beangle.bundles:beangle-bundles-bui:0.6.7" />
-      <jar gav="org.beangle.bundles:beangle-bundles-bui:0.6.6" />
     </bundle>
     <bundle name="chosen">
       <jar gav="org.webjars:chosen:1.8.7" />
@@ -35,6 +38,7 @@
       <jar gav="org.webjars:cryptojs:3.1.2" />
     </bundle>
     <bundle name="echarts">
+      <jar gav="org.webjars.bower:echarts:4.5.0" />
       <jar gav="org.webjars.npm:echarts:5.3.1" />
     </bundle>
     <bundle name="ems">
@@ -44,6 +48,7 @@
       <jar gav="org.webjars:font-awesome:6.1.0" />
     </bundle>
     <bundle name="fullcalendar">
+      <jar gav="org.webjars:fullcalendar:5.6.0" />
       <jar gav="org.webjars:fullcalendar:5.10.2" />
     </bundle>
     <bundle name="jquery">
@@ -77,11 +82,29 @@
     <bundle name="my97">
       <jar gav="org.beangle.bundles:beangle-bundles-my97:4.8.5" />
     </bundle>
+    <bundle name="openurp-base">
+      <jar gav="org.openurp.base:openurp-base-static:0.1.10" />
+    </bundle>
+    <bundle name="openurp-edu">
+      <jar gav="org.openurp.edu:openurp-edu-static:0.1.0" />
+    </bundle>
+    <bundle name="openurp-edu-course">
+      <jar gav="org.openurp.edu.course:openurp-edu-course-static:0.1.0" />
+    </bundle>
+    <bundle name="openurp-spa">
+      <jar gav="org.openurp.spa:openurp-spa-static:0.0.4" />
+    </bundle>
     <bundle name="pdfjs">
       <jar gav="org.beangle.bundles:beangle-bundles-pdfjs:1.9.426" />
     </bundle>
+    <bundle name="pdfjs-dist">
+      <jar gav="org.webjars.npm:pdfjs-dist:4.2.67" />
+    </bundle>
     <bundle name="popper.js">
       <jar gav="org.webjars:popper.js:2.0.2" />
+    </bundle>
+    <bundle name="qrcodejs">
+      <jar gav="org.webjars:qrcodejs:1c78ccd" />
     </bundle>
     <bundle name="raphael">
       <jar gav="org.webjars.bower:raphael:2.2.8" />
@@ -89,9 +112,11 @@
     <bundle name="requirejs">
       <jar gav="org.webjars:requirejs:2.3.6" />
     </bundle>
+    <bundle name="struts2-jquery">
+      <jar gav="org.beangle.bundles:beangle-bundles-struts2-jquery:3.6.1" />
+    </bundle>
     <bundle name="virtual-keyboard">
       <jar gav="org.webjars.npm:virtual-keyboard:1.30.3" />
-      <jar gav="org.webjars.npm:virtual-keyboard:1.30.2" />
     </bundle>
     <bundle name="vue">
       <jar gav="org.webjars:vue:2.6.11" />

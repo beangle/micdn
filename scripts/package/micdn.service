@@ -10,6 +10,7 @@ Restart=on-failure
 RestartSec=5
 User=micdn
 Group=micdn
+UMask=0002
 
 [Install]
 WantedBy=multi-user.target

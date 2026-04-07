@@ -149,6 +149,10 @@ if [ ! -f /etc/micdn/micdn.xml ]; then
   chmod 0644 /etc/micdn/micdn.xml
 fi
 chown -R micdn:micdn /var/cache/micdn /var/lib/micdn /var/log/micdn
+# 组可读写 + setgid，便于加入 micdn 组的管理员维护；配合 UMask=0002 使新文件对组可写
+chmod 2775 /var/cache/micdn /var/cache/micdn/asset /var/cache/micdn/www
+chmod 2775 /var/lib/micdn /var/lib/micdn/blob /var/lib/micdn/maven /var/lib/micdn/npm /var/lib/micdn/local
+chmod 2775 /var/log/micdn
 systemctl daemon-reload 2>/dev/null || :
 
 %preun
