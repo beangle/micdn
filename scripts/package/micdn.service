@@ -10,7 +10,6 @@ Restart=on-failure
 RestartSec=5
 User=micdn
 Group=micdn
-LogsDirectory=micdn
 
 [Install]
 WantedBy=multi-user.target

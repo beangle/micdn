@@ -111,9 +111,10 @@ Summary: Beangle Minimal CDN Server
 License: GPLv3+
 URL: https://github.com/beangle/micdn
 Source0: %{name}-%{version}.tar.gz
-# 重编二进制时：ldc、dub 及链接依赖；CentOS7 上 ldc/dub 可能来自 EPEL/第三方仓库
+# 重编二进制时：ldc、dub 等；CentOS7 上 ldc/dub 可能来自 EPEL/第三方仓库
 BuildRequires: ldc dub git gcc make zlib-devel openssl-devel curl binutils
-Requires: ldc curl
+# 运行时：二进制不依赖 ldc 包；curl 为 micdn 下载/调用外部 curl 所需
+Requires: curl
 
 %description
 Mini CDN: static assets, Maven, NPM, blob storage with optional S3-compatible API.
@@ -139,9 +140,10 @@ getent group micdn >/dev/null 2>&1 || groupadd -r micdn
 getent passwd micdn >/dev/null 2>&1 || useradd -r -g micdn -d /var/lib/micdn -s /sbin/nologin -c "Micdn CDN server" micdn
 mkdir -p /var/cache/micdn/asset /var/cache/micdn/www
 mkdir -p /var/lib/micdn/blob /var/lib/micdn/maven /var/lib/micdn/npm /var/lib/micdn/local
+mkdir -p /var/log/micdn
 
 %post
-chown -R micdn:micdn /var/cache/micdn /var/lib/micdn
+chown -R micdn:micdn /var/cache/micdn /var/lib/micdn /var/log/micdn
 systemctl daemon-reload 2>/dev/null || :
 
 %preun

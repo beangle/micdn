@@ -80,8 +80,8 @@ fi
     chmod 0644 etc/micdn/micdn.xml usr/lib/systemd/system/micdn.service
     chmod 0755 usr/bin/micdn
 
-    # find deb package dependencies
-    DEPEND="ldc curl"
+    # 运行时依赖：ldc 仅在构建机需要（dub build），安装包的目标机无需 ldc（ldd 通常无 ldc.so）
+    DEPEND="curl"
     # create micdn.spec file
     cd ..
     # Generate changelog
@@ -142,8 +142,9 @@ fi
     getent passwd micdn >/dev/null 2>&1 || useradd -r -g micdn -d /var/lib/micdn -s /sbin/nologin -c "Micdn CDN server" micdn
     mkdir -p /var/cache/micdn/asset /var/cache/micdn/www
     mkdir -p /var/lib/micdn/blob /var/lib/micdn/maven /var/lib/micdn/npm /var/lib/micdn/local
+    mkdir -p /var/log/micdn
     %post
-    chown -R micdn:micdn /var/cache/micdn /var/lib/micdn
+    chown -R micdn:micdn /var/cache/micdn /var/lib/micdn /var/log/micdn
     systemctl daemon-reload 2>/dev/null || :
     %preun
     if [ "$1" = 0 ]; then
