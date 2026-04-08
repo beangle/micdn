@@ -38,6 +38,7 @@ auto children(T)(ref DOMEntity!T dom, string path) {
 }
 
 /** 读取本地 XML（支持 `~`），展开全部自闭合 `<xi:include href="相对路径"/>` 后返回 UTF-8 字符串。
+    `maven`/`npm`/`blob`/`static`/`www` 彼此无固定顺序要求；展开后由 `parse` 校验各服务元素至多出现一次。
     抛出：文件不存在，或 include 非法（`..`、绝对路径、路径逃出基准目录）。 */
 string readXml(const string xmlfile) {
   string p = expandTilde(xmlfile);

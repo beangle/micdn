@@ -2,31 +2,29 @@
 <micdn xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xmlns:xi="http://www.w3.org/2001/XInclude"
   xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.0.0.xsd"
+  home="/var/lib/micdn"
   listen="127.0.0.1:8080">
 
-  <maven base="~/.m2/repository" endpoint="/maven">
+  <maven base="/var/lib/micdn/maven" endpoint="/maven">
     <remote url="https://maven.aliyun.com/repository/public" />
     <remote url="https://repo1.maven.org/maven2/" />
   </maven>
 
-  <npm base="~/.npm-repo" endpoint="/npm">
+  <npm base="/var/lib/micdn/npm" endpoint="/npm">
     <remote url="https://registry.npmmirror.com" />
   </npm>
 
   <blob base="${micdn.home}/blob" maxSize="50M" endpoint="/blob" bucket-resolve-style="host">
-    <bucket name="local" key="65KhzfJQme4jApTZ2EZ-58hKDUpZrbzwhsKd2dRPP08"/>
+    <bucket name="local" key="65KhzfJQme4jApTZ2EZ-58hKDUpZrbzwhsKd2dRPP08" />
   </blob>
 
   <!-- static bundles 由 resources/a.xml（contexts）转换：context base="/foo" → bundle name="foo" -->
-  <static endpoint="/static" base="~/.micdn/static">
+  <static endpoint="/static" base="/var/cache/micdn/asset">
     <bundle name="AdminLTE">
       <jar gav="org.webjars:AdminLTE:3.2.0" />
     </bundle>
     <bundle name="bootstrap">
       <jar gav="org.webjars:bootstrap:4.6.1" />
-    </bundle>
-    <bundle name="bootstrap-combobox">
-      <jar gav="org.webjars.bowergithub.danielfarrell:bootstrap-combobox:1.2.0" />
     </bundle>
     <bundle name="bui">
       <jar gav="org.beangle.bundles:beangle-bundles-bui:0.6.7" />

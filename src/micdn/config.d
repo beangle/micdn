@@ -19,7 +19,7 @@ module micdn.config;
 
 import std.algorithm;
 import std.array;
-import std.conv;
+import std.conv : text, to;
 import std.path;
 import std.process;
 import std.string;
@@ -41,10 +41,25 @@ private string resolveHome(string homeAttr, string defaultDir) {
   return expandTilde(homeAttr);
 }
 
+/** 展开 include 后校验：maven、npm、blob、static、www 各至多出现一次。
+*/
+private void validateMicdnServiceElementsUnique(T)(ref DOMEntity!T dom) {
+  foreach (name; ["maven", "npm", "blob", "static", "www"]) {
+    size_t n = 0;
+    foreach (c; dom.children) {
+      if (c.name == name)
+        n++;
+    }
+    if (n > 1)
+      throw new Exception(i`Duplicate <$(name)> element in micdn.xml (after includes)`.text);
+  }
+}
+
 /** 从 XML 字符串解析 MicdnConfig。defaultHome 为 xml 所在目录，用于 home 属性为空时。
 */
 MicdnConfig parse(string defaultHome, string content) {
   auto dom = parseDOM!simpleXML(content).children[0];
+  validateMicdnServiceElementsUnique(dom);
   auto rootAttrs = getAttrs(dom);
   string listen = rootAttrs.get("listen", "127.0.0.1:8888");
   string remote = rootAttrs.get("remote", "");
@@ -102,80 +117,101 @@ MicdnConfig parseFile(string xmlFile) {
 */
 string toXml(const MicdnConfig config) {
   auto app = appender!string();
-  app.put(`<?xml version="1.0" encoding="UTF-8"?>`);
-  app.put("\n");
-  app.put(`<micdn xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"` ~ "\n");
-  app.put(`  xmlns:xi="http://www.w3.org/2001/XInclude"` ~ "\n");
-  app.put(
-      `  xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.0.0.xsd"` ~ "\n");
-  app.put(`  listen="` ~ config.listen ~ `"`);
+  app.put(i`<?xml version="1.0" encoding="UTF-8"?>
+<micdn xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:xi="http://www.w3.org/2001/XInclude"
+  xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.0.0.xsd"
+  listen="$(
+      config.listen)"`.text);
   if (config.remote !is null && config.remote.length > 0)
-    app.put(` remote="` ~ config.remote ~ `"`);
+    app.put(i` remote="$(config.remote)"`.text);
   if (config.home.length > 0)
-    app.put(` home="` ~ config.home ~ `"`);
+    app.put(i` home="$(config.home)"`.text);
   if (config.logFile != "console")
-    app.put(` log-file="` ~ config.logFile ~ `"`);
+    app.put(i` log-file="$(config.logFile)"`.text);
   if (config.logLevel != "info")
-    app.put(` log-level="` ~ config.logLevel ~ `"`);
+    app.put(i` log-level="$(config.logLevel)"`.text);
   app.put(">");
 
-  app.put(`  <maven endpoint="` ~ config.maven.endpoint ~ `" base="` ~ config.maven.base
-      ~ `">` ~ "\n");
+  app.put(i`  <maven endpoint="$(config.maven.endpoint)" base="$(config.maven.base)">`.text);
+  app.put("\n");
   foreach (remote; config.maven.remotes) {
-    app.put(`    <remote url="` ~ remote ~ `"/>` ~ "\n");
+    app.put(i`    <remote url="$(remote)"/>`.text);
+    app.put("\n");
   }
   app.put("  </maven>\n");
 
   if (config.npm) {
-    app.put(`  <npm endpoint="` ~ config.npm.endpoint ~ `" base="` ~ config.npm.base ~ `">` ~ "\n");
+    app.put(i`  <npm endpoint="$(config.npm.endpoint)" base="$(config.npm.base)">`.text);
+    app.put("\n");
     foreach (remote; config.npm.remotes) {
-      app.put(`    <remote url="` ~ remote ~ `"/>` ~ "\n");
+      app.put(i`    <remote url="$(remote)"/>`.text);
+      app.put("\n");
     }
     app.put("  </npm>\n");
   }
 
+  if (config.blob) {
+    const blobEp = escapeXmlAttr(config.blob.endpoint);
+    const blobBase = escapeXmlAttr(config.blob.base);
+    const blobMs = formatSizeForXml(config.blob.maxSize);
+    const blobBr = config.blob.bucketResolveStyle == BucketResolveStyle.path ? "path" : "host";
+    app.put(i`  <blob endpoint="$(blobEp)" base="$(blobBase)" maxSize="$(blobMs)" bucket-resolve-style="$(
+        blobBr)">`.text);
+    app.put("\n");
+    foreach (b; config.blob.buckets) {
+      app.put(i`    <bucket name="$(escapeXmlAttr(b.name))" key="$(escapeXmlAttr(b.key))"/>`.text);
+      app.put("\n");
+    }
+    app.put("  </blob>\n");
+  }
+
   if (config.asset) {
-    app.put(
-        `  <static endpoint="` ~ config.asset.endpoint ~ `" base="` ~ config.asset.base ~ `">`
-        ~ "\n");
+    app.put(i`  <static endpoint="$(config.asset.endpoint)" base="$(config.asset.base)">`.text);
+    app.put("\n");
     auto bundleKeys = config.asset.bundles.keys.array.sort;
     foreach (key; bundleKeys) {
       auto bundle = config.asset.bundles[key];
-      app.put(`    <bundle name="` ~ bundle.name ~ `">` ~ "\n");
+      app.put(i`    <bundle name="$(bundle.name)">`.text);
+      app.put("\n");
       foreach (provider; bundle.providers) {
         if (DirProvider dp = cast(DirProvider) provider) {
-          app.put(`      <dir location="` ~ dp.location ~ `"/>` ~ "\n");
+          app.put(i`      <dir location="$(dp.location)"/>`.text);
+          app.put("\n");
         } else if (GavJarProvider gjp = cast(GavJarProvider) provider) {
           if (gjp.dir.length > 0)
-            app.put(`      <jar gav="` ~ gjp.gav ~ `" dir="` ~ gjp.dir ~ `"/>` ~ "\n");
+            app.put(i`      <jar gav="$(gjp.gav)" dir="$(gjp.dir)"/>`.text);
           else
-            app.put(`      <jar gav="` ~ gjp.gav ~ `"/>` ~ "\n");
+            app.put(i`      <jar gav="$(gjp.gav)"/>`.text);
+          app.put("\n");
         } else if (NpmProvider np = cast(NpmProvider) provider) {
-          app.put(`      <npm package="` ~ np.packageSpec ~ `" dir="` ~ np.dir ~ `"/>` ~ "\n");
+          app.put(i`      <npm package="$(np.packageSpec)" dir="$(np.dir)"/>`.text);
+          app.put("\n");
         }
       }
       app.put("    </bundle>\n");
     }
+
     app.put("  </static>\n");
   }
 
-  if (config.blob) {
-    app.put(`<blob endpoint="` ~ config.blob.endpoint ~ `" base="` ~ config.blob.base ~ `">` ~ "\n");
-    app.put(`<xi:include href="blob.xml" />`);
-    app.put("</blob>\n");
-  }
-
   if (config.www) {
-    app.put("  <www base=\"" ~ config.www.base ~ "\">\n");
+    app.put(i`  <www base="$(config.www.base)">`.text);
+    app.put("\n");
     foreach (doc; config.www.docs) {
-      app.put(`    <doc location="` ~ doc.location ~ `">` ~ "\n");
+      app.put(i`    <doc location="$(doc.location)">`.text);
+      app.put("\n");
       if (doc.provider) {
-        if (auto zp = cast(ZipProvider) doc.provider)
-          app.put(`      <zip file="` ~ zp.file ~ `" dir="` ~ zp.dir ~ `"/>` ~ "\n");
-        else if (auto dp = cast(DirProvider) doc.provider)
-          app.put(`      <dir location="` ~ dp.location ~ `"/>` ~ "\n");
-        else if (auto np = cast(NpmProvider) doc.provider)
-          app.put(`      <npm package="` ~ np.packageSpec ~ `" dir="` ~ np.dir ~ `"/>` ~ "\n");
+        if (auto zp = cast(ZipProvider) doc.provider) {
+          app.put(i`      <zip file="$(zp.file)" dir="$(zp.dir)"/>`.text);
+          app.put("\n");
+        } else if (auto dp = cast(DirProvider) doc.provider) {
+          app.put(i`      <dir location="$(dp.location)"/>`.text);
+          app.put("\n");
+        } else if (auto np = cast(NpmProvider) doc.provider) {
+          app.put(i`      <npm package="$(np.packageSpec)" dir="$(np.dir)"/>`.text);
+          app.put("\n");
+        }
       }
       app.put("    </doc>\n");
     }
@@ -291,7 +327,7 @@ private BucketResolveStyle parseBucketResolveStyle(string s) {
     return BucketResolveStyle.host;
   if (t == "path")
     return BucketResolveStyle.path;
-  throw new Exception("blob bucket-resolve-style must be host or path, got: " ~ s);
+  throw new Exception(i`blob bucket-resolve-style must be host or path, got: $(s)`.text);
 }
 
 /// 从 DOM 节点解析 Blob 配置（endpoint、`<bucket>` 的 name/key、bucket-resolve-style）。
@@ -356,6 +392,42 @@ WwwConfig parseWww(T)(string home, ref DOMEntity!T micdnDom) {
     docs ~= new WwwDocConfig(location, provider);
   }
   return new WwwConfig(base, docs);
+}
+
+/// 将字节数格式化为与 `parseSize` 可逆的 `maxSize` 属性（优先 `…M` / `…G`）。
+private string formatSizeForXml(ulong bytes) {
+  import std.format : format;
+
+  enum ulong g = 1024UL * 1024 * 1024;
+  enum ulong m = 1024UL * 1024;
+  if (bytes != 0 && bytes % g == 0)
+    return format("%sG", bytes / g);
+  if (bytes != 0 && bytes % m == 0)
+    return format("%sM", bytes / m);
+  return bytes.to!string;
+}
+
+private string escapeXmlAttr(string s) {
+  import std.array : appender;
+
+  auto app = appender!string();
+  foreach (c; s) {
+    switch (c) {
+    case '&':
+      app.put("&amp;");
+      break;
+    case '"':
+      app.put("&quot;");
+      break;
+    case '<':
+      app.put("&lt;");
+      break;
+    default:
+      app.put(c);
+      break;
+    }
+  }
+  return app.data;
 }
 
 /// 解析大小字符串，支持 M/G 后缀（如 "50M"、"1G"）。

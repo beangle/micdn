@@ -245,3 +245,13 @@ unittest {
 </micdn>`;
   assert(parse("~/tmp", consoleCi).logFile == "console");
 }
+
+@("parse rejects duplicate root service element after includes")
+unittest {
+  auto dup = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn>
+  <maven endpoint="/maven"/>
+  <maven endpoint="/maven"/>
+</micdn>`;
+  assertThrown!Exception(parse("~/tmp", dup));
+}

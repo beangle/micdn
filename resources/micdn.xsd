@@ -14,9 +14,19 @@
     </xs:restriction>
   </xs:simpleType>
 
-  <!-- Root element -->
+  <!-- Root：maven/npm/blob/static/www 彼此无顺序要求，各至多一次（xs:all）。xi:include 在 XSD 1.0 中不能与 all 混排，故列于前段；若需与服务块交错请依赖运行时。readXml 展开后由程序校验各服务元素至多一次。 -->
   <xs:element name="micdn">
     <xs:complexType>
+      <xs:sequence>
+        <xs:any namespace="http://www.w3.org/2001/XInclude" processContents="lax" minOccurs="0" maxOccurs="unbounded" />
+        <xs:all>
+          <xs:element name="maven" type="mavenType" minOccurs="0" maxOccurs="1" />
+          <xs:element name="npm" type="npmRepoType" minOccurs="0" maxOccurs="1" />
+          <xs:element name="blob" type="blobType" minOccurs="0" maxOccurs="1" />
+          <xs:element name="static" type="staticType" minOccurs="0" maxOccurs="1" />
+          <xs:element name="www" type="wwwType" minOccurs="0" maxOccurs="1" />
+        </xs:all>
+      </xs:sequence>
       <xs:attribute name="listen" type="xs:string" default="127.0.0.1:8888" use="optional">
         <xs:annotation>
           <xs:documentation> 监听地址，格式 host:port，默认 127.0.0.1:8888 </xs:documentation>
@@ -42,14 +52,6 @@
           <xs:documentation> trace|debug|debugv|diagnostic|info|warn|error|critical|fatal </xs:documentation>
         </xs:annotation>
       </xs:attribute>
-      <xs:choice minOccurs="0" maxOccurs="5">
-        <xs:element name="maven" type="mavenType" minOccurs="0" maxOccurs="1" />
-        <xs:element name="npm" type="npmRepoType" minOccurs="0" maxOccurs="1" />
-        <xs:element name="blob" type="blobType" minOccurs="0" maxOccurs="1" />
-        <xs:element name="static" type="staticType" minOccurs="0" maxOccurs="1" />
-        <xs:element name="www" type="wwwType" minOccurs="0" maxOccurs="1" />
-        <xs:any namespace="http://www.w3.org/2001/XInclude" processContents="lax" minOccurs="0" />
-      </xs:choice>
     </xs:complexType>
   </xs:element>
 

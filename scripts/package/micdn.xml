@@ -6,6 +6,9 @@
   log-file="/var/log/micdn/micdn.log"
   log-level="info">
 
+  <!-- 可选：取消注释并配置 blob.xml 后启用 Blob 服务（须放在 maven 等节点之前） -->
+  <!-- <xi:include href="blob.xml" /> -->
+
   <maven base="~/maven" endpoint="/maven">
     <remote url="https://maven.aliyun.com/repository/public" />
     <remote url="https://repo1.maven.org/maven2/" />
@@ -14,9 +17,6 @@
   <npm base="~/npm" endpoint="/npm">
     <remote url="https://registry.npmmirror.com" />
   </npm>
-
-  <!-- 可选：取消注释并配置 blob.xml 后启用 Blob 服务 -->
-  <!-- <xi:include href="blob.xml" /> -->
 
   <static endpoint="/static" base="/var/cache/micdn/asset">
     <bundle name="local">

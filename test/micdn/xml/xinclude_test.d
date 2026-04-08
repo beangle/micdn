@@ -76,9 +76,9 @@ unittest {
 </blob>`);
   write(buildPath(dir, "micdn.xml"), `<?xml version="1.0" encoding="UTF-8"?>
 <micdn xmlns:xi="http://www.w3.org/2001/XInclude">
+  <xi:include href="blob.xml"/>
   <maven endpoint="/maven"/>
   <npm endpoint="/npm"/>
-  <xi:include href="blob.xml"/>
 </micdn>`);
 
   auto cfg = parseFile(buildPath(dir, "micdn.xml"));
