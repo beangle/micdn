@@ -16,7 +16,7 @@
   "workbench.tree.indent": 16,
   "workbench.tree.renderIndentGuides": "onHover",
   "explorer.compactFolders": true,
-  "d.overrideDfmtEditorconfig": false,
+  "d.overrideDfmtEditorconfig": true,
   "dfmt.braceStyle": "otbs",
   "files.watcherExclude": {
     "**/target": true
