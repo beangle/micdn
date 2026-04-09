@@ -84,12 +84,12 @@ MicdnConfig parse(string defaultHome, string content) {
   WwwConfig www;
 
   if (dom.children.any!(c => c.name == "maven")) {
-    maven = parseMaven("~/maven", dom);
+    maven = parseMaven(home, dom);
   } else {
     maven = MavenRepoConfig.defaultConfig();
   }
   if (dom.children.any!(c => c.name == "npm")) {
-    npm = parseNpm("~/npm", dom);
+    npm = parseNpm(home, dom);
   } else {
     npm = NpmRepoConfig.defaultConfig();
   }
@@ -223,13 +223,13 @@ string toXml(const MicdnConfig config) {
 }
 
 /// 解析 Maven 仓库配置（endpoint、本地路径、远程地址）。支持标签 maven 或 repo。
-MavenRepoConfig parseMaven(T)(string defaultBase, ref DOMEntity!T micdnDom) {
+MavenRepoConfig parseMaven(T)(string home, ref DOMEntity!T micdnDom) {
   auto mavenEntries = children(micdnDom, "maven");
   auto repoEntries = children(micdnDom, "repo");
   auto dom = !mavenEntries.empty ? mavenEntries.front : repoEntries.front;
   auto attrs = getAttrs(dom);
 
-  string base = expandTilde(attrs.get("base", defaultBase));
+  string base = expandTilde(attrs.get("base", home ~ "/maven")).replace("${micdn.home}", home);
   string endpoint = normalizeEndpoint(attrs.get("endpoint", "/maven"));
   string[] remoteRepos = [];
   auto remoteEntries = children(dom, "remote");
@@ -243,11 +243,11 @@ MavenRepoConfig parseMaven(T)(string defaultBase, ref DOMEntity!T micdnDom) {
 }
 
 /// 解析 NPM 仓库配置（endpoint、base、remotes）。根级 XML 标签为 npm。
-NpmRepoConfig parseNpm(T)(string defaultBase, ref DOMEntity!T micdnDom) {
+NpmRepoConfig parseNpm(T)(string home, ref DOMEntity!T micdnDom) {
   auto dom = children(micdnDom, "npm").front;
   auto attrs = getAttrs(dom);
 
-  string base = expandTilde(attrs.get("base", defaultBase));
+  string base = expandTilde(attrs.get("base", home ~ "/npm")).replace("${micdn.home}", home);
   string endpoint = normalizeEndpoint(attrs.get("endpoint", "/npm"));
   string[] remoteRepos = [];
   auto remoteEntries = children(dom, "remote");
@@ -265,7 +265,7 @@ AssetConfig parseAsset(T)(string home, ref DOMEntity!T micdnDom) {
   auto dom = children(micdnDom, "static").front;
   auto attrs = getAttrs(dom);
   string endpoint = normalizeEndpoint(attrs.get("endpoint", "/static"));
-  string base = attrs.get("base", "~/.micdn/asset");
+  string base = attrs.get("base", home ~ "/asset").replace("${micdn.home}", home);
 
   base = expandTilde(base);
   AssetBundle[string] bundles;
@@ -336,7 +336,7 @@ BlobConfig parseBlob(T)(string home, ref DOMEntity!T micdnDom) {
   auto attrs = getAttrs(dom);
 
   string endpoint = normalizeEndpoint(attrs.get("endpoint", "/blob"));
-  string base = attrs.get("base", "~/.micdn/blob").replace("${micdn.home}", home);
+  string base = attrs.get("base", home ~ "/blob").replace("${micdn.home}", home);
   base = expandTilde(base);
   string sizeLimit = attrs.get("maxSize", "100M");
 
@@ -361,7 +361,7 @@ WwwConfig parseWww(T)(string home, ref DOMEntity!T micdnDom) {
   auto dom = children(micdnDom, "www").front;
   auto attrs = getAttrs(dom);
 
-  string base = expandTilde(attrs.get("base", "~/.micdn/www"));
+  string base = expandTilde(attrs.get("base", home ~ "/www")).replace("${micdn.home}", home);
   WwwDocConfig[] docs;
   foreach (c; children(dom, "doc")) {
     auto docAttrs = getAttrs(c);
