@@ -32,6 +32,7 @@ import vibe.web.web;
 
 import micdn.maven;
 import micdn.model;
+import micdn.routes;
 import micdn.web;
 import micdn.web.file;
 import micdn.fs.browser;
@@ -45,11 +46,10 @@ private bool looksLikeMavenArtifactFile(string uri) {
 }
 
 class MavenService {
-  private const string endpoint;
+  private enum string endpoint = mountMaven;
   private const GavRepo repo;
 
   this(MicdnConfig config) {
-    this.endpoint = config.maven.endpoint;
     this.repo = GavRepo.build(config);
   }
 

@@ -30,6 +30,7 @@ import std.string;
 import std.uni;
 
 import micdn.config;
+import micdn.routes;
 
 /** 根配置类，聚合静态资源、Maven 仓库、NPM 仓库、Blob 存储、WWW 文档等子配置。
 
@@ -46,11 +47,11 @@ class MicdnConfig {
   const string logFile;
   /// 日志级别：trace、debug、info、warn、error 等
   const string logLevel;
-  /// 静态资源配置（endpoint、bundles 等）
+  /// 静态资源配置（bundles 等；HTTP 前缀见 `micdn.routes.mountStatic`）
   const AssetConfig asset;
-  /// Maven 仓库配置（远程镜像、本地路径等）
+  /// Maven 仓库配置（远程镜像、本地路径等；HTTP 前缀见 `mountMaven`）
   const MavenRepoConfig maven;
-  /// NPM 仓库配置（endpoint、base、remotes）
+  /// NPM 仓库配置（base、remotes；HTTP 前缀见 `mountNpm`）
   const NpmRepoConfig npm;
   /// Blob 存储配置（profiles、上传限制等）
   const BlobConfig blob;
@@ -79,15 +80,17 @@ class MicdnConfig {
     string[] names, endpoints;
     if (asset !is null) {
       names ~= "static";
-      endpoints ~= asset.endpoint;
+      endpoints ~= mountStatic;
     }
     names ~= "maven";
-    endpoints ~= maven.endpoint;
+    endpoints ~= mountMaven;
     names ~= "npm";
-    endpoints ~= npm.endpoint;
+    endpoints ~= mountNpm;
     if (blob !is null) {
       names ~= "blob";
-      endpoints ~= blob.endpoint;
+      endpoints ~= mountBlob;
+      names ~= "blob.s3";
+      endpoints ~= mountS3;
     }
     if (www !is null) {
       foreach (i, doc; www.docs) {
@@ -148,21 +151,16 @@ bool isValidEndpoint(string s) pure {
 
 /** 静态资源配置，定义前端资源（JS/CSS 等）的加载来源。
 
-    包含本地存储路径、HTTP 访问前缀、是否允许列目录，以及若干 bundle
-    （每个 bundle 可有 zip、dir、jar 等多种 provider）。
+    包含本地存储路径以及若干 bundle（每个 bundle 可有 zip、dir、jar 等多种 provider）。
+    HTTP 前缀固定为 `micdn.routes.mountStatic`。
 */
 class AssetConfig {
   /// 本地资源存储根路径（如 ~/.micdn/asset）
   immutable string base;
-  /// HTTP 访问路径前缀（如 /static）
-  immutable string endpoint;
   /// bundle 名称 -> AssetBundle 配置的映射
   const AssetBundle[string] bundles;
 
-  this(string endpoint, string base, AssetBundle[string] bundles) {
-    assert(isValidEndpoint(endpoint),
-        "endpoint must be empty, '/', or start with '/' and not end with '/'");
-    this.endpoint = endpoint;
+  this(string base, AssetBundle[string] bundles) {
     this.base = base;
     this.bundles = bundles;
   }
@@ -174,24 +172,19 @@ class AssetConfig {
     通过 localFile 获取本地缓存路径。
 */
 class MavenRepoConfig {
-  /// HTTP 访问路径前缀（如 /repo）
-  const string endpoint;
-  /// 本地 Maven 仓库根路径（如 ~/maven
+  /// 本地 Maven 仓库根路径（如 ~/maven）
   const string base;
   /// 远程仓库 URL 列表，按优先级排序
   const string[] remotes;
 
-  this(string endpoint, string base, string[] remotes) {
+  this(string base, string[] remotes) {
     assert(remotes.all!(r => !r.endsWith("/")), "Maven remote URL must not end with '/'");
-    assert(isValidEndpoint(endpoint),
-        "endpoint must be empty, '/', or start with '/' and not end with '/'");
-    this.endpoint = endpoint;
     this.remotes = remotes.idup;
     this.base = base;
   }
 
   static MavenRepoConfig defaultConfig() {
-    return new MavenRepoConfig("/repo", "~/maven", [
+    return new MavenRepoConfig("~/maven", [
       "https://repo1.maven.org/maven2"
     ]);
   }
@@ -229,29 +222,24 @@ class MavenRepoConfig {
   }
 }
 
-/** NPM 仓库配置（endpoint、base、remotes）。
+/** NPM 仓库配置（base、remotes）。HTTP 前缀固定为 `micdn.routes.mountNpm`。
 
     本地路径规则：scope/包名/版本/xxx.tgz，无 scope 时用 "_" 作为目录名。
 */
 class NpmRepoConfig {
-  /// HTTP 访问路径前缀（如 /npm）
-  const string endpoint;
   /// 本地 NPM 仓库根路径（如 ~/npm）
   const string base;
   /// 远程 registry 列表，默认含 registry.npmmirror.com
   const string[] remotes;
 
-  this(string endpoint, string base, string[] remotes) {
+  this(string base, string[] remotes) {
     assert(remotes.all!(r => !r.endsWith("/")), "NPM remote URL must not end with '/'");
-    assert(isValidEndpoint(endpoint),
-        "endpoint must be empty, or start with '/' and not end with '/'");
-    this.endpoint = endpoint;
     this.remotes = remotes.idup;
     this.base = base;
   }
 
   static NpmRepoConfig defaultConfig() {
-    return new NpmRepoConfig("/npm", "~/npm", ["https://registry.npmmirror.com"]);
+    return new NpmRepoConfig("~/npm", ["https://registry.npmmirror.com"]);
   }
 
   /** 返回包规格对应的本地 tgz 路径。scopePart 无 scope 时传 "_"。
@@ -390,13 +378,6 @@ class NpmProvider : BundleProvider {
   }
 }
 
-/** 如何从请求解析桶名：`host` 取 Host 首段；`path` 取 endpoint 之后路径的首段。
-*/
-enum BucketResolveStyle {
-  host,
-  path,
-}
-
 /** Blob 桶：`name` 为磁盘子目录名（不含 `/`），`key` 用于 Bearer 与 S3。
 
     配置中来自 `<bucket name="…" key="…"/>`；运行时放入 `BlobRepo.buckets`。
@@ -407,23 +388,18 @@ struct Bucket {
   string key;
 }
 
-/** Blob 存储配置：endpoint、本地根路径、单文件上限、各 bucket（micdn.xml 内 `<blob>` 下 `<bucket>`）。
+/** Blob 存储配置：本地根路径、单文件上限、各 bucket（micdn.xml 内 `<blob>` 下 `<bucket>`）。
+    HTTP 前缀固定为 `micdn.routes.mountBlob`；S3 为 `mountS3`。
 */
 class BlobConfig {
-  /// 访问路径前缀
-  const string endpoint;
   /// 文件存储根目录
   const string base;
   /// 单文件上传大小限制（字节），默认 100MB
   ulong maxSize = 100 * 1024 * 1024;
-  /// 桶名解析方式（默认 `host`）
-  BucketResolveStyle bucketResolveStyle = BucketResolveStyle.host;
   /// 各桶（物理路径仍为 `base`/`name`/…）
   Bucket[] buckets;
 
-  this(string endpoint, string base) {
-    assert(isValidEndpoint(endpoint), "endpoint must be empty, '/', or start with '/' and not end with '/'");
-    this.endpoint = endpoint;
+  this(string base) {
     this.base = base;
   }
 

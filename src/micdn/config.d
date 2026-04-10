@@ -133,7 +133,7 @@ string toXml(const MicdnConfig config) {
     app.put(i` log-level="$(config.logLevel)"`.text);
   app.put(">");
 
-  app.put(i`  <maven endpoint="$(config.maven.endpoint)" base="$(config.maven.base)">`.text);
+  app.put(i`  <maven base="$(config.maven.base)">`.text);
   app.put("\n");
   foreach (remote; config.maven.remotes) {
     app.put(i`    <remote url="$(remote)"/>`.text);
@@ -142,7 +142,7 @@ string toXml(const MicdnConfig config) {
   app.put("  </maven>\n");
 
   if (config.npm) {
-    app.put(i`  <npm endpoint="$(config.npm.endpoint)" base="$(config.npm.base)">`.text);
+    app.put(i`  <npm base="$(config.npm.base)">`.text);
     app.put("\n");
     foreach (remote; config.npm.remotes) {
       app.put(i`    <remote url="$(remote)"/>`.text);
@@ -152,12 +152,9 @@ string toXml(const MicdnConfig config) {
   }
 
   if (config.blob) {
-    const blobEp = escapeXmlAttr(config.blob.endpoint);
     const blobBase = escapeXmlAttr(config.blob.base);
     const blobMs = formatSizeForXml(config.blob.maxSize);
-    const blobBr = config.blob.bucketResolveStyle == BucketResolveStyle.path ? "path" : "host";
-    app.put(i`  <blob endpoint="$(blobEp)" base="$(blobBase)" maxSize="$(blobMs)" bucket-resolve-style="$(
-        blobBr)">`.text);
+    app.put(i`  <blob base="$(blobBase)" maxSize="$(blobMs)">`.text);
     app.put("\n");
     foreach (b; config.blob.buckets) {
       app.put(i`    <bucket name="$(escapeXmlAttr(b.name))" key="$(escapeXmlAttr(b.key))"/>`.text);
@@ -167,7 +164,7 @@ string toXml(const MicdnConfig config) {
   }
 
   if (config.asset) {
-    app.put(i`  <static endpoint="$(config.asset.endpoint)" base="$(config.asset.base)">`.text);
+    app.put(i`  <static base="$(config.asset.base)">`.text);
     app.put("\n");
     auto bundleKeys = config.asset.bundles.keys.array.sort;
     foreach (key; bundleKeys) {
@@ -222,7 +219,7 @@ string toXml(const MicdnConfig config) {
   return app.data;
 }
 
-/// 解析 Maven 仓库配置（endpoint、本地路径、远程地址）。支持标签 maven 或 repo。
+/// 解析 Maven 仓库配置（本地路径、远程地址）。支持标签 maven 或 repo。
 MavenRepoConfig parseMaven(T)(string home, ref DOMEntity!T micdnDom) {
   auto mavenEntries = children(micdnDom, "maven");
   auto repoEntries = children(micdnDom, "repo");
@@ -230,7 +227,6 @@ MavenRepoConfig parseMaven(T)(string home, ref DOMEntity!T micdnDom) {
   auto attrs = getAttrs(dom);
 
   string base = expandTilde(attrs.get("base", home ~ "/maven")).replace("${micdn.home}", home);
-  string endpoint = normalizeEndpoint(attrs.get("endpoint", "/maven"));
   string[] remoteRepos = [];
   auto remoteEntries = children(dom, "remote");
   foreach (remoteEntry; remoteEntries) {
@@ -239,16 +235,15 @@ MavenRepoConfig parseMaven(T)(string home, ref DOMEntity!T micdnDom) {
   if (remoteRepos.length == 0) {
     remoteRepos ~= "https://repo1.maven.org/maven2";
   }
-  return new MavenRepoConfig(endpoint, base, remoteRepos);
+  return new MavenRepoConfig(base, remoteRepos);
 }
 
-/// 解析 NPM 仓库配置（endpoint、base、remotes）。根级 XML 标签为 npm。
+/// 解析 NPM 仓库配置（base、remotes）。根级 XML 标签为 npm。
 NpmRepoConfig parseNpm(T)(string home, ref DOMEntity!T micdnDom) {
   auto dom = children(micdnDom, "npm").front;
   auto attrs = getAttrs(dom);
 
   string base = expandTilde(attrs.get("base", home ~ "/npm")).replace("${micdn.home}", home);
-  string endpoint = normalizeEndpoint(attrs.get("endpoint", "/npm"));
   string[] remoteRepos = [];
   auto remoteEntries = children(dom, "remote");
   foreach (remoteEntry; remoteEntries) {
@@ -257,14 +252,13 @@ NpmRepoConfig parseNpm(T)(string home, ref DOMEntity!T micdnDom) {
   if (remoteRepos.length == 0) {
     remoteRepos ~= "https://registry.npmmirror.com";
   }
-  return new NpmRepoConfig(endpoint, base, remoteRepos);
+  return new NpmRepoConfig(base, remoteRepos);
 }
 
-/// 从 DOM 节点解析静态资源配置（endpoint、bundle 及 zip/dir/jar 等 provider）。
+/// 从 DOM 节点解析静态资源配置（bundle 及 zip/dir/jar 等 provider）。
 AssetConfig parseAsset(T)(string home, ref DOMEntity!T micdnDom) {
   auto dom = children(micdnDom, "static").front;
   auto attrs = getAttrs(dom);
-  string endpoint = normalizeEndpoint(attrs.get("endpoint", "/static"));
   string base = attrs.get("base", home ~ "/asset").replace("${micdn.home}", home);
 
   base = expandTilde(base);
@@ -298,7 +292,7 @@ AssetConfig parseAsset(T)(string home, ref DOMEntity!T micdnDom) {
     // AssetBundle 不支持 zip，仅 www doc 支持
     bundles[bundle.name] = bundle;
   }
-  return new AssetConfig(endpoint, base, bundles.rehash());
+  return new AssetConfig(base, bundles.rehash());
 }
 
 /// 解析单个 `<bucket>` 节点为 `Bucket`。
@@ -317,32 +311,17 @@ Bucket parseBlobBucket(T)(ref DOMEntity!T dom) {
   return Bucket(name, key);
 }
 
-private BucketResolveStyle parseBucketResolveStyle(string s) {
-  import std.string : strip, toLower;
-
-  auto t = strip(s).toLower();
-  if (t.length == 0)
-    return BucketResolveStyle.host;
-  if (t == "host")
-    return BucketResolveStyle.host;
-  if (t == "path")
-    return BucketResolveStyle.path;
-  throw new Exception(i`blob bucket-resolve-style must be host or path, got: $(s)`.text);
-}
-
-/// 从 DOM 节点解析 Blob 配置（endpoint、`<bucket>` 的 name/key、bucket-resolve-style）。
+/// 从 DOM 节点解析 Blob 配置（`<bucket>` 的 name/key）。
 BlobConfig parseBlob(T)(string home, ref DOMEntity!T micdnDom) {
   auto dom = children(micdnDom, "blob").front;
   auto attrs = getAttrs(dom);
 
-  string endpoint = normalizeEndpoint(attrs.get("endpoint", "/blob"));
   string base = attrs.get("base", home ~ "/blob").replace("${micdn.home}", home);
   base = expandTilde(base);
   string sizeLimit = attrs.get("maxSize", "100M");
 
-  auto config = new BlobConfig(endpoint, base);
+  auto config = new BlobConfig(base);
   config.maxSize = parseSize(sizeLimit);
-  config.bucketResolveStyle = parseBucketResolveStyle(attrs.get("bucket-resolve-style", "host"));
 
   Bucket[] buckets;
   foreach (dn; children(dom, "bucket")) {

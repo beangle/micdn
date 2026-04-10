@@ -40,7 +40,7 @@ unittest {
 unittest {
   auto content = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn>
-  <static base="~/tmp/static" endpoint="/asset">
+  <static base="~/tmp/static">
     <bundle name="urp">
        <dir location="~/.openurp/static"/>
     </bundle>
@@ -60,5 +60,4 @@ unittest {
   auto dom = parseXml(content);
   auto config = parseAsset("~/tmp", dom);
   assert(config.base == expandTilde("~/tmp/static"));
-  assert(config.endpoint == "/asset");
 }

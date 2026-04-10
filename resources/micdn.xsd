@@ -105,13 +105,6 @@
     <xs:attribute name="base" type="xs:string" use="optional" />
   </xs:complexType>
 
-  <xs:simpleType name="bucketResolveStyleType">
-    <xs:restriction base="xs:string">
-      <xs:enumeration value="host" />
-      <xs:enumeration value="path" />
-    </xs:restriction>
-  </xs:simpleType>
-
   <!-- blobBucketType：桶目录名（磁盘 base/name/…）与 Bearer/S3 密钥 -->
   <xs:complexType name="blobBucketType">
     <xs:attribute name="name" type="xs:string" use="required">
@@ -159,6 +152,9 @@
 
   <!-- mavenType (Maven 仓库) -->
   <xs:complexType name="mavenType">
+    <xs:annotation>
+      <xs:documentation> HTTP 前缀固定为 /maven。 </xs:documentation>
+    </xs:annotation>
     <xs:sequence>
       <xs:element name="remote" minOccurs="0" maxOccurs="unbounded">
         <xs:complexType>
@@ -168,15 +164,13 @@
       </xs:element>
     </xs:sequence>
     <xs:attribute name="base" type="xs:string" default="~/maven" use="optional" />
-    <xs:attribute name="endpoint" type="endpointType" default="/maven" use="optional">
-      <xs:annotation>
-        <xs:documentation> 空串，或以 / 开头且不以 / 结尾 </xs:documentation>
-      </xs:annotation>
-    </xs:attribute>
   </xs:complexType>
 
   <!-- npmRepoType：根级 NPM 仓库（与 bundle 内的 npm 包引用 npmType 区分） -->
   <xs:complexType name="npmRepoType">
+    <xs:annotation>
+      <xs:documentation> HTTP 前缀固定为 /npm。 </xs:documentation>
+    </xs:annotation>
     <xs:sequence>
       <xs:element name="remote" minOccurs="0" maxOccurs="unbounded">
         <xs:complexType>
@@ -186,41 +180,27 @@
       </xs:element>
     </xs:sequence>
     <xs:attribute name="base" type="xs:string" default="~/npm" use="optional" />
-    <xs:attribute name="endpoint" type="endpointType" default="/npm" use="optional">
-      <xs:annotation>
-        <xs:documentation> 空串，或以 / 开头且不以 / 结尾 </xs:documentation>
-      </xs:annotation>
-    </xs:attribute>
   </xs:complexType>
 
   <xs:complexType name="blobType">
+    <xs:annotation>
+      <xs:documentation> 桶名由 path 风格解析：Blob HTTP 挂载在固定 /blob，URI 首段为桶名；S3 兼容挂载在固定 /s3，同样首段为桶名。 </xs:documentation>
+    </xs:annotation>
     <xs:sequence>
       <xs:element name="bucket" type="blobBucketType" minOccurs="0" maxOccurs="unbounded" />
     </xs:sequence>
     <xs:attribute name="base" type="xs:string" default="~/blob" use="optional" />
     <xs:attribute name="maxSize" type="xs:string" default="100M" use="optional" />
-    <xs:attribute name="endpoint" type="endpointType" default="/blob" use="optional">
-      <xs:annotation>
-        <xs:documentation> 空串，或以 / 开头且不以 / 结尾 </xs:documentation>
-      </xs:annotation>
-    </xs:attribute>
-    <xs:attribute name="bucket-resolve-style" type="bucketResolveStyleType" default="host" use="optional">
-      <xs:annotation>
-        <xs:documentation> host：Host 首段为桶名；path：endpoint 后路径首段为桶名 </xs:documentation>
-      </xs:annotation>
-    </xs:attribute>
   </xs:complexType>
 
   <!-- staticType -->
   <xs:complexType name="staticType">
+    <xs:annotation>
+      <xs:documentation> 静态资源 HTTP 前缀固定为 /static。 </xs:documentation>
+    </xs:annotation>
     <xs:sequence>
       <xs:element name="bundle" type="bundleType" minOccurs="0" maxOccurs="unbounded" />
     </xs:sequence>
-    <xs:attribute name="endpoint" type="endpointType" default="/static" use="optional">
-      <xs:annotation>
-        <xs:documentation> 空串，或以 / 开头且不以 / 结尾 </xs:documentation>
-      </xs:annotation>
-    </xs:attribute>
     <xs:attribute name="base" type="xs:string" default="~/static" use="optional" />
   </xs:complexType>
 

@@ -22,17 +22,17 @@ import vibe.web.web;
 
 import micdn.fs.browser;
 import micdn.model;
+import micdn.routes;
 import micdn.npm;
 import micdn.web;
 import micdn.web.file;
 import micdn.web.server;
 
 class NpmService {
-  private const string endpoint;
+  private enum string endpoint = mountNpm;
   private const NpmRepo repo;
 
   this(MicdnConfig config) {
-    this.endpoint = config.npm.endpoint;
     this.repo = NpmRepo.build(config);
   }
 

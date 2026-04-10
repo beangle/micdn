@@ -32,17 +32,17 @@ import vibe.web.web;
 import micdn.asset;
 import micdn.fs.browser;
 import micdn.model;
+import micdn.routes;
 import micdn.web;
 import micdn.web.file;
 import micdn.web.server;
 import micdn.xml;
 
 class AssetService {
-  private const string endpoint;
+  private enum string endpoint = mountStatic;
   private const AssetRepo repo;
 
   this(MicdnConfig config) {
-    this.endpoint = config.asset.endpoint;
     this.repo = AssetRepo.build(config);
   }
 

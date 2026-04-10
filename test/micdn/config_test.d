@@ -27,7 +27,7 @@ auto CentralURL = "https://repo1.maven.org/maven2";
 
 @("asset repo remote url")
 unittest{
-  auto repo = new MavenRepoConfig("/maven", "~/maven", ["https://repo1.maven.org/maven2"]);
+  auto repo = new MavenRepoConfig("~/maven", ["https://repo1.maven.org/maven2"]);
   auto remoteBui = "https://repo1.maven.org/maven2/org/beangle/bundles/beangle-bundles-bui/0.1.7/beangle-bundles-bui-0.1.7.jar";
   assert(remoteBui == repo.remoteUrls("org.beangle.bundles:beangle-bundles-bui:0.1.7")[0]);
 }
@@ -36,7 +36,7 @@ unittest{
 unittest {
   auto content = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn>
-  <static base="~/tmp/static" endpoint="/asset">
+  <static base="~/tmp/static">
     <bundle name="urp">
       <dir location="~/.openurp/static"/>
     </bundle>
@@ -56,7 +56,6 @@ unittest {
   auto dom = parseXml(content);
   auto config = parseAsset("~/tmp", dom);
   assert(config.base == expandTilde("~/tmp/static"));
-  assert(config.endpoint == "/asset");
 }
 
 @("maven config parse remotes")
@@ -80,14 +79,13 @@ unittest
 unittest {
   auto content = `<?xml version="1.0"?>
 <micdn>
-  <blob endpoint="/blob" base="/tmp/blob" maxSize="10G">
+  <blob base="/tmp/blob" maxSize="10G">
     <bucket name="local" key="test-key-123"/>
   </blob>
 </micdn>
 `;
   auto dom = parseXml(content);
   auto config = parseBlob("~/tmp", dom);
-  assert(config.endpoint == "/blob");
   assert(config.base == "/tmp/blob");
   assert(config.buckets.length == 1);
   assert(config.buckets[0].name == "local");
@@ -126,9 +124,9 @@ unittest {
 
   auto content = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn>
-  <maven endpoint="/maven"/>
-  <npm endpoint="/npm"/>
-  <static endpoint="/static" base="~/tmp/static">
+  <maven/>
+  <npm/>
+  <static base="~/tmp/static">
     <bundle name="x"><dir location="~/x"/></bundle>
   </static>
   <www base="~/tmp/www">
@@ -141,9 +139,9 @@ unittest {
 
   auto ok = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn>
-  <maven endpoint="/maven"/>
-  <npm endpoint="/npm"/>
-  <static endpoint="/static" base="~/tmp/static">
+  <maven/>
+  <npm/>
+  <static base="~/tmp/static">
     <bundle name="x"><dir location="~/x"/></bundle>
   </static>
   <www base="~/tmp/www">
@@ -160,38 +158,44 @@ unittest {
 unittest {
   import std.exception;
 
-  // 1. maven /maven 与 static /maven/lib 冲突（前者是后者前缀）
+  // 1. 内置 /maven 与 www doc location="/maven" 冲突
   auto mavenPrefix = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn>
-  <maven endpoint="/maven"/>
-  <npm endpoint="/npm"/>
-  <static endpoint="/maven/lib" base="~/tmp/static">
+  <maven/>
+  <npm/>
+  <static base="~/tmp/static">
     <bundle name="x"><dir location="~/x"/></bundle>
   </static>
+  <www base="~/tmp/www">
+    <doc location="/maven"><dir location="~/m"/></doc>
+  </www>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", mavenPrefix),
-      "maven and static endpoint prefix conflict");
+      "fixed mount vs www doc conflict");
 
-  // 2. static /static 与 blob /static/blob 冲突
+  // 2. 内置 /blob 与 www doc location="/blob" 冲突（启用 blob 时）
   auto staticBlob = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn>
-  <maven endpoint="/maven"/>
-  <npm endpoint="/npm"/>
-  <static endpoint="/static" base="~/tmp/static">
+  <maven/>
+  <npm/>
+  <static base="~/tmp/static">
     <bundle name="x"><dir location="~/x"/></bundle>
   </static>
-  <blob endpoint="/static/blob" base="~/tmp/blob">
+  <blob base="~/tmp/blob">
     <bucket name="b" key="k"/>
   </blob>
+  <www base="~/tmp/www">
+    <doc location="/blob"><dir location="~/m"/></doc>
+  </www>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", staticBlob),
-      "static and blob endpoint prefix conflict");
+      "blob mount vs www doc conflict");
 
   // 3. 两个 www doc: /doc 与 /doc/guide 冲突
   auto wwwPrefix = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn>
-  <maven endpoint="/maven"/>
-  <npm endpoint="/npm"/>
+  <maven/>
+  <npm/>
   <www base="~/tmp/www">
     <doc location="/doc"><dir location="~/d1"/></doc>
     <doc location="/doc/guide"><dir location="~/d2"/></doc>
@@ -200,12 +204,12 @@ unittest {
   assertThrown!Exception(parse("~/tmp", wwwPrefix),
       "www doc locations prefix conflict");
 
-  // 4. 无冲突：各 endpoint 互不为前缀
+  // 4. 无冲突：各挂载与 doc 互不为前缀
   auto noConflict = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn>
-  <maven endpoint="/maven"/>
-  <npm endpoint="/npm"/>
-  <static endpoint="/static" base="~/tmp/static">
+  <maven/>
+  <npm/>
+  <static base="~/tmp/static">
     <bundle name="x"><dir location="~/x"/></bundle>
   </static>
   <www base="~/tmp/www">
@@ -213,8 +217,8 @@ unittest {
   </www>
 </micdn>`;
   auto config = parse("~/tmp", noConflict);
-  assert(config.maven.endpoint == "/maven");
-  assert(config.asset.endpoint == "/static");
+  assert(config.maven.base.length > 0);
+  assert(config.asset.base.length > 0);
   assert(config.www.docs[0].location == "/manual");
 }
 
@@ -222,8 +226,8 @@ unittest {
 unittest {
   auto defaultConsole = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn>
-  <maven endpoint="/maven"/>
-  <npm endpoint="/npm"/>
+  <maven/>
+  <npm/>
 </micdn>`;
   auto c0 = parse("~/tmp", defaultConsole);
   assert(c0.logFile == "console");
@@ -231,8 +235,8 @@ unittest {
 
   auto ok = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn log-file="/var/log/micdn/micdn.log" log-level="warn">
-  <maven endpoint="/maven"/>
-  <npm endpoint="/npm"/>
+  <maven/>
+  <npm/>
 </micdn>`;
   auto config = parse("~/tmp", ok);
   assert(config.logFile == "/var/log/micdn/micdn.log");
@@ -240,8 +244,8 @@ unittest {
 
   auto consoleCi = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn log-file="Console">
-  <maven endpoint="/maven"/>
-  <npm endpoint="/npm"/>
+  <maven/>
+  <npm/>
 </micdn>`;
   assert(parse("~/tmp", consoleCi).logFile == "console");
 }
@@ -250,8 +254,8 @@ unittest {
 unittest {
   auto dup = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn>
-  <maven endpoint="/maven"/>
-  <maven endpoint="/maven"/>
+  <maven/>
+  <maven/>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", dup));
 }

@@ -21,7 +21,6 @@ import std.digest : toHexString, LetterCase;
 import std.digest.sha;
 
 import vibe.core.log;
-import vibe.http.server;
 import vibe.inet.mimetypes : getMimeTypeForFile;
 
 import micdn.blob.xattr;
@@ -33,27 +32,10 @@ struct BlobResolve {
   string objectPath;
 }
 
-/** 从 Host 得到桶名键（`BucketResolveStyle.host`）。
-
-    `localhost` 与回环地址 `127.0.0.1`（可带 `:port`）均映射为 **`localhost`**，
-    以便与常见配置里 `<bucket name="localhost" …/>` 一致。
-    其余主机名仍取首段：含 `.` 时取第一个点之前（如 `192.168.31.125` → `192`），
-    单段无点则整段作为桶名。
+/** Path 风格：endpoint 之后的路径以 `/` 开头，首段为桶名，其余为对象路径（至少为 `/`）。
+    若 `uri` 形如 `/bucket` 则对象路径为 `/`。
 */
-string blobBucketKeyFromHost(string host) {
-  if (host.length == 0)
-    return "";
-  auto colon = host.indexOf(':');
-  if (colon > 0)
-    host = host[0 .. colon];
-  if (host == "localhost" || host == "127.0.0.1")
-    return "localhost";
-  auto dot = host.indexOf('.');
-  return dot == -1 ? host : host[0 .. dot];
-}
-
-/// `uri` 以 `/` 开头；首段为桶名，其余为对象路径（至少为 `/`）。
-private bool splitPathBucket(string uri, out string bucketName, out string restPath) {
+bool blobPathSplitBucket(string uri, out string bucketName, out string restPath) {
   if (uri.length <= 1 || uri[0] != '/')
     return false;
   size_t i = 1;
@@ -94,12 +76,9 @@ class BlobRepo {
 
   Bucket[string] buckets;
 
-  BucketResolveStyle resolveStyle;
-
   this(const(BlobConfig) config) {
     this.base = config.base;
     this.maxSize = config.maxSize;
-    this.resolveStyle = config.bucketResolveStyle;
     mkdirRecurse(expandTilde(config.base));
     loadBucketsFromConfig(config, this);
     this.images[".jpg"] = true;
@@ -114,8 +93,8 @@ class BlobRepo {
     this.images[".tif"] = true;
   }
 
-  /** 根据 `bucketResolveStyle` + Host + URI（endpoint 之后的路径）解析桶与对象路径。 */
-  BlobResolve resolveBlob(HTTPServerRequest req, string uriAfterEndpoint) const {
+  /** 按 path 风格解析：endpoint 之后路径的首段为桶名，其余为对象路径（见 `blobPathSplitBucket`）。 */
+  BlobResolve resolveBlob(string uriAfterEndpoint) const {
     string u = uriAfterEndpoint;
     if (u.length == 0)
       u = "/";
@@ -124,17 +103,8 @@ class BlobRepo {
 
     string bucketKey;
     string objPath;
-
-    final switch (resolveStyle) {
-    case BucketResolveStyle.host:
-      bucketKey = blobBucketKeyFromHost(req.host);
-      objPath = u;
-      break;
-    case BucketResolveStyle.path:
-      if (!splitPathBucket(u, bucketKey, objPath))
-        return BlobResolve(Bucket.init, "/");
-      break;
-    }
+    if (!blobPathSplitBucket(u, bucketKey, objPath))
+      return BlobResolve(Bucket.init, "/");
 
     auto p = bucketKey in buckets;
     Bucket b = p !is null ? *p : Bucket.init;

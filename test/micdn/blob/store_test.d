@@ -15,15 +15,13 @@ import std.uuid : randomUUID;
 import micdn.blob.store;
 import micdn.blob.xattr;
 
-@("blob bucket key from host (host resolve style)")
+@("blob path-style bucket split")
 unittest {
-  assert(blobBucketKeyFromHost("localhost") == "localhost");
-  assert(blobBucketKeyFromHost("127.0.0.1") == "localhost");
-  assert(blobBucketKeyFromHost("127.0.0.1:8080") == "localhost");
-  assert(blobBucketKeyFromHost("192.168.31.125") == "192");
-  assert(blobBucketKeyFromHost("bucket1.example.com") == "bucket1");
-  assert(blobBucketKeyFromHost("single") == "single");
-  assert(blobBucketKeyFromHost("") == "");
+  string b, p;
+  assert(blobPathSplitBucket("/local/foo/bar", b, p) && b == "local" && p == "/foo/bar");
+  assert(blobPathSplitBucket("/local", b, p) && b == "local" && p == "/");
+  assert(!blobPathSplitBucket("nope", b, p));
+  assert(!blobPathSplitBucket("", b, p));
 }
 
 version (linux) {

@@ -5,21 +5,21 @@
   home="/var/lib/micdn"
   listen="127.0.0.1:8080">
 
-  <maven base="/var/lib/micdn/maven" endpoint="/maven">
+  <maven base="/var/lib/micdn/maven">
     <remote url="https://maven.aliyun.com/repository/public" />
     <remote url="https://repo1.maven.org/maven2/" />
   </maven>
 
-  <npm base="/var/lib/micdn/npm" endpoint="/npm">
+  <npm base="/var/lib/micdn/npm">
     <remote url="https://registry.npmmirror.com" />
   </npm>
 
-  <blob base="${micdn.home}/blob" maxSize="50M" endpoint="/blob" bucket-resolve-style="host">
+  <blob base="${micdn.home}/blob" maxSize="50M">
     <bucket name="local" key="65KhzfJQme4jApTZ2EZ-58hKDUpZrbzwhsKd2dRPP08" />
   </blob>
 
   <!-- static bundles 由 resources/a.xml（contexts）转换：context base="/foo" → bundle name="foo" -->
-  <static endpoint="/static" base="/var/cache/micdn/asset">
+  <static base="/var/cache/micdn/asset">
     <bundle name="AdminLTE">
       <jar gav="org.webjars:AdminLTE:3.2.0" />
     </bundle>

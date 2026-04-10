@@ -71,19 +71,19 @@ unittest {
     rmdirRecurse(dir);
 
   write(buildPath(dir, "blob.xml"),
-      `<blob base="/tmp/b" endpoint="/blob">
+      `<blob base="/tmp/b">
   <bucket name="x" key="secret-key"/>
 </blob>`);
   write(buildPath(dir, "micdn.xml"), `<?xml version="1.0" encoding="UTF-8"?>
 <micdn xmlns:xi="http://www.w3.org/2001/XInclude">
   <xi:include href="blob.xml"/>
-  <maven endpoint="/maven"/>
-  <npm endpoint="/npm"/>
+  <maven/>
+  <npm/>
 </micdn>`);
 
   auto cfg = parseFile(buildPath(dir, "micdn.xml"));
   assert(cfg.blob !is null);
-  assert(cfg.blob.endpoint == "/blob");
+  assert(cfg.blob.base == "/tmp/b");
   assert(cfg.blob.buckets.length == 1);
   assert(cfg.blob.buckets[0].name == "x");
 }

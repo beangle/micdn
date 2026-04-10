@@ -15,7 +15,7 @@
  */
 
 module micdn.blob.s3;
-/// S3 兼容接口的签名计算与 ListObjects XML 生成工具。
+/// S3 兼容接口：挂载在 `micdn.routes.mountS3`，路径解析与 Blob 相同（path 风格首段为 bucket）。
 
 import std.algorithm;
 import std.base64;
@@ -43,6 +43,7 @@ import vibe.web.web;
 
 import micdn.blob.store;
 import micdn.model;
+import micdn.routes;
 import micdn.web;
 import micdn.web.file;
 
@@ -186,24 +187,14 @@ string generateListObjectsXml(string basePath, string uriPrefix, string bucketNa
 }
 
 class S3Service {
-  private const string endpoint;
   private BlobRepo repo;
 
-  this(MicdnConfig config, BlobRepo repo) {
-    this.endpoint = config.blob.endpoint;
+  this(BlobRepo repo) {
     this.repo = repo;
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
-    auto uri = getPath(this.endpoint, req);
-
-    // Get the actual URI by removing /s3 prefix
-    string actualUri = uri;
-    if (actualUri.startsWith("/s3")) {
-      actualUri = actualUri[3 .. $];
-      if (actualUri.empty)
-        actualUri = "/";
-    }
+    auto actualUri = getPath(mountS3, req);
 
     // Authenticate S3 request
     if (auth(req, res)) {
@@ -233,7 +224,7 @@ class S3Service {
   }
 
   void getObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    auto br = repo.resolveBlob(req, uri);
+    auto br = repo.resolveBlob(uri);
     if (br.bucket.name.length == 0 || repo.check(br.bucket, br.objectPath) != 2) {
       res.statusCode = HTTPStatus.notFound;
       res.contentType = "application/xml";
@@ -258,7 +249,7 @@ class S3Service {
   }
 
   void putObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    auto br = repo.resolveBlob(req, uri);
+    auto br = repo.resolveBlob(uri);
     try {
       import vibe.core.path;
       import std.file;
@@ -313,7 +304,7 @@ class S3Service {
   }
 
   void deleteObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    auto br = repo.resolveBlob(req, uri);
+    auto br = repo.resolveBlob(uri);
     if (repo.remove(br.bucket, br.objectPath)) {
       // Add S3-specific response headers
       string requestId = generateUuid();
@@ -339,7 +330,7 @@ class S3Service {
   }
 
   void headObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    auto br = repo.resolveBlob(req, uri);
+    auto br = repo.resolveBlob(uri);
     if (br.bucket.name.length == 0 || repo.check(br.bucket, br.objectPath) != 2) {
       res.statusCode = HTTPStatus.notFound;
       res.contentType = "application/xml";
@@ -372,7 +363,7 @@ class S3Service {
   }
 
   void listObjects(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    auto br = repo.resolveBlob(req, uri);
+    auto br = repo.resolveBlob(uri);
     if (br.bucket.name.length == 0) {
       res.statusCode = HTTPStatus.notFound;
       res.contentType = "application/xml";
@@ -435,13 +426,8 @@ class S3Service {
           if (credentialParts.length >= 5) {
             auto accessKey = credentialParts[0];
 
-            auto uri = getPath(this.endpoint, req);
-            if (uri.startsWith("/s3")) {
-              uri = uri[3 .. $];
-              if (uri.empty)
-                uri = "/";
-            }
-            auto br = repo.resolveBlob(req, uri);
+            auto uri = getPath(mountS3, req);
+            auto br = repo.resolveBlob(uri);
 
             // Access Key 固定为 micdn，Secret 为 micdn.xml 中 bucket 的 key
             if (accessKey == "micdn" && br.bucket.key.length > 0) {

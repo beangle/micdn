@@ -25,6 +25,7 @@ import std.datetime.timezone : UTC;
 import std.digest : toHexString, LetterCase;
 import std.digest.sha : sha1Of;
 import std.exception;
+import std.path : dirName;
 import std.string;
 
 import vibe.core.core;
@@ -36,15 +37,15 @@ import vibe.web.web;
 
 import micdn.blob.store;
 import micdn.model;
+import micdn.routes;
 import micdn.web;
 import micdn.web.file;
 
 class BlobService {
-  private const string endpoint;
+  private enum string endpoint = mountBlob;
   private BlobRepo repo;
 
-  this(MicdnConfig config, BlobRepo repo) {
-    this.endpoint = config.blob.endpoint;
+  this(BlobRepo repo) {
     this.repo = repo;
   }
 
@@ -67,7 +68,7 @@ class BlobService {
   }
 
   private void getObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    auto br = repo.resolveBlob(req, uri);
+    auto br = repo.resolveBlob(uri);
     if (br.bucket.name.length == 0) {
       throw new HTTPStatusException(HTTPStatus.notFound);
     }
@@ -89,7 +90,7 @@ class BlobService {
   }
 
   private void putObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    auto br = repo.resolveBlob(req, uri);
+    auto br = repo.resolveBlob(uri);
     if (!bearerMatches(br.bucket, req)) {
       res.statusCode = HTTPStatus.unauthorized;
       res.headers["WWW-Authenticate"] = `Bearer realm="micdn"`;
@@ -102,7 +103,8 @@ class BlobService {
 
     try {
       string owner = req.form.get("owner", "--");
-      auto meta = repo.create(br.bucket, pf.tempPath.toNativeString, pf.toString, uri, owner);
+      // `create` 的 dir 为桶内逻辑路径；须用 `objectPath`（已去掉首段 bucket），不可传完整 uri，否则 toPhysicalPath 会重复 bucket 段。
+      auto meta = repo.create(br.bucket, pf.tempPath.toNativeString, pf.toString, dirName(br.objectPath), owner);
       logInfo("Uploaded " ~ uri);
       res.writeBody(meta.toJson(), "application/json");
     } catch (Exception e) {
@@ -113,7 +115,7 @@ class BlobService {
   }
 
   private void deleteObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    auto br = repo.resolveBlob(req, uri);
+    auto br = repo.resolveBlob(uri);
     if (!bearerMatches(br.bucket, req)) {
       res.statusCode = HTTPStatus.unauthorized;
       res.headers["WWW-Authenticate"] = `Bearer realm="micdn"`;

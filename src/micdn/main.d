@@ -37,6 +37,8 @@ import vibe.http.common : HTTPMethod;
 import vibe.http.router;
 import vibe.http.server;
 
+import micdn.routes;
+
 import micdn.admin.web;
 import micdn.asset.web;
 import micdn.blob.s3;
@@ -98,21 +100,21 @@ URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
 
   if (config.asset !is null) {
     auto assetService = new AssetService(config);
-    registerEndpointGetHead(router, config.asset.endpoint, &assetService.service);
+    registerEndpointGetHead(router, mountStatic, &assetService.service);
   }
 
   auto mavenService = new MavenService(config);
-  registerEndpointGetHead(router, config.maven.endpoint, &mavenService.service);
+  registerEndpointGetHead(router, mountMaven, &mavenService.service);
 
   auto npmService = new NpmService(config);
-  registerEndpointGetHead(router, config.npm.endpoint, &npmService.service);
+  registerEndpointGetHead(router, mountNpm, &npmService.service);
 
   if (config.blob !is null) {
     auto blobRepo = new BlobRepo(config.blob);
-    auto blobService = new BlobService(config, blobRepo);
-    auto s3Service = new S3Service(config, blobRepo);
-    registerEndpointAny(router, config.blob.endpoint, &blobService.service);
-    router.any(config.blob.endpoint ~ "/s3/*", &s3Service.service);
+    auto blobService = new BlobService(blobRepo);
+    auto s3Service = new S3Service(blobRepo);
+    registerEndpointAny(router, mountBlob, &blobService.service);
+    registerEndpointAny(router, mountS3, &s3Service.service);
     settings.maxRequestSize = config.blob.maxSize;
   }
 
@@ -137,12 +139,12 @@ URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
 void logRegisteredEndpoints(MicdnConfig config) {
   string[] parts = ["/admin"];
   if (config.asset !is null)
-    parts ~= format("%s", config.asset.endpoint);
-  parts ~= format("%s", config.maven.endpoint);
-  parts ~= format("%s", config.npm.endpoint);
+    parts ~= mountStatic;
+  parts ~= mountMaven;
+  parts ~= mountNpm;
   if (config.blob !is null) {
-    parts ~= format("%s", config.blob.endpoint);
-    parts ~= format("%s/s3/*", config.blob.endpoint);
+    parts ~= mountBlob;
+    parts ~= mountS3;
   }
   if (config.www !is null) {
     foreach (doc; config.www.docs) {
