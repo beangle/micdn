@@ -62,7 +62,6 @@ class AssetRepo {
       if (exists(location)) {
         files[i] = location;
       } else {
-        logWarn("Cannot find %s", location);
         return null;
       }
     }
