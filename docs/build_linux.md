@@ -4,6 +4,8 @@
 
 Blob 在 Linux 上使用 **`user.*` 扩展属性** 存元数据；请在 **Linux** 上跑完整功能与单测。
 
+由 **deb/rpm** 安装并由 **systemd** 托管时，普通用户如何将账号加入 **`beangle`** 组、理解数据目录 **`2775` / 组可写** 及编辑配置的方式，见 **[maintenance.md](./maintenance.md)**。
+
 ---
 
 ## 仅编译可执行文件（开发/调试）
@@ -53,7 +55,7 @@ sudo apt install ldc dub build-essential zlib1g-dev libssl-dev
 | **`scripts/build_rpm.sh`** | `target/micdn-*.x86_64.rpm` | Fedora / RHEL / openSUSE 等 **RPM** 系 |
 | **`scripts/build_srpm.sh`** | `target/micdn-*.src.rpm` | 同上；用于 mock/koji 或 `rpmbuild --rebuild` 再出二进制 RPM |
 | **`scripts/build_deb.sh`** | `target/micdn_*_amd64.deb` | Debian / Ubuntu 等 **deb** 系 |
-| **`scripts/build_image.sh`** | OCI 镜像 `micdn:<version>` | 已安装 **Podman**（见 **[CONTAINER_BUILD.md](./CONTAINER_BUILD.md)**） |
+| **`scripts/build_image.sh`** | OCI 镜像 `micdn:<version>` | 已安装 **Podman**（见 **[container_build.md](./container_build.md)**） |
 
 所有脚本均在**仓库根目录**下执行（路径含 `dub.json`、`scripts/`）。
 
@@ -146,7 +148,7 @@ Download is performed unsandboxed as root as file '.../target/micdn_....deb' cou
 
 ## 容器镜像（任意带 Podman 的 Linux）
 
-不依赖宿主机 glibc 与 Alpine 一致的二进制，使用 **Podman** 在容器内构建，见 **[CONTAINER_BUILD.md](./CONTAINER_BUILD.md)**。
+不依赖宿主机 glibc 与 Alpine 一致的二进制，使用 **Podman** 在容器内构建，见 **[container_build.md](./container_build.md)**。
 
 ```bash
 ./scripts/build_image.sh

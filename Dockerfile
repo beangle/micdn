@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 # Alpine（musl）多阶段构建：在镜像内用 apk 的 ldc+dub 编译，与运行时同为 musl。
 #
-# 构建：./scripts/build_image.sh（见 docs/CONTAINER_BUILD.md）
-# apk 源已固定为华为云（见下方 sed）；拉取 FROM 需代理时在运行 podman 的 shell 里 export。详见 docs/CONTAINER_BUILD.md。
+# 构建：./scripts/build_image.sh（见 docs/container_build.md）
+# apk 源已固定为华为云（见下方 sed）；拉取 FROM 需代理时在运行 podman 的 shell 里 export。详见 docs/container_build.md。
 
 FROM alpine:3.23 AS builder
 ENV DUB_HOME=/root/.dub

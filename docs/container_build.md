@@ -165,5 +165,5 @@ podman run --rm -it micdn:0.2.0 sh
 | `scripts/build_image.sh` | Podman 构建镜像（默认带 `--squash`） |
 | `scripts/build_deb.sh` | 构建 Debian **`.deb`**（需 `dpkg-deb`、`fakeroot`） |
 | `scripts/build_rpm.sh` | 构建 **`.rpm`**（需 `rpmbuild`、`fakeroot`） |
-| `docs/BUILD_Windows.md` | Windows 原生 dub 构建说明 |
+| `docs/build_windows.md` | Windows 原生 dub 构建说明 |
 
