@@ -107,5 +107,4 @@ html(lang="zh")
               td= entry.lastModified
               td= entry.size
     .footer
-      | Powered by
-      a(href="https://github.com/beangle/micdn") Beangle Micdn
+      span Powered by #[a(href="https://github.com/beangle/micdn") Beangle Micdn]
