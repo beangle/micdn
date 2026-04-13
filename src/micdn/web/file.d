@@ -36,6 +36,10 @@ import vibe.inet.message;
 import vibe.inet.mimetypes;
 
 import micdn.model;
+import micdn.web.cache;
+
+/// 在写出响应体之前调用（如 CORS、`Content-Disposition`）；与缓存头无关。
+alias SendFileHook = void delegate(scope HTTPServerRequest req, scope HTTPServerResponse res);
 
 string encodeAttachmentName(string name) @safe {
   import std.array;
@@ -112,38 +116,21 @@ ulong[2] parseRange(string range, ulong maxSize) @safe {
   return [start, end];
 }
 
-class CacheSetting {
-  Duration maxAge = 7.days;
-  string cacheControl = null;
-  void delegate(scope HTTPServerRequest req, scope HTTPServerResponse res, ref string physicalPath) preWrite = null;
-}
-
-CacheSetting default_settings;
-static this() {
-  default_settings = new CacheSetting();
-}
-
+/** 发送单个文件；`policy` 必选，见 `micdn.web.cache`。 */
 void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
-    string path, const CacheSetting settings = null) {
-  if (settings) {
-    sendFileImpl(req, res, NativePath(path), settings);
-  } else {
-    sendFileImpl(req, res, NativePath(path), default_settings);
-  }
+    string path, immutable(CachePolicy) policy, SendFileHook preWrite = null) {
+  sendFileImpl(req, res, NativePath(path), policy, preWrite);
 }
 
+/** 按顺序拼接多个文件；`policy` 必选。 */
 void sendFiles(scope HTTPServerRequest req, scope HTTPServerResponse res,
-    string[] paths, const CacheSetting settings = null) {
+    string[] paths, immutable(CachePolicy) policy, SendFileHook preWrite = null) {
   auto npaths = array(paths.map!(p => NativePath(p)));
-  if (settings) {
-    sendFilesImpl(req, res, npaths, settings);
-  } else {
-    sendFilesImpl(req, res, npaths, default_settings);
-  }
+  sendFilesImpl(req, res, npaths, policy, preWrite);
 }
 
-private void sendFileImpl(scope HTTPServerRequest req,
-    scope HTTPServerResponse res, NativePath path, const CacheSetting settings = null) {
+private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse res, NativePath path,
+    immutable(CachePolicy) policy, SendFileHook preWrite) {
   auto pathstr = path.toNativeString();
   if (!existsFile(pathstr))
     throw new HTTPStatusException(HTTPStatus.notFound);
@@ -160,7 +147,7 @@ private void sendFileImpl(scope HTTPServerRequest req,
     throw new HTTPStatusException(HTTPStatus.notFound);
   }
 
-  if (handleCacheFile(req, res, dirent, settings.cacheControl, settings.maxAge)) {
+  if (handleCacheFile(req, res, dirent, policy.cacheControl, policy.maxAge)) {
     return;
   }
 
@@ -186,8 +173,8 @@ private void sendFileImpl(scope HTTPServerRequest req,
   } else
     res.headers["Content-Length"] = dirent.size.to!string;
 
-  if (settings.preWrite)
-    settings.preWrite(req, res, pathstr);
+  if (preWrite)
+    preWrite(req, res);
 
   if (res.isHeadResponse()) {
     res.writeVoidBody();
@@ -210,11 +197,11 @@ private void sendFileImpl(scope HTTPServerRequest req,
   }
 }
 
-private void sendFilesImpl(scope HTTPServerRequest req,
-    scope HTTPServerResponse res, NativePath[] paths, const CacheSetting settings = null) {
+private void sendFilesImpl(scope HTTPServerRequest req, scope HTTPServerResponse res, NativePath[] paths,
+    immutable(CachePolicy) policy, SendFileHook preWrite) {
   auto firstPath = paths[0].toNativeString();
   auto infos = paths.map!(p => getFileInfo(p.toNativeString()));
-  if (handleCacheFile(req, res, infos[0], settings.cacheControl, settings.maxAge)) {
+  if (handleCacheFile(req, res, infos[0], policy.cacheControl, policy.maxAge)) {
     return;
   }
   ulong size = infos.map!(i => i.size).sum;
@@ -225,8 +212,8 @@ private void sendFilesImpl(scope HTTPServerRequest req,
   }
   res.headers["Content-Length"] = size.to!string;
 
-  if (settings.preWrite)
-    settings.preWrite(req, res, firstPath);
+  if (preWrite)
+    preWrite(req, res);
 
   if (res.isHeadResponse()) {
     res.writeVoidBody();

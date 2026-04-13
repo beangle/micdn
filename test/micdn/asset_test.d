@@ -22,6 +22,17 @@ import micdn.model;
 import micdn.xml;
 import std.path;
 
+@("asset dynaBundles registry for cache policy")
+unittest {
+  bool[string] reg;
+  reg["mine"] = true;
+  auto repo = new AssetRepo("/base", reg.rehash());
+  assert(repo.isDynaBundle("/mine/a.js"));
+  assert(repo.isDynaBundle("/mine/x"));
+  assert(!repo.isDynaBundle("/jarbundle/0.1/a.js"));
+  assert(!repo.isDynaBundle("/"));
+}
+
 @("asset Repository resolve")
 unittest {
   auto uri = "/a/b,c.js";

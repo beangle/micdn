@@ -25,6 +25,7 @@ import micdn.model;
 import micdn.routes;
 import micdn.npm;
 import micdn.web;
+import micdn.web.cache;
 import micdn.web.file;
 import micdn.web.server;
 
@@ -50,7 +51,7 @@ class NpmService {
       if (parsed[0]!is null && parsed[1]!is null && parsed[2]!is null) {
         if (repo.fetch(parsed[0], parsed[1], parsed[2])) {
           auto local = repo.localTarball(parsed[0], parsed[1], parsed[2]);
-          sendFile(req, res, local);
+          sendFile(req, res, local, npmArtifactCachePolicy());
           return;
         }
         throw new HTTPStatusException(HTTPStatus.notFound);
@@ -71,7 +72,7 @@ class NpmService {
           res.redirect(req.requestURI.replace(uri, uri ~ "/"));
         }
       } else {
-        sendFile(req, res, path);
+        sendFile(req, res, path, npmArtifactCachePolicy());
       }
     } else {
       throw new HTTPStatusException(HTTPStatus.notFound);

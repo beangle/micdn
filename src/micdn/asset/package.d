@@ -33,13 +33,19 @@ class AssetRepo {
   /// 仓库根目录（本地文件系统路径）。
   const string base;
 
+  /// 构建阶段对 `<dir>` 成功 `makeSymlink` 的 bundle 名（动态内容、无 URL 版本段），供 `isDynaBundle` 与缓存策略使用（无需运行时读盘）。
+  /// `null` 表示无任何 dyna bundle 登记（与空表等价）。
+  const bool[string] dynaBundles;
+
   /** 构造资源仓库实例。
 
       Params:
-          base       = 仓库根目录
+          base         = 仓库根目录
+          dynaBundles = dyna bundle 名集合；`null` 表示未登记
   */
-  this(string base) {
+  this(string base, bool[string] dynaBundles = null) {
     this.base = base;
+    this.dynaBundles = dynaBundles;
   }
 
   /** 根据逻辑 URI 解析出对应的本地文件路径列表。
@@ -53,6 +59,21 @@ class AssetRepo {
       Returns:
           本地绝对路径数组，失败返回 null
   */
+  /** 从逻辑 URI 取首段 bundle 名（如 `/bui/0.6.7/x.js` → `bui`）。假定路径以 `/` 开头（`getPath` 语义）。 */
+  static string bundleNameFromUri(string uri) {
+    auto idx = uri.indexOf('/', 1);
+    if (idx < 0)
+      return uri[1 .. $];
+    return uri[1 .. idx];
+  }
+
+  /** 首段 bundle 在 `dynaBundles` 中时为 true（`<dir>` 挂载），用于 HTTP 缓存策略。 */
+  bool isDynaBundle(string uri) const {
+    if (dynaBundles is null)
+      return false;
+    return (bundleNameFromUri(uri) in dynaBundles) !is null;
+  }
+
   string[] get(string uri) const {
     if (uri.indexOf("..") > -1)
       return null;
@@ -117,6 +138,7 @@ class AssetRepo {
     }
     mkdirRecurse(base);
 
+    bool[string] dynaBundles;
     logInfo("Building static resources at %s", base);
     foreach (c; asset.bundles) {
       auto bundlePath = "/" ~ c.name;
@@ -130,6 +152,7 @@ class AssetRepo {
             }
             logInfo("Linking " ~ dp.location ~ " to " ~ bundleBase);
             makeSymlink(dp.location, bundleBase);
+            dynaBundles[c.name] = true;
           } else {
             logWarn("Cannot link " ~ dp.location ~ " to " ~ bundleBase);
           }
@@ -183,7 +206,7 @@ class AssetRepo {
       }
     }
     setReadOnly(base);
-    return new AssetRepo(base);
+    return new AssetRepo(base, dynaBundles.rehash());
   }
 
   /** 删除 bundle 目录下不在配置中的 version 子目录（仅 NpmProvider 会创建 version 顶层目录）。

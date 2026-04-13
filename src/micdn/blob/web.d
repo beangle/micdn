@@ -39,6 +39,7 @@ import micdn.blob.store;
 import micdn.model;
 import micdn.routes;
 import micdn.web;
+import micdn.web.cache;
 import micdn.web.file;
 
 class BlobService {
@@ -198,6 +199,7 @@ bool downloadAuthorized(const Bucket bucket, HTTPServerRequest req, string uri) 
   return bearerMatches(bucket, req) || signedQueryTokenMatches(bucket, uri, req);
 }
 
+/// GET 下载响应体；缓存策略见 `blobObjectCachePolicy`。
 void sendObject(BlobRepo repo, const Bucket bucket, string objectPath,
     HTTPServerRequest req, HTTPServerResponse res) {
   import std.path;
@@ -205,20 +207,16 @@ void sendObject(BlobRepo repo, const Bucket bucket, string objectPath,
   auto physicalPath = repo.toPhysicalPath(bucket, objectPath);
   auto ext = extension(objectPath);
   if (ext in repo.images) {
-    sendFile(req, res, physicalPath, null);
+    sendFile(req, res, physicalPath, blobObjectCachePolicy());
   } else {
     auto realname = repo.getRealname(bucket, objectPath);
     if (realname.length > 0) {
-      void setContextDisposition(scope HTTPServerRequest req,
-          scope HTTPServerResponse res, ref string physicalPath) @safe {
+      void setContextDisposition(scope HTTPServerRequest req, scope HTTPServerResponse res) @safe {
         res.headers["Content-Disposition"] = encodeAttachmentName(realname);
       }
-
-      auto settings = new CacheSetting;
-      settings.preWrite = &setContextDisposition;
-      sendFile(req, res, physicalPath, settings);
+      sendFile(req, res, physicalPath, blobObjectCachePolicy(), &setContextDisposition);
     } else {
-      sendFile(req, res, physicalPath, null);
+      sendFile(req, res, physicalPath, blobObjectCachePolicy());
     }
   }
 }

@@ -94,8 +94,11 @@
     </xs:attribute>
   </xs:complexType>
 
-  <!-- bundleType for static，不支持 zip（仅 www doc 支持） -->
+  <!-- bundleType for static：不支持 zip（仅 www doc 支持）；同一 bundle 内不得同时出现 dir 与 jar/npm -->
   <xs:complexType name="bundleType">
+    <xs:annotation>
+      <xs:documentation> 同一 bundle 内 &lt;dir&gt; 与 &lt;jar&gt;/&lt;npm&gt; 不可混用（解析期校验）。 </xs:documentation>
+    </xs:annotation>
     <xs:choice minOccurs="0" maxOccurs="unbounded">
       <xs:element name="jar" type="jarType" />
       <xs:element name="npm" type="npmType" />

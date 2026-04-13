@@ -58,6 +58,36 @@ unittest {
   assert(config.base == expandTilde("~/tmp/static"));
 }
 
+@("static bundle rejects dir mixed with jar")
+unittest {
+  auto content = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn>
+  <static base="~/tmp/static">
+    <bundle name="bad">
+      <dir location="~/x"/>
+      <jar gav="a:b:1"/>
+    </bundle>
+  </static>
+</micdn>`;
+  auto dom = parseXml(content);
+  assertThrown(parseAsset("~/tmp", dom));
+}
+
+@("static bundle rejects dir mixed with npm")
+unittest {
+  auto content = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn>
+  <static base="~/tmp/static">
+    <bundle name="bad">
+      <dir location="~/x"/>
+      <npm package="foo@1.0.0"/>
+    </bundle>
+  </static>
+</micdn>`;
+  auto dom = parseXml(content);
+  assertThrown(parseAsset("~/tmp", dom));
+}
+
 @("maven config parse remotes")
 unittest
 {

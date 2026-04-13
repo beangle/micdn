@@ -34,6 +34,7 @@ import micdn.fs.browser;
 import micdn.model;
 import micdn.routes;
 import micdn.web;
+import micdn.web.cache;
 import micdn.web.file;
 import micdn.web.server;
 import micdn.xml;
@@ -65,18 +66,15 @@ class AssetService {
           res.redirect(req.requestURI.replace(uri, uri ~ "/"));
         }
       } else {
-        void setCORS(scope HTTPServerRequest req, scope HTTPServerResponse res,
-            ref string physicalPath) @safe {
+        void setCORS(scope HTTPServerRequest req, scope HTTPServerResponse res) @safe {
           res.headers["Access-Control-Allow-Origin"] = "*";
         }
 
-        auto settings = new CacheSetting;
-        settings.preWrite = &setCORS;
-
+        auto policy = assetBundleCachePolicy(repo.isDynaBundle(uri));
         if (rs.length == 1) {
-          sendFile(req, res, rs[0], settings);
+          sendFile(req, res, rs[0], policy, &setCORS);
         } else {
-          sendFiles(req, res, rs, settings);
+          sendFiles(req, res, rs, policy, &setCORS);
         }
       }
     }

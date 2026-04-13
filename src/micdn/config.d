@@ -289,6 +289,17 @@ AssetConfig parseAsset(T)(string home, ref DOMEntity!T micdnDom) {
       string location = expandTilde(attrs["location"].replace("${micdn.home}", home));
       bundle.addProvider(new DirProvider(location));
     }
+    bool hasDir;
+    bool hasJarOrNpm;
+    foreach (p; bundle.providers) {
+      if (cast(DirProvider) p)
+        hasDir = true;
+      if (cast(GavJarProvider) p || cast(NpmProvider) p)
+        hasJarOrNpm = true;
+    }
+    if (hasDir && hasJarOrNpm)
+      throw new Exception(`static <bundle name="` ~ bundle.name
+          ~ `"> cannot mix <dir> with <jar> or <npm>`);
     // AssetBundle 不支持 zip，仅 www doc 支持
     bundles[bundle.name] = bundle;
   }

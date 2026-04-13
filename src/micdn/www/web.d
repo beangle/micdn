@@ -15,7 +15,7 @@
  */
 
 module micdn.www.web;
-/// WWW 文档服务入口，按 endpoint 提供静态文件，不提供目录列表。
+/// WWW 文档服务入口，按 endpoint 提供静态文件，不提供目录列表；缓存见 `wwwDocCachePolicy`。
 
 import std.exception;
 import std.file;
@@ -26,6 +26,7 @@ import vibe.http.server;
 
 import micdn.model;
 import micdn.web;
+import micdn.web.cache;
 import micdn.web.file;
 import micdn.www;
 
@@ -49,12 +50,10 @@ class WwwDocService {
       throw new HTTPStatusException(HTTPStatus.notFound);
     }
 
-    void setCORS(scope HTTPServerRequest req, scope HTTPServerResponse res, ref string physicalPath) @safe {
+    void setCORS(scope HTTPServerRequest req, scope HTTPServerResponse res) @safe {
       res.headers["Access-Control-Allow-Origin"] = "*";
     }
 
-    auto settings = new CacheSetting;
-    settings.preWrite = &setCORS;
-    sendFile(req, res, rs, settings);
+    sendFile(req, res, rs, wwwDocCachePolicy(path), &setCORS);
   }
 }

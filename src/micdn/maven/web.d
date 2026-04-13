@@ -34,6 +34,7 @@ import micdn.maven;
 import micdn.model;
 import micdn.routes;
 import micdn.web;
+import micdn.web.cache;
 import micdn.web.file;
 import micdn.fs.browser;
 import micdn.web.server;
@@ -74,7 +75,7 @@ class MavenService {
           res.redirect(req.requestURI.replace(pub, pub ~ "/"));
         }
       } else {
-        sendFile(req, res, file);
+        sendFile(req, res, file, mavenArtifactCachePolicy(uri));
       }
     } else {
       if (uri.endsWith(".diff")) {
@@ -85,7 +86,7 @@ class MavenService {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
       if (repo.fetch(uri)) {
-        sendFile(req, res, file);
+        sendFile(req, res, file, mavenArtifactCachePolicy(uri));
       } else {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
