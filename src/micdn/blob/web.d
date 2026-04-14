@@ -25,7 +25,7 @@ import std.datetime.timezone : UTC;
 import std.digest : toHexString, LetterCase;
 import std.digest.sha : sha1Of;
 import std.exception;
-import std.path : dirName;
+import std.path : dirName, baseName;
 import std.string;
 
 import vibe.core.core;
@@ -107,7 +107,7 @@ class BlobService {
       string owner = req.form.get("owner", "--");
       // `create` 的 dir 为桶内逻辑路径；须用 `objectPath`（已去掉首段 bucket），不可传完整 uri，否则 toPhysicalPath 会重复 bucket 段。
       auto meta = repo.create(br.bucket, pf.tempPath.toNativeString, pf.toString, dirName(br.objectPath), owner);
-      logInfo("Uploaded " ~ uri);
+      logInfo("Uploaded %s%s(%s)", uri, baseName(meta.filePath), owner);
       res.writeBody(meta.toJson(), "application/json");
     } catch (Exception e) {
       logInfo("Performing copy failed.Cause %s", e.msg);
@@ -126,7 +126,7 @@ class BlobService {
     }
     try {
       if (repo.remove(br.bucket, br.objectPath)) {
-        logInfo("Remove " ~ uri);
+        logInfo("Remove %s", uri);
         res.writeBody("File removed!", "text/plain");
       } else {
         res.writeBody("File is not existed!", "text/plain");
