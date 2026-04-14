@@ -33,6 +33,7 @@ import vibe.core.file;
 import vibe.core.log;
 import vibe.http.router;
 import vibe.http.server;
+import vibe.inet.url;
 import vibe.web.web;
 
 import micdn.blob.store;
@@ -79,8 +80,8 @@ class BlobService {
       throw new HTTPStatusException(HTTPStatus.notFound);
     } else if (rs == 1) { // dir
       throw new HTTPStatusException(HTTPStatus.notFound);
-    } else { // file：Bearer 或 ?token=&t=（SHA1(uri+key+t)，t 起 5 分钟内有效）
-      if (downloadAuthorized(br.bucket, req, uri)) {
+    } else { // file：Bearer 或 ?token=&t=；或 bucket.publicImages 下同站 Referer 的图片 GET
+      if (downloadAuthorized(repo, br.bucket, req, uri, br.objectPath)) {
         sendObject(repo, br.bucket, br.objectPath, req, res);
       } else {
         res.statusCode = HTTPStatus.unauthorized;
@@ -194,9 +195,56 @@ bool signedQueryTokenMatches(const Bucket bucket, string uri, HTTPServerRequest 
   }
 }
 
-/// GET 下载：Bearer，或带签名的 `?token=&t=`。
-bool downloadAuthorized(const Bucket bucket, HTTPServerRequest req, string uri) {
-  return bearerMatches(bucket, req) || signedQueryTokenMatches(bucket, uri, req);
+/** GET 下载：Bearer，或带签名的 `?token=&t=`；或 `bucket.publicImages` 且对象为图片且
+    `Referer` 中的主机名与请求头 `Host` 解析出的主机名一致（忽略端口）。
+*/
+bool downloadAuthorized(BlobRepo repo, const Bucket bucket, HTTPServerRequest req, string uri, string objectPath) {
+  if (bearerMatches(bucket, req))
+    return true;
+  if (signedQueryTokenMatches(bucket, uri, req))
+    return true;
+  if (bucket.publicImages) {
+    import std.path : extension;
+
+    auto ext = extension(objectPath);
+    if ((ext in repo.images) is null)
+      return false;
+    return refererSameSiteAsRequest(req);
+  }
+  return false;
+}
+
+/// `Referer` 中的主机名与 `Host` 头解析出的主机名相同（不比较端口；`Host` 含 `:port` 时只取主机段）。
+package bool refererSameSiteAsRequest(HTTPServerRequest req) @trusted {
+  import std.string : strip;
+  import std.uni : icmp;
+
+  string refRaw = req.headers.get("Referer", "");
+  refRaw = strip(refRaw);
+  if (refRaw.length == 0)
+    return false;
+
+  URL refUrl;
+  try
+    refUrl = URL.parse(refRaw);
+  catch (Exception e)
+    return false;
+  if (strip(refUrl.host).length == 0)
+    return false;
+
+  string h = strip(req.headers.get("Host", ""));
+  if (h.length == 0)
+    return false;
+
+  URL reqAuth;
+  try
+    reqAuth = URL.parse("http://" ~ h);
+  catch (Exception e)
+    return false;
+  if (strip(reqAuth.host).length == 0)
+    return false;
+
+  return icmp(refUrl.host, reqAuth.host) == 0;
 }
 
 /// GET 下载响应体；缓存策略见 `blobObjectCachePolicy`。

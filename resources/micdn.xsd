@@ -120,6 +120,11 @@
         <xs:documentation> 与 bucket key 一致：上传/删除用 Bearer；下载另可用 ?token=sha1hex(uri+key+t)&amp;t=yyyyMMddTHHmmss（UTC）。S3：Access Key 为 micdn </xs:documentation>
       </xs:annotation>
     </xs:attribute>
+    <xs:attribute name="publicImages" type="xs:boolean" use="optional" default="true">
+      <xs:annotation>
+        <xs:documentation> 为 true（默认）时，GET 图片类对象可在 Referer 与 Host 主机名一致时免 Bearer/签名下载；为 false 时图片也必须带 Bearer 或有效 ?token=&amp;t=。解析时未写该属性与 true 等价。 </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
   </xs:complexType>
 
   <!-- npmType: package spec @scope/package@version, optional dir (default dist) -->

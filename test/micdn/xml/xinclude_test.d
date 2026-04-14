@@ -86,6 +86,7 @@ unittest {
   assert(cfg.blob.base == "/tmp/b");
   assert(cfg.blob.buckets.length == 1);
   assert(cfg.blob.buckets[0].name == "x");
+  assert(cfg.blob.buckets[0].publicImages);
 }
 
 @("xi:include rejects .. in href")

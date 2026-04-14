@@ -111,15 +111,19 @@ unittest {
 <micdn>
   <blob base="/tmp/blob" maxSize="10G">
     <bucket name="local" key="test-key-123"/>
+    <bucket name="closed" key="k2" publicImages="false"/>
   </blob>
 </micdn>
 `;
   auto dom = parseXml(content);
   auto config = parseBlob("~/tmp", dom);
   assert(config.base == "/tmp/blob");
-  assert(config.buckets.length == 1);
+  assert(config.buckets.length == 2);
   assert(config.buckets[0].name == "local");
   assert(config.buckets[0].key == "test-key-123");
+  assert(config.buckets[0].publicImages);
+  assert(config.buckets[1].name == "closed");
+  assert(!config.buckets[1].publicImages);
   assert(config.maxSize == 10L * 1024 * 1024 * 1024);
   assert(10L * 1024 * 1024 * 1024 == parseSize("10g"));
 }

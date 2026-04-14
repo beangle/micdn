@@ -380,12 +380,16 @@ class NpmProvider : BundleProvider {
 
 /** Blob 桶：`name` 为磁盘子目录名（不含 `/`），`key` 用于 Bearer 与 S3。
 
-    配置中来自 `<bucket name="…" key="…"/>`；运行时放入 `BlobRepo.buckets`。
+    配置中来自 `<bucket name="…" key="…" publicImages="…"/>`；运行时放入 `BlobRepo.buckets`。
+    `publicImages` 缺省为 true；为 false 时关闭匿名图片路径。为 true 时，GET 图片（扩展名见
+    `BlobRepo.images`）可在 `Referer` 与当前请求的站点一致时匿名下载（见 `micdn.blob.web`）。
     `name` 为空表示未匹配到配置（等价于 `Bucket.init`）。
 */
 struct Bucket {
   string name;
   string key;
+  /// 是否允许在 Referer 同站时匿名 GET 图片；**配置**中省略 `publicImages` 时默认为 true。
+  bool publicImages;
 }
 
 /** Blob 存储配置：本地根路径、单文件上限、各 bucket（micdn.xml 内 `<blob>` 下 `<bucket>`）。

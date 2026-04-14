@@ -157,7 +157,10 @@ string toXml(const MicdnConfig config) {
     app.put(i`  <blob base="$(blobBase)" maxSize="$(blobMs)">`.text);
     app.put("\n");
     foreach (b; config.blob.buckets) {
-      app.put(i`    <bucket name="$(escapeXmlAttr(b.name))" key="$(escapeXmlAttr(b.key))"/>`.text);
+      if (!b.publicImages)
+        app.put(i`    <bucket name="$(escapeXmlAttr(b.name))" key="$(escapeXmlAttr(b.key))" publicImages="false"/>`.text);
+      else
+        app.put(i`    <bucket name="$(escapeXmlAttr(b.name))" key="$(escapeXmlAttr(b.key))"/>`.text);
       app.put("\n");
     }
     app.put("  </blob>\n");
@@ -306,6 +309,21 @@ AssetConfig parseAsset(T)(string home, ref DOMEntity!T micdnDom) {
   return new AssetConfig(base, bundles.rehash());
 }
 
+/// XML 布尔属性：`false` / `0` / `no` 为假，`true` / `1` / `yes` 为真（大小写不敏感）。
+/// 空串或不能识别为上述字面量的其它非空串，返回 `defaultWhenEmpty`（属性缺省时常与桶的默认一致，如 `publicImages` 用 `true`）。
+private bool parseBoolXmlAttr(string s, bool defaultWhenEmpty = false) {
+  import std.uni : icmp;
+
+  s = s.strip();
+  if (s.length == 0)
+    return defaultWhenEmpty;
+  if (icmp(s, "false") == 0 || icmp(s, "0") == 0 || icmp(s, "no") == 0)
+    return false;
+  if (icmp(s, "true") == 0 || icmp(s, "1") == 0 || icmp(s, "yes") == 0)
+    return true;
+  return defaultWhenEmpty;
+}
+
 /// 解析单个 `<bucket>` 节点为 `Bucket`。
 Bucket parseBlobBucket(T)(ref DOMEntity!T dom) {
   auto attrs = getAttrs(dom);
@@ -319,7 +337,8 @@ Bucket parseBlobBucket(T)(ref DOMEntity!T dom) {
   if (key.length == 0)
     throw new Exception("blob <bucket> requires a non-empty key attribute");
 
-  return Bucket(name, key);
+  bool publicImages = parseBoolXmlAttr(attrs.get("publicImages", ""), true);
+  return Bucket(name, key, publicImages);
 }
 
 /// 从 DOM 节点解析 Blob 配置（`<bucket>` 的 name/key）。
