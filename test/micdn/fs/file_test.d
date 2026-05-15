@@ -17,9 +17,12 @@
 module test.micdn.fs.file_test;
 
 import micdn.fs.file;
+
 import std.file;
 import std.path;
 import std.stdio;
+import std.uuid : randomUUID;
+import std.zip;
 
 @("makeSymlink stores absolute path for relative and tilde")
 unittest {
@@ -50,6 +53,38 @@ unittest {
   stored = readLink(linkPath);
   assert(isAbsolute(stored), "tilde path should expand to absolute, got: " ~ stored);
   remove(linkPath);
+}
+
+@("refreshUnzip overwrites when size matches but content differs")
+unittest {
+  import std.file : exists, mkdirRecurse, rmdirRecurse, write;
+
+  string tmp = buildPath(tempDir(), "micdn-refresh-unzip-" ~ randomUUID().toString);
+  mkdirRecurse(tmp);
+  scope (exit) {
+    if (exists(tmp))
+      rmdirRecurse(tmp);
+  }
+
+  void writeZip(string path, ubyte[] content) {
+    auto m = new ArchiveMember();
+    m.name = "x.txt";
+    m.expandedData(content);
+    ZipArchive z = new ZipArchive();
+    z.addMember(m);
+    write(path, z.build());
+  }
+
+  string zip1 = buildPath(tmp, "1.zip");
+  string zip2 = buildPath(tmp, "2.zip");
+  string base = buildPath(tmp, "out");
+
+  writeZip(zip1, cast(ubyte[]) "AAAAA");
+  writeZip(zip2, cast(ubyte[]) "BBBBB");
+  refreshUnzip(zip1, base, null);
+  assert(readText(buildPath(base, "x.txt")) == "AAAAA");
+  refreshUnzip(zip2, base, null);
+  assert(readText(buildPath(base, "x.txt")) == "BBBBB");
 }
 
 @("fs unzip and permissions")

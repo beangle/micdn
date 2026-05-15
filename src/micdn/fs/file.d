@@ -186,10 +186,9 @@ bool extractTgzToDocBase(string tgzFile, string docBase, string innerDir = null)
   return true;
 }
 
-/** 增量解压 zip/jar：已存在且大小一致的文件跳过写入，用于加速重复构建。
+/** 增量解压 zip/jar：已存在、未压缩大小与 zip 内一致且 **CRC32** 一致时跳过写入，否则覆盖。
 
-    逻辑与 unzip 相同，但会检查目标文件是否存在且大小等于 zip 内条目大小，
-    满足则跳过解压，否则覆盖写入。
+    仅比较大小会误判（同长度内容已变），故与 zip 中央目录中的 CRC 对齐后再决定是否跳过。
 
     Params:
         zipfile  = zip/jar 文件路径
@@ -230,7 +229,14 @@ uint refreshUnzip(string zipfile, string base, string innerDir = null) {
           auto targetFile = base ~ "/" ~ targetName;
           bool spawn = true;
           if (exists(targetFile) && getSize(targetFile) == am.expandedSize) {
-            spawn = false;
+            import std.zlib : crc32;
+
+            try {
+              auto onDisk = cast(ubyte[]) read(targetFile);
+              if (onDisk.length == am.expandedSize && crc32(0, cast(void[]) onDisk) == am.crc32)
+                spawn = false;
+            } catch (Exception) {
+            }
           }
           if (spawn) {
             zip.expand(am);

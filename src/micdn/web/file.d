@@ -30,6 +30,9 @@ import std.typecons;
 import vibe.core.file;
 import vibe.core.path;
 import vibe.core.stream;
+
+/// 无 Range 时整文件若不超过此大小则读入内存再写出，避免 `FileStream` 与 `bodyWriter` 组合在部分场景下的句柄/GC 告警。
+private enum maxWholeFileMemSend = 8u * 1024 * 1024;
 import vibe.http.fileserver;
 import vibe.http.server;
 import vibe.inet.message;
@@ -180,6 +183,12 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
     res.writeVoidBody();
     return;
   }
+  if (!prange && dirent.size <= maxWholeFileMemSend) {
+    ubyte[] data = readFile(path);
+    res.bodyWriter.write(data);
+    return;
+  }
+
   FileStream fil;
   try {
     fil = openFile(path);
@@ -193,7 +202,7 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
     fil.seek(rangeStart);
     fil.pipe(res.bodyWriter, rangeEnd - rangeStart + 1);
   } else {
-    res.writeRawBody(fil);
+    fil.pipe(res.bodyWriter);
   }
 }
 
@@ -220,24 +229,24 @@ private void sendFilesImpl(scope HTTPServerRequest req, scope HTTPServerResponse
     return;
   }
 
-  import std.range;
-
   FileStream[] fss;
-  try {
-    fss = array(paths.map!(p => openFile(p)));
-  } catch (Exception e) {
-    return;
+  fss.reserve(paths.length);
+  foreach (ref p; paths) {
+    try {
+      fss ~= openFile(p);
+    } catch (Exception e) {
+      foreach (ref x; fss)
+        x.close();
+      return;
+    }
   }
 
   scope (exit) {
-    if (null != fss) {
-      foreach (fs; fss) {
-        fs.close();
-      }
-    }
+    foreach (ref fs; fss)
+      fs.close();
   }
   int processed = 0;
-  foreach (fs; fss) {
+  foreach (ref fs; fss) {
     fs.pipe(res.bodyWriter);
     processed += 1;
     if (processed < fss.length) {
