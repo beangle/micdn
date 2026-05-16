@@ -54,6 +54,25 @@ bool blobPathSplitBucket(string uri, out string bucketName, out string restPath)
   return true;
 }
 
+/** 上传时桶内目标目录（`create` 的 `dir` 参数），仅由 URI 形态决定。
+
+    - 以 `/` 结尾（如 `/a/b/c/`）：目录为 `/a/b/c`。
+    - 末段带扩展名（如 `/a/b/c/file.txt`）：`dirName` → `/a/b/c`。
+    - 末段无扩展名（如 `/a/b/c`）：`dirName` → `/a/b`（末段视为目录名，文件落在其父级）。
+*/
+string blobObjectUploadDir(string objectPath) {
+  import std.string : strip;
+
+  objectPath = strip(objectPath);
+  if (objectPath.length == 0)
+    return "/";
+  if (!objectPath.startsWith("/"))
+    objectPath = "/" ~ objectPath;
+  if (objectPath.endsWith("/"))
+    return objectPath.length == 1 ? "/" : objectPath[0 .. $-1];
+  return dirName(objectPath);
+}
+
 /// 由 BlobConfig.buckets 构建 Bucket 映射（按 `name` 索引）。
 void loadBucketsFromConfig(const(BlobConfig) config, BlobRepo repo) {
   foreach (bc; config.buckets) {

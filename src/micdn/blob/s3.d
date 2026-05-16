@@ -275,7 +275,8 @@ class S3Service {
 
       string owner = "s3-user";
 
-      auto meta = repo.create(br.bucket, tempPath, filename, dirName(br.objectPath), owner);
+      auto meta = repo.create(br.bucket, tempPath, filename,
+          blobObjectUploadDir(br.objectPath), owner);
 
       // Clean up temp file
       std.file.remove(tempPath);

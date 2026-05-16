@@ -15,6 +15,13 @@ import std.uuid : randomUUID;
 import micdn.blob.store;
 import micdn.blob.xattr;
 
+@("blobObjectUploadDir upload path semantics")
+unittest {
+  assert(blobObjectUploadDir("/a/b/c/file.txt") == "/a/b/c");
+  assert(blobObjectUploadDir("/a/b/c/") == "/a/b/c");
+  assert(blobObjectUploadDir("/a/b/c") == "/a/b");
+}
+
 @("blob path-style bucket split")
 unittest {
   string b, p;
