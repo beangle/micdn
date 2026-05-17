@@ -70,6 +70,7 @@ class BlobService {
   }
 
   private void getObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
+    applyBlobGetCors(res);
     auto br = repo.resolveBlob(uri);
     if (br.bucket.name.length == 0) {
       throw new HTTPStatusException(HTTPStatus.notFound);
@@ -168,7 +169,7 @@ private SysTime parseBlobTokenTime(string t) {
   return SysTime(DateTime(y, mo, d, H, mi, sec), UTC());
 }
 
-/// `?token=hex&t=...`：token = sha1hex(uri + key + t)，且当前 UTC 时间在 [t, t+5min]。
+/// `?token=hex&t=...`：token = sha1hex(uri + key + t)，且当前 UTC 时间在 [t-60s, t+5min]。
 bool signedQueryTokenMatches(const Bucket bucket, string uri, HTTPServerRequest req) {
   if (bucket.name.length == 0 || bucket.key.length == 0)
     return false;
@@ -186,7 +187,7 @@ bool signedQueryTokenMatches(const Bucket bucket, string uri, HTTPServerRequest 
     SysTime t0 = parseBlobTokenTime(ts);
     SysTime now = Clock.currTime(UTC());
 
-    if (now < t0)
+    if (now < t0 - dur!"seconds"(60))
       return false;
     if (now > t0 + dur!"minutes"(5))
       return false;
@@ -194,6 +195,11 @@ bool signedQueryTokenMatches(const Bucket bucket, string uri, HTTPServerRequest 
   } catch (Exception e) {
     return false;
   }
+}
+
+/// blob GET 响应统一加 `Access-Control-Allow-Origin: *`（含 401，便于跨域读取错误信息）。
+private void applyBlobGetCors(scope HTTPServerResponse res) @safe {
+  res.headers["Access-Control-Allow-Origin"] = "*";
 }
 
 /** GET 下载：Bearer，或带签名的 `?token=&t=`；或 `bucket.publicImages` 且对象为图片且
