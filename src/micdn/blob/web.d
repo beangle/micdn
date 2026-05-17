@@ -70,7 +70,6 @@ class BlobService {
   }
 
   private void getObject(HTTPServerRequest req, HTTPServerResponse res, string uri) {
-    applyBlobGetCors(res);
     auto br = repo.resolveBlob(uri);
     if (br.bucket.name.length == 0) {
       throw new HTTPStatusException(HTTPStatus.notFound);
@@ -85,6 +84,7 @@ class BlobService {
       if (downloadAuthorized(repo, br.bucket, req, uri, br.objectPath)) {
         sendObject(repo, br.bucket, br.objectPath, req, res);
       } else {
+        applyBlobGetCors(res);
         res.statusCode = HTTPStatus.unauthorized;
         res.headers["WWW-Authenticate"] = `Bearer realm="micdn"`;
         res.writeBody("Authorization required (Bearer or ?token=&t=)", "text/plain");
@@ -197,7 +197,7 @@ bool signedQueryTokenMatches(const Bucket bucket, string uri, HTTPServerRequest 
   }
 }
 
-/// blob GET 响应统一加 `Access-Control-Allow-Origin: *`（含 401，便于跨域读取错误信息）。
+/// blob GET 鉴权失败时加 `Access-Control-Allow-Origin: *`（成功下载由 `sendFile` 设置）。
 private void applyBlobGetCors(scope HTTPServerResponse res) @safe {
   res.headers["Access-Control-Allow-Origin"] = "*";
 }
