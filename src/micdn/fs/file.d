@@ -24,6 +24,7 @@ import std.stdio;
 import std.string;
 import std.utf;
 import std.zip;
+import std.algorithm;
 
 import vibe.core.log;
 
@@ -31,6 +32,12 @@ import vibe.core.log;
 enum zipSignature1 = "\x50\x4B\x03\x04"; // 最常见
 enum zipSignature2 = "\x50\x4B\x05\x06"; // 空 zip / 中央目录结尾
 enum zipSignature3 = "\x50\x4B\x07\x08"; // 分卷归档
+enum zipEntryForbiddenChars = "\0\\<>:\"|?*";
+enum maxZipEntryNameLength = 1024;
+enum maxZipEntryPathDepth = 64;
+enum maxZipEntryPartLength = 255;
+enum maxZipEntryCount = 20_000;
+enum maxZipCompressionRatio = 100;
 
 /** 通过魔数快速判断是否为合法 ZIP 文件，仅读取前 4 字节。
 
@@ -55,6 +62,68 @@ bool isZipFile(string zipfile) {
     return false;
   auto s = cast(string) readBuf;
   return s == zipSignature1 || s == zipSignature2 || s == zipSignature3;
+}
+
+/// 校验 zip/jar 内条目名，避免目录逃逸、跨平台非法文件名，以及超长/超深路径炸弹。
+bool isSafeZipEntryTargetName(string targetName) {
+  if (targetName.length == 0 || targetName.length > maxZipEntryNameLength)
+    return false;
+  if (targetName.any!(c => zipEntryForbiddenChars.indexOf(c) >= 0))
+    return false;
+  if (isAbsolute(targetName))
+    return false;
+
+  size_t depth = 0;
+  auto parts = targetName.split("/");
+  foreach (i, part; parts) {
+    // 末尾是 / 表示目录
+    bool trailingDirectorySlash = i + 1 == parts.length && part.length == 0 && targetName.endsWith("/");
+    if (trailingDirectorySlash)
+      continue;
+    if (part.length == 0 || part.length > maxZipEntryPartLength)
+      return false;
+    if (part == "." || part == "..")
+      return false;
+    depth++;
+    if (depth > maxZipEntryPathDepth)
+      return false;
+  }
+  return true;
+}
+
+/// 判断单个条目的解压膨胀比例是否在允许范围内，避免高压缩比 zip 炸弹。
+bool isSafeZipCompressionRatio(ulong expandedSize, ulong compressedSize) {
+  if (expandedSize == 0)
+    return true;
+  if (compressedSize == 0)
+    return false;
+  auto q = expandedSize / compressedSize;
+  auto r = expandedSize % compressedSize;
+  return q < maxZipCompressionRatio || (q == maxZipCompressionRatio && r == 0);
+}
+
+/// 解压前扫描目录元数据，超过 entry 数量或压缩比限制时整包拒绝，避免只解出一部分。
+private bool validateZipArchiveEntries(ZipArchive zip, string zipfile, string prefix, out uint entryCount) {
+  entryCount = 0;
+  foreach (name, am; zip.directory) {
+    if (null == prefix || name.startsWith(prefix)) {
+      auto targetName = name;
+      if (null != prefix && prefix.length > 0 && name.startsWith(prefix))
+        targetName = targetName[prefix.length .. $];
+      if (targetName.length == 0)
+        continue;
+      entryCount++;
+      if (entryCount > maxZipEntryCount) {
+        logWarn("Skip zip %s: too many entries under %s", zipfile, prefix);
+        return false;
+      }
+      if (!isSafeZipCompressionRatio(am.expandedSize, am.compressedSize)) {
+        logWarn("Skip zip %s: entry %s compression ratio is too high", zipfile, name);
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 version (Windows) {
@@ -90,6 +159,9 @@ uint unzip(string zipfile, string base, string innerDir = null) {
   }
   try {
     auto zip = new ZipArchive(read(zipfile));
+    if (!validateZipArchiveEntries(zip, zipfile, prefix, count))
+      return 0;
+    count = 0;
     mkdirRecurse(base);
     foreach (name, am; zip.directory) {
       if (null == prefix || name.startsWith(prefix)) {
@@ -97,9 +169,15 @@ uint unzip(string zipfile, string base, string innerDir = null) {
         if (null != prefix && name.startsWith(prefix)) {
           targetName = targetName[prefix.length .. $];
         }
+        if (targetName.length == 0)
+          continue;
+        if (!isSafeZipEntryTargetName(targetName)) {
+          logWarn("Skip unsafe zip entry %s in %s", name, zipfile);
+          continue;
+        }
         if (targetName.endsWith("/")) {
           mkdirRecurse(base ~ "/" ~ targetName);
-        } else if (targetName.length > 0) {
+        } else {
           auto lastSlash = targetName.lastIndexOf("/");
           if (lastSlash > 0) {
             mkdirRecurse(base ~ "/" ~ targetName[0 .. lastSlash]);
@@ -212,6 +290,9 @@ uint refreshUnzip(string zipfile, string base, string innerDir = null) {
   }
   try {
     auto zip = new ZipArchive(read(zipfile));
+    if (!validateZipArchiveEntries(zip, zipfile, prefix, count))
+      return 0;
+    count = 0;
     mkdirRecurse(base);
     foreach (name, am; zip.directory) {
       if (null == prefix || name.startsWith(prefix)) {
@@ -219,9 +300,15 @@ uint refreshUnzip(string zipfile, string base, string innerDir = null) {
         if (null != prefix && prefix.length > 0 && name.startsWith(prefix)) {
           targetName = targetName[prefix.length .. $];
         }
+        if (targetName.length == 0)
+          continue;
+        if (!isSafeZipEntryTargetName(targetName)) {
+          logWarn("Skip unsafe zip entry %s in %s", name, zipfile);
+          continue;
+        }
         if (targetName.endsWith("/")) {
           mkdirRecurse(base ~ "/" ~ targetName);
-        } else if (targetName.length > 0) {
+        } else {
           auto lastSlash = targetName.lastIndexOf("/");
           if (lastSlash > 0) {
             mkdirRecurse(base ~ "/" ~ targetName[0 .. lastSlash]);

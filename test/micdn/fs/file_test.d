@@ -87,6 +87,59 @@ unittest {
   assert(readText(buildPath(base, "x.txt")) == "BBBBB");
 }
 
+@("refreshUnzip skips unsafe zip entries")
+unittest {
+  string tmp = buildPath(tempDir(), "micdn-zipslip-" ~ randomUUID().toString);
+  mkdirRecurse(tmp);
+  scope (exit) {
+    if (exists(tmp))
+      rmdirRecurse(tmp);
+  }
+
+  ZipArchive z = new ZipArchive();
+  auto safe = new ArchiveMember();
+  safe.name = "safe/ok.txt";
+  safe.expandedData(cast(ubyte[]) "ok");
+  z.addMember(safe);
+
+  auto unsafe = new ArchiveMember();
+  unsafe.name = "../evil.txt";
+  unsafe.expandedData(cast(ubyte[]) "bad");
+  z.addMember(unsafe);
+
+  auto zipPath = buildPath(tmp, "bad.zip");
+  auto base = buildPath(tmp, "out");
+  std.file.write(zipPath, z.build());
+
+  assert(isSafeZipEntryTargetName("safe/ok.txt"));
+  assert(isSafeZipEntryTargetName("a..b/ok.txt"));
+  assert(!isSafeZipEntryTargetName("../evil.txt"));
+  assert(!isSafeZipEntryTargetName("safe\\evil.txt"));
+  assert(!isSafeZipEntryTargetName("safe/bad:name.txt"));
+  assert(!isSafeZipEntryTargetName("safe/bad?.txt"));
+  assert(!isSafeZipEntryTargetName("safe//bad.txt"));
+  assert(!isSafeZipEntryTargetName("safe/./bad.txt"));
+  string longPart;
+  foreach (_; 0 .. 256)
+    longPart ~= "a";
+  assert(!isSafeZipEntryTargetName("safe/" ~ longPart ~ ".txt"));
+  string deepPath;
+  foreach (_; 0 .. 65)
+    deepPath ~= "a/";
+  assert(!isSafeZipEntryTargetName(deepPath ~ "bad.txt"));
+  assert(refreshUnzip(zipPath, base, null) == 1);
+  assert(readText(buildPath(base, "safe", "ok.txt")) == "ok");
+  assert(!exists(buildPath(tmp, "evil.txt")));
+}
+
+@("zip compression ratio limit")
+unittest {
+  assert(isSafeZipCompressionRatio(0, 0));
+  assert(isSafeZipCompressionRatio(100, 1));
+  assert(!isSafeZipCompressionRatio(101, 1));
+  assert(!isSafeZipCompressionRatio(1, 0));
+}
+
 @("fs unzip and permissions")
 unittest {
   import std.file : read;
