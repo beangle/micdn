@@ -16,12 +16,20 @@
 
 module test.micdn.blob.s3_test;
 
+import core.time : dur;
+
 import micdn.blob.s3;
 import std.uuid;
 import std.file;
 import std.path;
 import std.stdio;
 import std.algorithm;
+import std.datetime.systime;
+import std.digest : LetterCase, toHexString;
+import vibe.http.common : HTTPMethod;
+import vibe.http.server : createTestHTTPServerRequest;
+import vibe.inet.message : InetHeaderMap;
+import vibe.inet.url : URL;
 
 /**
  * Unit tests for S3 signature generation
@@ -35,10 +43,18 @@ unittest {
   string stringToSign = "AWS4-HMAC-SHA256\n" ~ "20130524T000000Z\n" ~ "20130524/us-east-1/s3/aws4_request\n"
     ~ "7344ae5b7ee6c3e7e6b0fe0640412a37625d1fbfff95c48bbb2dc43964946972";
 
-  string expectedSignature = "0f0ae5caafa9a7f5de9baf7f5b7f2b1c391ba4ee6febb980c774cee5e77b2558";
+  string expectedSignature = "67fe34c8530db585abddc51067328adfedb6e42487d2566dc7d927d6e2722900";
   string actualSignature = generateSignature(stringToSign, secretKey, date, region);
   assert(actualSignature == expectedSignature, "Signature verification failed");
   assert(actualSignature.length == 64, "Signature length should be 64 characters");
+}
+
+@("s3 signing key derivation from chained hmac")
+unittest {
+  string secretKey = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
+  auto signingKey = deriveSigningKey(secretKey, "20130524", "us-east-1");
+  auto actual = toHexString!(LetterCase.lower)(signingKey).idup;
+  assert(actual == "f117494eff5d09da21cbf7f0339559ea04fc9582d31299cb992be70a6b27c97a");
 }
 
 @("s3 signature custom params")
@@ -54,6 +70,82 @@ unittest {
 
   assert(signature.length == 64, "Signature length should be 64 characters");
   assert(signature.length > 0, "Signature should not be empty");
+}
+
+@("s3 authorization parses credential scope and signed headers")
+unittest {
+  SigV4Authorization parsed;
+  auto authHeader = "AWS4-HMAC-SHA256 "
+    ~ "Credential=micdn/20260519/us-east-1/s3/aws4_request, "
+    ~ "SignedHeaders=host;x-amz-content-sha256;x-amz-date, "
+    ~ "Signature=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+  assert(parseSigV4Authorization(authHeader, parsed));
+  assert(parsed.accessKey == "micdn");
+  assert(parsed.date == "20260519");
+  assert(parsed.region == "us-east-1");
+  assert(parsed.credentialScope == "20260519/us-east-1/s3/aws4_request");
+  assert(parsed.signedHeaders == ["host", "x-amz-content-sha256", "x-amz-date"]);
+  assert(signedHeadersContain(parsed.signedHeaders, "Host"));
+}
+
+@("s3 authorization rejects unsorted or duplicate signed headers")
+unittest {
+  SigV4Authorization parsed;
+  auto signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+  auto unsorted = "AWS4-HMAC-SHA256 Credential=micdn/20260519/us-east-1/s3/aws4_request,"
+    ~ " SignedHeaders=x-amz-date;host, Signature=" ~ signature;
+  auto duplicate = "AWS4-HMAC-SHA256 Credential=micdn/20260519/us-east-1/s3/aws4_request,"
+    ~ " SignedHeaders=host;host, Signature=" ~ signature;
+
+  assert(!parseSigV4Authorization(unsorted, parsed));
+  assert(!parseSigV4Authorization(duplicate, parsed));
+}
+
+@("s3 canonical request uses signed headers and normalized values")
+unittest {
+  InetHeaderMap headers;
+  headers["Host"] = "example.com";
+  headers["X-Amz-Date"] = "20260519T060000Z";
+  headers["X-Amz-Content-Sha256"] = sigV4UnsignedPayload;
+  headers["X-Amz-Meta-Name"] = "  alpha\t beta   gamma  ";
+
+  auto req = createTestHTTPServerRequest(
+      URL("https://example.com/bucket/photos/puppy.jpg?b=two&a=one"), HTTPMethod.GET, headers, null);
+
+  string canonicalRequest;
+  auto signedHeaders = ["host", "x-amz-content-sha256", "x-amz-date", "x-amz-meta-name"];
+  assert(generateCanonicalRequest(req, "/bucket/photos/puppy.jpg", signedHeaders,
+      sigV4UnsignedPayload, canonicalRequest));
+
+  auto expected = "GET\n"
+    ~ "/bucket/photos/puppy.jpg\n"
+    ~ "a=one&b=two\n"
+    ~ "host:example.com\n"
+    ~ "x-amz-content-sha256:UNSIGNED-PAYLOAD\n"
+    ~ "x-amz-date:20260519T060000Z\n"
+    ~ "x-amz-meta-name:alpha beta gamma\n"
+    ~ "\n"
+    ~ "host;x-amz-content-sha256;x-amz-date;x-amz-meta-name\n"
+    ~ "UNSIGNED-PAYLOAD";
+  assert(canonicalRequest == expected, canonicalRequest);
+}
+
+@("s3 timestamp parser and replay window")
+unittest {
+  SysTime parsed;
+  assert(parseAmzDate("20130524T000000Z", parsed));
+  assert(!parseAmzDate("20130524T000000", parsed));
+  assert(timestampWithinWindow("20130524T000000Z", dur!"days"(100_000)));
+  assert(!timestampWithinWindow("20130524T000000Z", dur!"minutes"(15)));
+}
+
+@("s3 payload hash accepts unsigned payload and sha256 hex only")
+unittest {
+  assert(isValidPayloadHash(sigV4UnsignedPayload));
+  assert(isValidPayloadHash(sigV4EmptyPayloadHash));
+  assert(!isValidPayloadHash("abc"));
+  assert(!isValidPayloadHash("g" ~ sigV4EmptyPayloadHash[1 .. $]));
 }
 
 @("s3 generate list objects xml")

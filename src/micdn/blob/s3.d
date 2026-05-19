@@ -17,11 +17,17 @@
 module micdn.blob.s3;
 /// S3 兼容接口：挂载在 `micdn.routes.mountS3`，路径解析与 Blob 相同（path 风格首段为 bucket）。
 
+import core.time : Duration, dur;
+
 import std.algorithm;
+import std.array : appender, join;
+import std.ascii : isDigit, isHexDigit;
 import std.base64;
 import std.stdio;
 import std.conv : to;
+import std.datetime.date : DateTime;
 import std.datetime.systime;
+import std.datetime.timezone : UTC;
 import std.digest : toHexString, LetterCase;
 import std.digest.hmac;
 import std.digest.md;
@@ -32,7 +38,8 @@ import std.random;
 import std.range;
 import std.uuid;
 import std.uni : toLower;
-import std.string : strip;
+import std.string : representation, split, strip;
+import std.uri : encodeComponent;
 
 import vibe.core.core;
 import vibe.core.file;
@@ -98,6 +105,37 @@ string generateEtag(string filePath) {
   }
 }
 
+enum sigV4Algorithm = "AWS4-HMAC-SHA256";
+enum sigV4Service = "s3";
+enum sigV4Terminal = "aws4_request";
+enum sigV4UnsignedPayload = "UNSIGNED-PAYLOAD";
+enum sigV4EmptyPayloadHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+struct SigV4Authorization {
+  string accessKey;
+  string date;
+  string region;
+  string service;
+  string terminal;
+  string credentialScope;
+  string signature;
+  string[] signedHeaders;
+}
+
+private ubyte[32] hmacSha256(const(ubyte)[] key, string data) {
+  auto h = hmac!SHA256(key);
+  h.put(data.representation);
+  return h.finish();
+}
+
+/// Derive the AWS SigV4 signing key for `date/region/s3/aws4_request`.
+ubyte[32] deriveSigningKey(string secretKey, string date, string region) {
+  auto kDate = hmacSha256(("AWS4" ~ secretKey).representation, date);
+  auto kRegion = hmacSha256(kDate[], region);
+  auto kService = hmacSha256(kRegion[], sigV4Service);
+  return hmacSha256(kService[], sigV4Terminal);
+}
+
 /**
  * Generate AWS Signature V4 signature
  *
@@ -111,18 +149,169 @@ string generateEtag(string filePath) {
  *   The generated signature as a hex string
  */
 string generateSignature(string stringToSign, string secretKey, string date, string region) {
-  // Generate signing key
-  import std.string : representation;
+  auto signingKey = deriveSigningKey(secretKey, date, region);
+  return hmacSha256(signingKey[], stringToSign).toHexString!(LetterCase.lower).idup;
+}
 
-  // Step 1: HMAC with "AWS4" + secretKey as key
-  auto hmac = hmac!SHA256(("AWS4" ~ secretKey).representation);
-  hmac.put(date.representation);
-  hmac.put(region.representation);
-  hmac.put("s3".representation);
-  hmac.put("aws4_request".representation);
-  hmac.put(stringToSign.representation);
+bool parseSigV4Authorization(string authHeader, out SigV4Authorization parsed) {
+  parsed = SigV4Authorization.init;
+  if (!authHeader.startsWith(sigV4Algorithm ~ " "))
+    return false;
 
-  return hmac.finish().toHexString!(LetterCase.lower).idup;
+  string credential;
+  string signedHeaders;
+  foreach (part; authHeader[(sigV4Algorithm.length + 1) .. $].split(",")) {
+    part = part.strip();
+    if (part.startsWith("Credential=")) {
+      credential = part["Credential=".length .. $].strip();
+    } else if (part.startsWith("SignedHeaders=")) {
+      signedHeaders = part["SignedHeaders=".length .. $].strip();
+    } else if (part.startsWith("Signature=")) {
+      parsed.signature = part["Signature=".length .. $].strip();
+    }
+  }
+
+  auto credentialParts = credential.split("/");
+  if (credentialParts.length != 5 || signedHeaders.length == 0 || !isHexSha256(parsed.signature))
+    return false;
+
+  parsed.accessKey = credentialParts[0];
+  parsed.date = credentialParts[1];
+  parsed.region = credentialParts[2];
+  parsed.service = credentialParts[3];
+  parsed.terminal = credentialParts[4];
+  parsed.credentialScope = parsed.date ~ "/" ~ parsed.region ~ "/" ~ parsed.service ~ "/" ~ parsed.terminal;
+
+  string previousHeader;
+  foreach (header; signedHeaders.split(";")) {
+    header = header.strip().toLower();
+    if (header.length == 0)
+      return false;
+    if (previousHeader.length > 0 && header <= previousHeader)
+      return false;
+    parsed.signedHeaders ~= header;
+    previousHeader = header;
+  }
+  return parsed.service == sigV4Service && parsed.terminal == sigV4Terminal;
+}
+
+bool signedHeadersContain(const string[] signedHeaders, string headerName) {
+  auto target = headerName.toLower();
+  return signedHeaders.canFind!(h => h == target);
+}
+
+bool parseAmzDate(string timestamp, out SysTime parsed) {
+  timestamp = timestamp.strip();
+  if (timestamp.length != 16 || timestamp[8] != 'T' || timestamp[15] != 'Z')
+    return false;
+
+  foreach (i, c; timestamp) {
+    if (i == 8 || i == 15)
+      continue;
+    if (!c.isDigit)
+      return false;
+  }
+
+  try {
+    int year = timestamp[0 .. 4].to!int;
+    int month = timestamp[4 .. 6].to!int;
+    int day = timestamp[6 .. 8].to!int;
+    int hour = timestamp[9 .. 11].to!int;
+    int minute = timestamp[11 .. 13].to!int;
+    int second = timestamp[13 .. 15].to!int;
+    parsed = SysTime(DateTime(year, month, day, hour, minute, second), UTC());
+    return true;
+  } catch (Exception e) {
+    return false;
+  }
+}
+
+bool timestampWithinWindow(string timestamp, Duration maxSkew = dur!"minutes"(15)) {
+  SysTime requestTime;
+  if (!parseAmzDate(timestamp, requestTime))
+    return false;
+
+  auto now = Clock.currTime(UTC());
+  return now >= requestTime - maxSkew && now <= requestTime + maxSkew;
+}
+
+bool isValidPayloadHash(string payloadHash) {
+  if (payloadHash == sigV4UnsignedPayload)
+    return true;
+  return isHexSha256(payloadHash);
+}
+
+bool isHexSha256(string value) {
+  if (value.length != 64)
+    return false;
+  return value.all!(c => c.isHexDigit);
+}
+
+bool getHeaderValue(HTTPServerRequest req, string headerName, out string value) {
+  auto exact = headerName in req.headers;
+  if (exact !is null) {
+    value = *exact;
+    return true;
+  }
+
+  auto lowerName = headerName.toLower();
+  foreach (entry; req.headers.byKeyValue()) {
+    if (entry.key.toLower() == lowerName) {
+      value = entry.value;
+      return true;
+    }
+  }
+  return false;
+}
+
+string canonicalHeaderValue(string value) {
+  auto normalized = appender!string();
+  bool inWhitespace = false;
+  foreach (c; value.strip()) {
+    if (c == ' ' || c == '\t') {
+      inWhitespace = true;
+    } else {
+      if (inWhitespace && normalized.data.length > 0)
+        normalized.put(' ');
+      normalized.put(c);
+      inWhitespace = false;
+    }
+  }
+  return normalized.data;
+}
+
+string canonicalQueryString(HTTPServerRequest req) {
+  string[] parts;
+  foreach (kv; req.query.byKeyValue()) {
+    parts ~= kv.key.encodeComponent ~ "=" ~ kv.value.encodeComponent;
+  }
+  parts.sort();
+  return parts.join("&");
+}
+
+bool generateCanonicalRequest(HTTPServerRequest req, string uri, const string[] signedHeaders,
+    string payloadHash, out string canonicalRequest) {
+  auto canonicalHeaders = appender!string();
+  foreach (header; signedHeaders) {
+    string value;
+    if (!getHeaderValue(req, header, value))
+      return false;
+    canonicalHeaders.put(header);
+    canonicalHeaders.put(":");
+    canonicalHeaders.put(canonicalHeaderValue(value));
+    canonicalHeaders.put("\n");
+  }
+
+  string signedHeadersValue = signedHeaders.join(";");
+  string canonicalUri = uri.length == 0 ? "/" : uri;
+  canonicalRequest = req.method.to!string ~ "\n" ~ canonicalUri ~ "\n" ~ canonicalQueryString(req)
+    ~ "\n" ~ canonicalHeaders.data ~ "\n" ~ signedHeadersValue ~ "\n" ~ payloadHash;
+  return true;
+}
+
+string generateStringToSign(string amzDate, string credentialScope, string canonicalRequest) {
+  auto canonicalRequestHash = toHexString!(LetterCase.lower)(sha256Of(canonicalRequest)).idup;
+  return sigV4Algorithm ~ "\n" ~ amzDate ~ "\n" ~ credentialScope ~ "\n" ~ canonicalRequestHash;
 }
 
 /**
@@ -254,6 +443,11 @@ class S3Service {
       import vibe.core.path;
       import std.file;
 
+      string signedPayloadHash;
+      bool bindPayloadHash = getHeaderValue(req, "x-amz-content-sha256", signedPayloadHash)
+        && signedPayloadHash != sigV4UnsignedPayload;
+      auto payloadHasher = SHA256();
+
       // Create temp file
       auto tempPath = std.file.tempDir() ~ "/" ~ generateUuid();
       auto tempFile = File(tempPath, "wb");
@@ -264,9 +458,22 @@ class S3Service {
       import eventcore.driver : IOMode;
 
       while ((read = req.bodyReader.read(buffer, IOMode.all)) > 0) {
+        if (bindPayloadHash)
+          payloadHasher.put(buffer[0 .. read]);
         tempFile.rawWrite(buffer[0 .. read]);
       }
       tempFile.close();
+
+      if (bindPayloadHash) {
+        auto actualPayloadHash = payloadHasher.finish().toHexString!(LetterCase.lower).idup;
+        if (actualPayloadHash != signedPayloadHash) {
+          std.file.remove(tempPath);
+          res.statusCode = HTTPStatus.unauthorized;
+          res.headers["WWW-Authenticate"] = sigV4Algorithm;
+          res.writeBody("Unauthorized", "text/plain");
+          return;
+        }
+      }
 
       // Get filename from uri
       import std.path;
@@ -405,51 +612,29 @@ class S3Service {
   }
 
   private bool auth(HTTPServerRequest req, HTTPServerResponse res) {
-    // Implement AWS Signature V4 authentication
-    if ("Authorization" in req.headers) {
-      auto authHeader = req.headers["Authorization"];
-      if (authHeader.startsWith("AWS4-HMAC-SHA256 ")) {
-        // Parse Authorization header
-        auto authParts = authHeader[17 .. $].split(", ");
-        string credentialScope, signature;
+    string authHeader;
+    SigV4Authorization sigv4;
+    if (getHeaderValue(req, "Authorization", authHeader) && parseSigV4Authorization(authHeader, sigv4)) {
+      string amzDate;
+      string payloadHash;
+      auto uri = getPath(mountS3, req);
+      auto br = repo.resolveBlob(uri);
 
-        foreach (part; authParts) {
-          if (part.startsWith("Credential=")) {
-            credentialScope = part[10 .. $];
-          } else if (part.startsWith("Signature=")) {
-            signature = part[10 .. $];
-          }
-        }
-
-        if (!credentialScope.empty && !signature.empty) {
-          // Extract access key from credential scope
-          auto credentialParts = credentialScope.split("/");
-          if (credentialParts.length >= 5) {
-            auto accessKey = credentialParts[0];
-
-            auto uri = getPath(mountS3, req);
-            auto br = repo.resolveBlob(uri);
-
-            // Access Key 固定为 micdn，Secret 为 micdn.xml 中 bucket 的 key
-            if (accessKey == "micdn" && br.bucket.key.length > 0) {
-              auto secretKey = br.bucket.key;
-
-              // Generate canonical request
-              string canonicalRequest = generateCanonicalRequest(req, uri);
-
-              // Generate string to sign
-              string stringToSign = generateStringToSign(req, canonicalRequest, credentialScope);
-
-              // Generate signature
-              string expectedSignature = generateSignature(stringToSign,
-                  secretKey, credentialParts[1], credentialParts[2]);
-
-              // Verify signature
-              if (signature == expectedSignature) {
-                return true;
-              }
-            }
-          }
+      // Access Key 固定为 micdn，Secret 为 micdn.xml 中 bucket 的 key
+      if (sigv4.accessKey == "micdn" && br.bucket.key.length > 0
+          && signedHeadersContain(sigv4.signedHeaders, "host")
+          && signedHeadersContain(sigv4.signedHeaders, "x-amz-date")
+          && getHeaderValue(req, "x-amz-date", amzDate)
+          && timestampWithinWindow(amzDate)
+          && amzDate[0 .. 8] == sigv4.date
+          && getHeaderValue(req, "x-amz-content-sha256", payloadHash)
+          && isValidPayloadHash(payloadHash)) {
+        string canonicalRequest;
+        if (generateCanonicalRequest(req, uri, sigv4.signedHeaders, payloadHash, canonicalRequest)) {
+          auto stringToSign = generateStringToSign(amzDate, sigv4.credentialScope, canonicalRequest);
+          auto expectedSignature = generateSignature(stringToSign, br.bucket.key, sigv4.date, sigv4.region);
+          if (sigv4.signature == expectedSignature)
+            return true;
         }
       }
     }
@@ -458,78 +643,5 @@ class S3Service {
     res.headers["WWW-Authenticate"] = "AWS4-HMAC-SHA256";
     res.writeBody("Unauthorized", "text/plain");
     return false;
-  }
-
-  string generateCanonicalRequest(HTTPServerRequest req, string uri) {
-    // Generate canonical request
-    string method = req.method.to!string;
-    string canonicalUri = uri;
-    string canonicalQueryString = "";
-
-    // Handle query parameters
-    if (!req.query.empty) {
-      bool first = true;
-      foreach (kv; req.query.byKeyValue()) {
-        if (!first)
-          canonicalQueryString ~= "&";
-        canonicalQueryString ~= kv.key ~ "=" ~ kv.value;
-        first = false;
-      }
-    }
-
-    // Generate canonical headers
-    string canonicalHeaders = "";
-    foreach (e; req.headers.byKeyValue()) {
-      auto lowerKey = e.key.toLower();
-      canonicalHeaders ~= lowerKey ~ ":" ~ e.value.strip() ~ "\n";
-    }
-
-    // Generate signed headers
-    string signedHeaders = "";
-    bool first = true;
-    foreach (e; req.headers.byKeyValue()) {
-      auto lowerKey = e.key.toLower();
-      if (!first)
-        signedHeaders ~= ";";
-      signedHeaders ~= lowerKey;
-      first = false;
-    }
-
-    // Generate payload hash
-    string payloadHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-    // In a real implementation, we would hash the request body
-
-    // Combine all parts
-    return method ~ "\n" ~ canonicalUri ~ "\n" ~ canonicalQueryString ~ "\n"
-      ~ canonicalHeaders ~ "\n" ~ signedHeaders ~ "\n" ~ payloadHash;
-  }
-
-  string generateStringToSign(HTTPServerRequest req, string canonicalRequest,
-      string credentialScope) {
-    // Get timestamp from x-amz-date header
-    string timestamp;
-    if ("x-amz-date" in req.headers) {
-      timestamp = req.headers["x-amz-date"];
-    } else {
-      // Fallback to current time
-      import std.datetime.systime;
-      import std.datetime.timezone;
-
-      auto now = Clock.currTime();
-      timestamp = now.toISOString();
-    }
-
-    // Generate scope from credential scope
-    auto scopeParts = credentialScope.split("/");
-    string s = scopeParts[1] ~ "/" ~ scopeParts[2] ~ "/s3/aws4_request";
-
-    // Hash canonical request
-    import std.digest.sha;
-    import std.digest : toHexString, LetterCase;
-
-    auto canonicalRequestHash = toHexString!(LetterCase.lower)(sha256Of(canonicalRequest)).idup;
-
-    // Combine all parts
-    return "AWS4-HMAC-SHA256\n" ~ timestamp ~ "\n" ~ s ~ "\n" ~ canonicalRequestHash;
   }
 }
