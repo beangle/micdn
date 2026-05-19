@@ -181,3 +181,42 @@ unittest {
   assert(response.canFind("test.txt"), "Response should contain test file");
   assert(response.canFind("test-dir/"), "Response should contain test directory");
 }
+
+@("s3 list objects xml paginates with marker")
+unittest {
+  import std.file;
+  import std.path;
+  import std.stdio;
+  import std.algorithm;
+
+  string tempDir = buildPath(tempDir(), randomUUID().toString());
+  mkdirRecurse(tempDir);
+
+  string fileA = buildPath(tempDir, "a.txt");
+  string fileB = buildPath(tempDir, "b.txt");
+  string fileC = buildPath(tempDir, "c.txt");
+  File(fileA, "w").writeln("a");
+  File(fileB, "w").writeln("b");
+  File(fileC, "w").writeln("c");
+
+  string firstPage = generateListObjectsXml(tempDir, "/bucket/", "bucket", "", 2);
+  assert(firstPage.canFind("<MaxKeys>2</MaxKeys>"));
+  assert(firstPage.canFind("<IsTruncated>true</IsTruncated>"));
+  assert(firstPage.canFind("<NextMarker>/bucket/b.txt</NextMarker>"));
+  assert(firstPage.canFind("<Key>/bucket/a.txt</Key>"));
+  assert(firstPage.canFind("<Key>/bucket/b.txt</Key>"));
+  assert(!firstPage.canFind("<Key>/bucket/c.txt</Key>"));
+
+  string secondPage = generateListObjectsXml(tempDir, "/bucket/", "bucket", "/bucket/b.txt", 2);
+  assert(secondPage.canFind("<Marker>/bucket/b.txt</Marker>"));
+  assert(secondPage.canFind("<IsTruncated>false</IsTruncated>"));
+  assert(!secondPage.canFind("<NextMarker>"));
+  assert(!secondPage.canFind("<Key>/bucket/a.txt</Key>"));
+  assert(!secondPage.canFind("<Key>/bucket/b.txt</Key>"));
+  assert(secondPage.canFind("<Key>/bucket/c.txt</Key>"));
+
+  remove(fileA);
+  remove(fileB);
+  remove(fileC);
+  remove(tempDir);
+}

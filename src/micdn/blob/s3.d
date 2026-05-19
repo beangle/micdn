@@ -314,6 +314,42 @@ string generateStringToSign(string amzDate, string credentialScope, string canon
   return sigV4Algorithm ~ "\n" ~ amzDate ~ "\n" ~ credentialScope ~ "\n" ~ canonicalRequestHash;
 }
 
+void cleanupTempUploadFile(ref File tempFile, ref bool tempFileOpen, string tempPath) {
+  if (tempFileOpen) {
+    try {
+      tempFile.close();
+      tempFileOpen = false;
+    } catch (Exception) {
+    }
+  }
+  try {
+    if (std.file.exists(tempPath))
+      std.file.remove(tempPath);
+  } catch (Exception) {
+  }
+}
+
+struct S3ListEntry {
+  string key;
+  string path;
+  bool isDir;
+  ulong size;
+  SysTime modifiedAt;
+}
+
+uint parseListMaxKeys(string value) {
+  enum uint defaultMaxKeys = 1000;
+  enum uint maxAllowedKeys = 1000;
+  try {
+    auto parsed = value.strip().to!uint;
+    if (parsed == 0)
+      return 1;
+    return parsed > maxAllowedKeys ? maxAllowedKeys : parsed;
+  } catch (Exception) {
+    return defaultMaxKeys;
+  }
+}
+
 /**
  * Generate S3 ListObjects XML response
  *
@@ -325,13 +361,66 @@ string generateStringToSign(string amzDate, string credentialScope, string canon
  * Returns:
  *   The generated XML response as a string
  */
-string generateListObjectsXml(string basePath, string uriPrefix, string bucketName = "micdn-blob") {
+string generateListObjectsXml(string basePath, string uriPrefix, string bucketName = "micdn-blob",
+    string marker = "", uint maxKeys = 1000) {
   import std.file;
   import std.datetime.systime;
   import std.datetime.timezone;
   import std.array : appender;
 
+  if (maxKeys == 0)
+    maxKeys = 1;
+
+  S3ListEntry[] entries;
+  foreach (entry; dirEntries(basePath, SpanMode.shallow)) {
+    if (isFile(entry)) {
+      entries ~= S3ListEntry(uriPrefix ~ entry.baseName(), entry, false,
+          getSize(entry), timeLastModified(entry));
+    } else if (entry.isDir) {
+      entries ~= S3ListEntry(uriPrefix ~ entry.baseName() ~ "/", entry, true, 0, SysTime.init);
+    }
+  }
+  entries.sort!((a, b) => a.key < b.key);
+
   auto app = appender!string();
+  auto contents = appender!string();
+  uint emitted = 0;
+  bool truncated = false;
+  string nextMarker;
+
+  foreach (entry; entries) {
+    if (marker.length > 0 && entry.key <= marker)
+      continue;
+    if (emitted >= maxKeys) {
+      truncated = true;
+      break;
+    }
+    if (entry.isDir) {
+      contents.put("  <CommonPrefixes>\n");
+      contents.put("    <Prefix>");
+      contents.put(entry.key);
+      contents.put("</Prefix>\n");
+      contents.put("  </CommonPrefixes>\n");
+    } else {
+      contents.put("  <Contents>\n");
+      contents.put("    <Key>");
+      contents.put(entry.key);
+      contents.put("</Key>\n");
+      contents.put("    <LastModified>");
+      contents.put(entry.modifiedAt.toISOExtString);
+      contents.put("</LastModified>\n");
+      contents.put("    <ETag>");
+      contents.put(generateEtag(entry.path));
+      contents.put("</ETag>\n");
+      contents.put("    <Size>");
+      contents.put(entry.size.to!string);
+      contents.put("</Size>\n");
+      contents.put("  </Contents>\n");
+    }
+    nextMarker = entry.key;
+    emitted++;
+  }
+
   app.put(`<?xml version="1.0" encoding="UTF-8"?>` ~ "\n");
   app.put(`<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` ~ "\n");
 
@@ -341,35 +430,21 @@ string generateListObjectsXml(string basePath, string uriPrefix, string bucketNa
   app.put("  <Prefix>");
   app.put(uriPrefix);
   app.put("</Prefix>\n");
-  app.put("  <Marker></Marker>\n");
-  app.put("  <MaxKeys>1000</MaxKeys>\n");
-  app.put("  <IsTruncated>false</IsTruncated>\n");
-
-  foreach (entry; dirEntries(basePath, SpanMode.shallow)) {
-    if (isFile(entry)) {
-      auto mtime = timeLastModified(entry);
-      app.put("  <Contents>\n");
-      app.put("    <Key>");
-      app.put(uriPrefix ~ entry.baseName());
-      app.put("</Key>\n");
-      app.put("    <LastModified>");
-      app.put(mtime.toISOExtString);
-      app.put("</LastModified>\n");
-      app.put("    <ETag>");
-      app.put(generateEtag(entry));
-      app.put("</ETag>\n");
-      app.put("    <Size>");
-      app.put(getSize(entry).to!string);
-      app.put("</Size>\n");
-      app.put("  </Contents>\n");
-    } else if (entry.isDir) {
-      app.put("  <CommonPrefixes>\n");
-      app.put("    <Prefix>");
-      app.put(uriPrefix ~ entry.baseName() ~ "/");
-      app.put("</Prefix>\n");
-      app.put("  </CommonPrefixes>\n");
-    }
+  app.put("  <Marker>");
+  app.put(marker);
+  app.put("</Marker>\n");
+  app.put("  <MaxKeys>");
+  app.put(maxKeys.to!string);
+  app.put("</MaxKeys>\n");
+  app.put("  <IsTruncated>");
+  app.put(truncated ? "true" : "false");
+  app.put("</IsTruncated>\n");
+  if (truncated) {
+    app.put("  <NextMarker>");
+    app.put(nextMarker);
+    app.put("</NextMarker>\n");
   }
+  app.put(contents.data);
 
   app.put("</ListBucketResult>\n");
   return app.data;
@@ -451,6 +526,8 @@ class S3Service {
       // Create temp file
       auto tempPath = std.file.tempDir() ~ "/" ~ generateUuid();
       auto tempFile = File(tempPath, "wb");
+      bool tempFileOpen = true;
+      scope(exit) cleanupTempUploadFile(tempFile, tempFileOpen, tempPath);
 
       // Read request body to temp file
       ubyte[] buffer = new ubyte[4096];
@@ -463,11 +540,11 @@ class S3Service {
         tempFile.rawWrite(buffer[0 .. read]);
       }
       tempFile.close();
+      tempFileOpen = false;
 
       if (bindPayloadHash) {
         auto actualPayloadHash = payloadHasher.finish().toHexString!(LetterCase.lower).idup;
         if (actualPayloadHash != signedPayloadHash) {
-          std.file.remove(tempPath);
           res.statusCode = HTTPStatus.unauthorized;
           res.headers["WWW-Authenticate"] = sigV4Algorithm;
           res.writeBody("Unauthorized", "text/plain");
@@ -484,9 +561,6 @@ class S3Service {
 
       auto meta = repo.create(br.bucket, tempPath, filename,
           blobObjectUploadDir(br.objectPath), owner);
-
-      // Clean up temp file
-      std.file.remove(tempPath);
 
       // Add S3-specific response headers
       string requestId = generateUuid();
@@ -594,7 +668,9 @@ class S3Service {
       res.headers["x-amz-request-id"] = requestId;
       res.headers["x-amz-id-2"] = amzId2;
 
-      string xmlResponse = generateListObjectsXml(basePath, uri);
+      auto maxKeys = parseListMaxKeys(req.query.get("max-keys", "1000"));
+      auto marker = req.query.get("marker", "");
+      string xmlResponse = generateListObjectsXml(basePath, uri, br.bucket.name, marker, maxKeys);
       res.contentType = "application/xml";
       res.writeBody(xmlResponse, "application/xml");
     } else {

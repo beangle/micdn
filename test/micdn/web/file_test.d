@@ -17,6 +17,7 @@
 module test.micdn.web.file_test;
 
 import micdn.web.file;
+import std.exception : assertThrown;
 
 @("web file range encode")
 unittest {
@@ -36,4 +37,7 @@ unittest {
 
   auto r5 = parseRange("10000-100002", 10_000);
   assert(r5 == [9999, 9999]);
+
+  assertThrown(parseRange("0-", 0));
+  assertThrown(parseRange("-1", 0));
 }

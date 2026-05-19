@@ -68,7 +68,12 @@ bool curlDownload(string url, string local) {
       remove(tmpPath);
   }
 
-  auto cmd = execute(["curl", "--fail", "--silent", "-L", "-o", tmpPath, url]);
+  auto cmd = execute(["curl", "--fail", "--silent", "--show-error", "-L",
+      "--connect-timeout", "10",
+      "--max-time", "300",
+      "--speed-time", "30",
+      "--speed-limit", "1024",
+      "-o", tmpPath, url]);
   import vibe.core.log;
 
   if (cmd.status != 0) {
@@ -90,6 +95,8 @@ bool curlDownload(string url, string local) {
 ulong[2] parseRange(string range, ulong maxSize) @safe {
   if (range.canFind(','))
     throw new HTTPStatusException(HTTPStatus.notImplemented);
+  if (maxSize == 0)
+    throw new HTTPStatusException(cast(HTTPStatus) 416);
   auto s = range.split("-");
   if (s.length != 2)
     throw new HTTPStatusException(HTTPStatus.badRequest);
@@ -165,6 +172,15 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
   auto prange = "Range" in req.headers;
 
   if (prange) {
+    if (dirent.size == 0) {
+      res.headers["Content-Length"] = "0";
+      res.headers["Content-Range"] = "bytes */0";
+      res.statusCode = cast(HTTPStatus) 416;
+      if (preWrite)
+        preWrite(req, res);
+      res.writeVoidBody();
+      return;
+    }
     auto range = (*prange).chompPrefix("bytes=");
     auto startend = parseRange(range, dirent.size);
     rangeStart = startend[0];
@@ -213,8 +229,12 @@ private void sendFilesImpl(scope HTTPServerRequest req, scope HTTPServerResponse
   if (handleCacheFile(req, res, infos[0], policy.cacheControl, policy.maxAge)) {
     return;
   }
+  assert(infos.length > 0);
   ulong size = infos.map!(i => i.size).sum;
-  size += infos.length - 1;
+  ulong separatorCount = 0;
+  foreach (_; 1 .. infos.length)
+    separatorCount++;
+  size += separatorCount;
 
   if (!("Content-Type" in res.headers)) {
     res.headers["Content-Type"] = res.headers.get("Content-Type", getMimeTypeForFile(firstPath));
