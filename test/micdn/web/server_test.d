@@ -37,7 +37,8 @@ unittest {
 unittest {
   // 双引号
   assert(extractRemoteUrl(`<micdn remote="http://example.com/micdn.xml">`) == "http://example.com/micdn.xml");
-  assert(extractRemoteUrl(`<micdn listen="0:8888" remote="https://cdn.example.com/config.xml">`) == "https://cdn.example.com/config.xml");
+  assert(extractRemoteUrl(`<micdn listen="0:8888" remote="https://cdn.example.com/config.xml">`)
+      == "https://cdn.example.com/config.xml");
   // 单引号
   assert(extractRemoteUrl(`<micdn remote='http://a.com/b.xml'>`) == "http://a.com/b.xml");
   // 无 remote
@@ -45,4 +46,21 @@ unittest {
   assert(extractRemoteUrl(`<micdn>`) is null);
   // remote 有空格
   assert(extractRemoteUrl(`<micdn remote = "http://x.com/c.xml">`) == "http://x.com/c.xml");
+}
+
+@("repository path rejects encoded traversal")
+unittest {
+  auto base = buildNormalizedPath(tempDir(), "micdn-repo-safe");
+
+  auto goodUri = decodeRepositoryUri("/org/example/app/1.0/app-1.0.jar");
+  auto goodPath = resolveRepositoryPath(base, goodUri);
+  assert(goodPath !is null);
+  assert(baseName(goodPath) == "app-1.0.jar");
+
+  auto encodedTraversal = decodeRepositoryUri("/%2e%2e%2fsecret.txt");
+  assert(encodedTraversal == "/../secret.txt");
+  assert(resolveRepositoryPath(base, encodedTraversal) is null);
+
+  auto encodedBackslash = decodeRepositoryUri("/%5cWindows%5cwin.ini");
+  assert(encodedBackslash is null);
 }

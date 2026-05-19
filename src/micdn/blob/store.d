@@ -12,6 +12,7 @@ module micdn.blob.store;
 import std.algorithm;
 import std.array;
 import std.conv;
+import std.exception;
 import std.file;
 import std.stdio : File;
 import std.path;
@@ -71,6 +72,29 @@ string blobObjectUploadDir(string objectPath) {
   if (objectPath.endsWith("/"))
     return objectPath.length == 1 ? "/" : objectPath[0 .. $-1];
   return dirName(objectPath);
+}
+
+/// 校验桶内对象路径：拒绝 NUL、反斜杠，以及原始或 URL 编码后的独立 `..` 路径段。
+bool isSafeBlobObjectPath(string objectPath) {
+  import vibe.textfilter.urlencode : urlDecode;
+
+  try
+    objectPath = urlDecode(objectPath);
+  catch (Exception)
+    return false;
+
+  if (objectPath.length == 0)
+    objectPath = "/";
+  else if (!objectPath.startsWith("/"))
+    objectPath = "/" ~ objectPath;
+
+  if (objectPath.indexOf('\0') >= 0 || objectPath.indexOf('\\') >= 0)
+    return false;
+  foreach (part; objectPath.split("/")) {
+    if (part == "..")
+      return false;
+  }
+  return true;
 }
 
 /// 由 BlobConfig.buckets 构建 Bucket 映射（按 `name` 索引）。
@@ -133,6 +157,8 @@ class BlobRepo {
   string toPhysicalPath(const Bucket bucket, string objectPath) const {
     if (bucket.name.length == 0)
       return "";
+    if (!isSafeBlobObjectPath(objectPath))
+      return "";
     if (!objectPath.startsWith("/"))
       objectPath = "/" ~ objectPath;
     return expandTilde(base) ~ "/" ~ bucket.name ~ objectPath;
@@ -142,9 +168,11 @@ class BlobRepo {
     if (bucket.name.length == 0)
       return 0;
     assert(objectPath.startsWith("/"), "objectPath must start with /");
-    if (objectPath.indexOf("..") > -1)
+    if (!isSafeBlobObjectPath(objectPath))
       return 0;
     auto fullPath = toPhysicalPath(bucket, objectPath);
+    if (fullPath.length == 0)
+      return 0;
     if (exists(fullPath)) {
       return isDir(fullPath) ? 1 : 2;
     }
@@ -153,6 +181,8 @@ class BlobRepo {
 
   public string getRealname(const Bucket bucket, string objectPath) {
     auto fullPath = toPhysicalPath(bucket, objectPath);
+    if (fullPath.length == 0)
+      return "";
     if (!exists(fullPath) || isDir(fullPath))
       return "";
     return getUserXattr(fullPath, "original_name");
@@ -161,6 +191,7 @@ class BlobRepo {
   public BlobMeta create(const Bucket bucket, string tmpfile,
       string filename, string dir, string owner) {
     assert(bucket.name.length > 0 && dir.startsWith("/"), "bucket and dir must be valid");
+    enforce(isSafeBlobObjectPath(dir), "invalid blob object path");
 
     BlobMeta meta;
 
@@ -181,6 +212,7 @@ class BlobRepo {
     }
     meta.filePath = filePath;
     auto physicalPath = toPhysicalPath(bucket, filePath);
+    enforce(physicalPath.length > 0, "invalid blob object path");
     mkdirRecurse(dirName(physicalPath));
 
     copy(tmpfile, physicalPath);
@@ -191,8 +223,11 @@ class BlobRepo {
   }
 
   public bool remove(const Bucket bucket, string objectPath) {
-    assert(bucket.name.length > 0 && objectPath.startsWith("/"));
+    if (bucket.name.length == 0 || !objectPath.startsWith("/") || !isSafeBlobObjectPath(objectPath))
+      return false;
     auto fullPath = toPhysicalPath(bucket, objectPath);
+    if (fullPath.length == 0)
+      return false;
     if (std.file.exists(fullPath)) {
       std.file.remove(fullPath);
       return true;

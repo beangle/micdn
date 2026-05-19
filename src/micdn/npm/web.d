@@ -39,14 +39,13 @@ class NpmService {
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
     auto uri = getPath(endpoint, req);
-    if (uri.indexOf("..") > -1)
+    auto decodedUri = decodeRepositoryUri(uri);
+    auto path = resolveRepositoryPath(repo.base, decodedUri);
+    if (path is null)
       throw new HTTPStatusException(HTTPStatus.notFound);
 
-    import vibe.textfilter.urlencode;
-
     // 支持 NPM 官方 tgz URL：{packageName}/-/{name}-{version}.tgz，不存在则下载后返回
-    if (uri.canFind("/-/") && uri.endsWith(".tgz")) {
-      auto decodedUri = urlDecode(uri);
+    if (decodedUri.canFind("/-/") && decodedUri.endsWith(".tgz")) {
       auto parsed = parseTarballUri(decodedUri);
       if (parsed[0]!is null && parsed[1]!is null && parsed[2]!is null) {
         if (repo.fetch(parsed[0], parsed[1], parsed[2])) {
@@ -58,18 +57,17 @@ class NpmService {
       }
     }
 
-    auto path = urlDecode(repo.base ~ uri);
     if (exists(path)) {
       if (isDir(path)) {
         if (req.method == HTTPMethod.HEAD) {
           throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
         }
-        if (uri.endsWith("/")) {
-          auto listData = genListContents(repo.base ~ uri, endpoint, uri);
+        if (decodedUri.endsWith("/")) {
+          auto listData = genListContents(path, endpoint, decodedUri);
           render!("index.dt", listData)(res);
         } else {
-          uri = endpoint ~ uri;
-          res.redirect(req.requestURI.replace(uri, uri ~ "/"));
+          auto pub = endpoint ~ decodedUri;
+          res.redirect(req.requestURI.replace(pub, pub ~ "/"));
         }
       } else {
         sendFile(req, res, path, npmArtifactCachePolicy());

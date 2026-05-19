@@ -34,6 +34,51 @@ import vibe.core.log;
 import micdn.web.file;
 import micdn.xml;
 
+/// 解码仓库请求 URI，并拒绝 NUL 与反斜杠，避免编码后的路径分隔符绕过上层检查。
+string decodeRepositoryUri(string uri) {
+  import vibe.textfilter.urlencode : urlDecode;
+
+  auto decoded = urlDecode(uri);
+  if (decoded.indexOf('\0') >= 0 || decoded.indexOf('\\') >= 0)
+    return null;
+  if (decoded.length == 0 || decoded[0] != '/')
+    decoded = "/" ~ decoded;
+  return decoded;
+}
+
+/// 将已解码 URI 规范化为物理路径；若规范化后不在仓库 base 下，则返回 null。
+string resolveRepositoryPath(string base, string decodedUri) {
+  if (decodedUri is null)
+    return null;
+  auto baseAbs = absolutePath(expandTilde(base));
+  string relative = decodedUri;
+  while (relative.startsWith("/"))
+    relative = relative[1 .. $];
+
+  auto path = absolutePath(buildNormalizedPath(baseAbs, relative));
+  return pathIsUnderDir(baseAbs, path) ? path : null;
+}
+
+/// 判断规范化后的路径是否仍位于指定目录内；Windows 下路径比较不区分大小写。
+private bool pathIsUnderDir(const string absDir, const string absPath) {
+  import std.path : dirSeparator;
+  version (Windows) {
+    auto dir = absDir.toLower();
+    auto path = absPath.toLower();
+  } else {
+    auto dir = absDir;
+    auto path = absPath;
+  }
+
+  if (path == dir)
+    return true;
+  if (path.length <= dir.length)
+    return false;
+  if (path[dir.length] != dirSeparator[0])
+    return false;
+  return path.startsWith(dir);
+}
+
 string resolveConfigFile(string defaultConfigFileName) {
   string config;
   auto hasConfig = readOption!string("f", &config, "specify config file, dir or URL");

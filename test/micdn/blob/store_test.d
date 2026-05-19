@@ -8,18 +8,29 @@
 
 module test.micdn.blob.store_test;
 
+import std.exception : assertThrown;
 import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
 import std.path : buildPath;
 import std.uuid : randomUUID;
 
 import micdn.blob.store;
 import micdn.blob.xattr;
+import micdn.model;
 
 @("blobObjectUploadDir upload path semantics")
 unittest {
   assert(blobObjectUploadDir("/a/b/c/file.txt") == "/a/b/c");
   assert(blobObjectUploadDir("/a/b/c/") == "/a/b/c");
   assert(blobObjectUploadDir("/a/b/c") == "/a/b");
+}
+
+@("blob object path rejects traversal segments")
+unittest {
+  assert(isSafeBlobObjectPath("/a/b/file.txt"));
+  assert(isSafeBlobObjectPath("/a..b/file.txt"));
+  assert(!isSafeBlobObjectPath("/../secret.txt"));
+  assert(!isSafeBlobObjectPath("/a/%2e%2e/secret.txt"));
+  assert(!isSafeBlobObjectPath("/a/%5csecret.txt"));
 }
 
 @("blob path-style bucket split")
@@ -29,6 +40,30 @@ unittest {
   assert(blobPathSplitBucket("/local", b, p) && b == "local" && p == "/");
   assert(!blobPathSplitBucket("nope", b, p));
   assert(!blobPathSplitBucket("", b, p));
+}
+
+@("blob repo rejects unsafe object paths")
+unittest {
+  auto base = buildPath(tempDir(), "micdn-blob-safe-" ~ randomUUID().toString);
+  scope (exit) {
+    if (exists(base))
+      rmdirRecurse(base);
+  }
+
+  auto config = new BlobConfig(base);
+  config.buckets = [Bucket("local", "secret", true)];
+  auto repo = new BlobRepo(config);
+  auto bucket = config.buckets[0];
+
+  assert(repo.toPhysicalPath(bucket, "/safe/file.txt").length > 0);
+  assert(repo.toPhysicalPath(bucket, "/../secret.txt").length == 0);
+  assert(repo.toPhysicalPath(bucket, "/a/%2e%2e/secret.txt").length == 0);
+  assert(repo.check(bucket, "/../secret.txt") == 0);
+  assert(!repo.remove(bucket, "/../secret.txt"));
+
+  auto tmp = buildPath(base, "upload.tmp");
+  write(tmp, [ubyte(1), 2, 3]);
+  assertThrown!Exception(repo.create(bucket, tmp, "file.txt", "/../escape", "me"));
 }
 
 version (linux) {

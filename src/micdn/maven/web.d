@@ -56,37 +56,36 @@ class MavenService {
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
     auto uri = getPath(endpoint, req);
-    if (uri.indexOf("..") > -1)
+    auto decodedUri = decodeRepositoryUri(uri);
+    auto file = resolveRepositoryPath(repo.base, decodedUri);
+    if (file is null)
       throw new HTTPStatusException(HTTPStatus.notFound);
 
-    import vibe.textfilter.urlencode;
-
-    auto file = urlDecode(repo.base ~ uri);
     if (exists(file)) {
       if (isDir(file)) {
         if (req.method == HTTPMethod.HEAD) {
           throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
         }
-        if (uri.endsWith("/")) {
-          auto listData = genListContents(repo.base ~ uri, endpoint, uri);
+        if (decodedUri.endsWith("/")) {
+          auto listData = genListContents(file, endpoint, decodedUri);
           render!("index.dt", listData)(res);
         } else {
-          auto pub = endpoint ~ uri;
+          auto pub = endpoint ~ decodedUri;
           res.redirect(req.requestURI.replace(pub, pub ~ "/"));
         }
       } else {
-        sendFile(req, res, file, mavenArtifactCachePolicy(uri));
+        sendFile(req, res, file, mavenArtifactCachePolicy(decodedUri));
       }
     } else {
-      if (uri.endsWith(".diff")) {
+      if (decodedUri.endsWith(".diff")) {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
       // 目录型 URL：本地不存在则直接 404，不重定向（重定向后仍无列表内容）
-      if (uri.endsWith("/") || !looksLikeMavenArtifactFile(uri)) {
+      if (decodedUri.endsWith("/") || !looksLikeMavenArtifactFile(decodedUri)) {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
-      if (repo.fetch(uri)) {
-        sendFile(req, res, file, mavenArtifactCachePolicy(uri));
+      if (repo.fetch(decodedUri)) {
+        sendFile(req, res, file, mavenArtifactCachePolicy(decodedUri));
       } else {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
