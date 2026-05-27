@@ -54,6 +54,6 @@ class WwwDocService {
       res.headers["Access-Control-Allow-Origin"] = "*";
     }
 
-    sendFile(req, res, rs, wwwDocCachePolicy(path), &setCORS);
+    sendFile(req, res, rs, wwwDocCachePolicy(rs), &setCORS);
   }
 }
