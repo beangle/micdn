@@ -421,6 +421,25 @@ void setWritable(string dir) {
   doSetWritable(dir);
 }
 
+/** 路径按 `/` 分段后不得含空段、`.` 或 `..`。
+
+    用于配置中的 endpoint（如 www `<doc location>`）、归档内子路径等，不替代 HTTP 侧的 `decodeRepositoryUri`。
+*/
+bool isSafePathSegments(in string path) @safe pure {
+  if (path is null || path.length == 0)
+    return false;
+  foreach (i, part; path.split("/")) {
+    if (part.length == 0) {
+      if (i == 0 && path[0] == '/')
+        continue;
+      return false;
+    }
+    if (part == "." || part == "..")
+      return false;
+  }
+  return true;
+}
+
 /** 判断规范化后的 `absPath` 是否位于 `absDir` 下（含与 `absDir` 相等）。
 
     假定两路径已为绝对路径；纯字符串前缀比较，不访问磁盘。
