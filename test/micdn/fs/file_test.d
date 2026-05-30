@@ -140,6 +140,46 @@ unittest {
   assert(!isSafeZipCompressionRatio(1, 0));
 }
 
+@("extractTgzToDocBase rejects innerDir that escapes extract dir")
+unittest {
+  import std.process;
+
+  auto work = tempDir() ~ "micdn_tgz_escape_" ~ randomUUID().toString();
+  scope (exit) {
+    if (exists(work))
+      rmdirRecurse(work);
+  }
+  mkdirRecurse(work ~ "/pkg/package/dist");
+  std.file.write(work ~ "/pkg/package/dist/index.html", "ok");
+  auto tgz = work ~ "/pkg.tgz";
+  auto tar = execute(["tar", "-czf", tgz, "-C", work ~ "/pkg", "package"]);
+  assert(tar.status == 0, "tar failed: " ~ tar.output);
+
+  auto docBase = work ~ "/out";
+  assert(!extractTgzToDocBase(tgz, docBase, "package/../../.."));
+  assert(!exists(docBase));
+}
+
+@("isSafePathSegments rejects traversal segments")
+unittest {
+  assert(isSafePathSegments("/manual"));
+  assert(isSafePathSegments("/mobile/student"));
+  assert(!isSafePathSegments(null));
+  assert(!isSafePathSegments("/../manual"));
+  assert(!isSafePathSegments("/manual/../admin"));
+  assert(!isSafePathSegments("/manual//foo"));
+  assert(!isSafePathSegments(".."));
+}
+
+@("isPathUnder prefix boundary")
+unittest {
+  auto base = absolutePath(buildPath(tempDir(), "micdn-under-dir"));
+  assert(isPathUnder(base, base));
+  assert(isPathUnder(base, buildPath(base, "a", "b.txt")));
+  assert(!isPathUnder(base, base ~ "suffix"));
+  assert(!isPathUnder(base, buildNormalizedPath(base, "..", "other")));
+}
+
 @("fs unzip and permissions")
 unittest {
   import std.file : read;

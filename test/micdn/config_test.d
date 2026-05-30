@@ -153,6 +153,23 @@ unittest {
   assert(isValidEndpoint(normalizeEndpoint("/manual/")));
 }
 
+@("www doc rejects location with .. segments")
+unittest {
+  import std.exception;
+
+  auto traversal = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn>
+  <maven/>
+  <npm/>
+  <www base="~/tmp/www">
+    <doc location="/manual/../admin">
+      <dir location="~/m"/>
+    </doc>
+  </www>
+</micdn>`;
+  assertThrown!Exception(parse("~/tmp", traversal));
+}
+
 @("www doc rejects empty location")
 unittest {
   import std.exception;

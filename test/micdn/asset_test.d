@@ -19,7 +19,9 @@ module micdn.asset_test;
 import micdn.asset;
 import micdn.config;
 import micdn.model;
+import micdn.web;
 import micdn.xml;
+import std.file;
 import std.path;
 
 @("asset dynaBundles registry for cache policy")
@@ -45,6 +47,28 @@ unittest {
   assert(paths.length == 3);
   assert(paths[1] == "/a/c1/c.min.js");
   assert(paths[2] == "/a/c2/c.min.js");
+}
+
+@("asset get rejects traversal under base")
+unittest {
+  auto tmp = absolutePath(buildPath(tempDir, "micdn-asset-safe"));
+  auto outside = buildPath(tempDir, "micdn-asset-outside.txt");
+  scope (exit) {
+    if (exists(tmp))
+      rmdirRecurse(tmp);
+    if (exists(outside))
+      remove(outside);
+  }
+  mkdirRecurse(buildPath(tmp, "bui", "0.1"));
+  write(buildPath(tmp, "bui", "0.1", "a.js"), "x");
+  write(outside, "outside");
+
+  auto repo = new AssetRepo(tmp);
+  auto good = repo.get("/bui/0.1/a.js");
+  assert(good !is null);
+  assert(good[0] == resolveRepositoryPath(tmp, "/bui/0.1/a.js"));
+  assert(repo.get(decodeRepositoryUri("/%2e%2e%2f" ~ baseName(outside))) is null);
+  assert(repo.get(decodeRepositoryUri("/%5cWindows%5cwin.ini")) is null);
 }
 
 @("asset Repository config parse")

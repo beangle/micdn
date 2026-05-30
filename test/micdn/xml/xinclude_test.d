@@ -17,7 +17,7 @@ import std.uuid;
 import dxml.dom;
 
 import micdn.config : parseFile;
-import micdn.xml;
+import micdn.xml : MicdnXmlException, expandXiIncludes, parseDomRoot, readXml;
 
 @("expandXiIncludes replaces self-closing xi:include")
 unittest {
@@ -96,5 +96,32 @@ unittest {
   scope (exit)
     rmdirRecurse(dir);
 
-  assertThrown!Exception(expandXiIncludes(dir, `<x><xi:include href="../evil.xml"/></x>`));
+  assertThrown!MicdnXmlException(expandXiIncludes(dir, `<x><xi:include href="../evil.xml"/></x>`));
+}
+
+@("parseDomRoot reports invalid XML with line context")
+unittest {
+  import std.exception;
+
+  auto bad = "<micdn>\n  <static>\n  </micdn>";
+  auto e = collectException!MicdnXmlException(parseDomRoot(bad, "/tmp/micdn.xml"));
+  assert(e !is null);
+  assert(e.msg.indexOf("/tmp/micdn.xml") >= 0);
+  assert(e.msg.indexOf("[") >= 0);
+  assert(e.msg.indexOf("near:") >= 0);
+}
+
+@("parse rejects stray text in element body")
+unittest {
+  import std.exception;
+
+  import micdn.config : parse;
+
+  auto xml = `<?xml version="1.0"?><micdn><www>
+-  </www></micdn>`;
+  auto e = collectException!MicdnXmlException(parse("/tmp", xml, "/tmp/micdn.xml"));
+  assert(e !is null);
+  assert(e.msg.indexOf("unexpected text") >= 0);
+  assert(e.msg.indexOf("/tmp/micdn.xml") >= 0);
+  assert(e.msg.indexOf("near:") >= 0);
 }

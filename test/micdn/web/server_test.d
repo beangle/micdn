@@ -18,7 +18,7 @@ module test.micdn.web.server_test;
 
 import std.file;
 import std.path;
-import micdn.web.server;
+import micdn.web;
 import micdn.config;
 
 @("web server parse config")
