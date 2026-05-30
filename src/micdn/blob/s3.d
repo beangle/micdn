@@ -458,7 +458,7 @@ class S3Service {
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
-    auto actualUri = getPath(mountS3, req);
+    const actualUri = getPath(mountS3, req);
 
     // Authenticate S3 request
     if (auth(req, res)) {
@@ -693,7 +693,7 @@ class S3Service {
     if (getHeaderValue(req, "Authorization", authHeader) && parseSigV4Authorization(authHeader, sigv4)) {
       string amzDate;
       string payloadHash;
-      auto uri = getPath(mountS3, req);
+      const uri = getPath(mountS3, req);
       auto br = repo.resolveBlob(uri);
 
       // Access Key 固定为 micdn，Secret 为 micdn.xml 中 bucket 的 key

@@ -134,7 +134,7 @@ void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
 
 /** 按顺序拼接多个文件；`policy` 必选。 */
 void sendFiles(scope HTTPServerRequest req, scope HTTPServerResponse res,
-    string[] paths, immutable(CachePolicy) policy, SendFileHook preWrite = null) {
+    const(string[]) paths, immutable(CachePolicy) policy, SendFileHook preWrite = null) {
   auto npaths = array(paths.map!(p => NativePath(p)));
   sendFilesImpl(req, res, npaths, policy, preWrite);
 }

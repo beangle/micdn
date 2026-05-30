@@ -52,7 +52,7 @@ class BlobService {
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
-    auto uri = getPath(this.endpoint, req);
+    const uri = getPath(this.endpoint, req);
     switch (req.method) {
     case HTTPMethod.GET:
       getObject(req, res, uri);

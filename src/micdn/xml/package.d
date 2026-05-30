@@ -23,6 +23,8 @@ import std.path;
 import std.regex;
 import std.string;
 
+import micdn.fs.file : isPathUnder;
+
 import dxml.dom;
 
 auto getAttrs(T)(ref DOMEntity!T dom) {
@@ -68,7 +70,7 @@ string expandXiIncludes(const string baseDir, const string content) {
       throw new Exception("xi:include: absolute href is not allowed: " ~ href);
 
     string incPath = absolutePath(buildNormalizedPath(absBase, href));
-    if (!pathIsUnderDir(absBase, incPath))
+    if (!isPathUnder(absBase, incPath))
       throw new Exception("xi:include: path escapes base directory: " ~ href);
 
     if (!exists(incPath))
@@ -87,18 +89,6 @@ private string escapeRegexReplacement(string s) {
   import std.string : replace;
 
   return replace(s, "$", "$$");
-}
-
-private bool pathIsUnderDir(const string absDir, const string absPath) {
-  import std.path : dirSeparator;
-
-  if (absPath == absDir)
-    return true;
-  if (absPath.length <= absDir.length)
-    return false;
-  if (absPath[absDir.length] != dirSeparator[0])
-    return false;
-  return absPath.startsWith(absDir);
 }
 
 private string stripXmlDeclaration(const string s) {
