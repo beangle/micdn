@@ -416,6 +416,30 @@ void setWritable(string dir) {
   doSetWritable(dir);
 }
 
+/** 判断规范化后的 `absPath` 是否位于 `absDir` 下（含与 `absDir` 相等）。
+
+    假定两路径已为绝对路径；纯字符串前缀比较，不访问磁盘。
+    Windows 下比较不区分大小写。用于仓库根目录、xi:include 基目录等防穿越校验。
+*/
+bool isPathUnder(const string absDir, const string absPath) {
+  import std.path : dirSeparator;
+  version (Windows) {
+    auto dir = absDir.toLower();
+    auto path = absPath.toLower();
+  } else {
+    auto dir = absDir;
+    auto path = absPath;
+  }
+
+  if (path == dir)
+    return true;
+  if (path.length <= dir.length)
+    return false;
+  if (path[dir.length] != dirSeparator[0])
+    return false;
+  return path.startsWith(dir);
+}
+
 /// 递归设置可写的实现，符号链接跳过。
 private void doSetWritable(string dir) {
   if (dir.isDir) {
