@@ -27,6 +27,7 @@ import vibe.core.log;
 import micdn.fs.file;
 import micdn.model;
 import micdn.npm;
+import micdn.web;
 
 /// 静态资源仓库实例，持有本地根目录与目录列表开关，提供 URI 解析与文件路径查询。
 class AssetRepo {
@@ -51,7 +52,7 @@ class AssetRepo {
   /** 根据逻辑 URI 解析出对应的本地文件路径列表。
 
       支持逗号合并写法（如 /a/b,c.js 解析为 /a/b.js 与 /a/c.js）。
-      路径中含 ".." 或任一文件不存在时返回 null。
+      路径经 URL 解码与规范化后须位于 `base` 下；任一文件不存在时返回 null。
 
       Params:
           uri = 逻辑 URI（可含逗号表示多个文件）
@@ -74,19 +75,19 @@ class AssetRepo {
     return (bundleNameFromUri(uri) in dynaBundles) !is null;
   }
 
+  /** Params: uri = 已由 `getPath` 解码的相对路径。
+  */
   string[] get(string uri) const {
-    if (uri.indexOf("..") > -1)
-      return null;
     auto files = resolve(uri);
+    string[] paths;
+    paths.length = files.length;
     for (int i = 0; i < files.length; i++) {
-      auto location = base ~ files[i];
-      if (exists(location)) {
-        files[i] = location;
-      } else {
+      auto location = resolveRepositoryPath(base, files[i]);
+      if (location is null || !exists(location))
         return null;
-      }
+      paths[i] = location;
     }
-    return files;
+    return paths;
   }
 
   /** 将“逗号合并”形式的 URI 拆成多个逻辑路径。

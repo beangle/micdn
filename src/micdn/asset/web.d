@@ -36,7 +36,6 @@ import micdn.routes;
 import micdn.web;
 import micdn.web.cache;
 import micdn.web.file;
-import micdn.web.server;
 import micdn.xml;
 
 class AssetService {
@@ -48,8 +47,8 @@ class AssetService {
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
-    auto uri = getPath(endpoint, req);
-    auto rs = repo.get(uri);
+    const uri = getPath(endpoint, req);
+    const rs = repo.get(uri);
     if (null == rs) {
       throw new HTTPStatusException(HTTPStatus.notFound);
     } else {
@@ -59,11 +58,11 @@ class AssetService {
           throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
         }
         if (uri.endsWith("/")) {
-          auto listData = genListContents(repo.base ~ uri, endpoint, uri);
+          auto listData = genListContents(rs[0], endpoint, uri);
           render!("index.dt", listData)(res);
         } else {
-          uri = endpoint ~ uri;
-          res.redirect(req.requestURI.replace(uri, uri ~ "/"));
+          auto pub = endpoint ~ uri;
+          res.redirect(req.requestURI.replace(pub, pub ~ "/"));
         }
       } else {
         void setCORS(scope HTTPServerRequest req, scope HTTPServerResponse res) @safe {
