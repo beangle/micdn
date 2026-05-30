@@ -4,13 +4,13 @@
   elementFormDefault="qualified"
   version="1.0.0">
 
-  <!-- endpoint 路径：空串，或以 / 开头且不以 / 结尾（如 /static、/maven） -->
+  <!-- HTTP 路径前缀：以 / 开头且不以 / 结尾（如 /manual、/maven），不允许空串或 / -->
   <xs:simpleType name="endpointType">
     <xs:annotation>
-      <xs:documentation> 空串，或以 / 开头且不以 / 结尾 </xs:documentation>
+      <xs:documentation> 以 / 开头且不以 / 结尾 </xs:documentation>
     </xs:annotation>
     <xs:restriction base="xs:string">
-      <xs:pattern value="|/.*[^/]"/>
+      <xs:pattern value="/.*[^/]"/>
     </xs:restriction>
   </xs:simpleType>
 
@@ -153,7 +153,7 @@
     </xs:choice>
     <xs:attribute name="location" type="endpointType" use="required">
       <xs:annotation>
-        <xs:documentation> 空串，或以 / 开头且不以 / 结尾（如 /manual） </xs:documentation>
+        <xs:documentation> 以 / 开头且不以 / 结尾（如 /manual） </xs:documentation>
       </xs:annotation>
     </xs:attribute>
   </xs:complexType>

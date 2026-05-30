@@ -140,7 +140,7 @@ unittest {
   assert(normalizeEndpoint("/static/") == "/static");
   assert(normalizeEndpoint("  /static/  ") == "/static");
 
-  assert(isValidEndpoint(""));
+  assert(!isValidEndpoint(""));
   assert(isValidEndpoint("/static"));
   assert(isValidEndpoint("/maven"));
   assert(!isValidEndpoint("/"));
@@ -150,6 +150,36 @@ unittest {
   assert(isValidEndpoint(normalizeEndpoint("/maven")));
   assert(isValidEndpoint(normalizeEndpoint("/static/")));
   assert(isValidEndpoint(normalizeEndpoint("asset")));
+  assert(isValidEndpoint(normalizeEndpoint("/manual/")));
+}
+
+@("www doc rejects empty location")
+unittest {
+  import std.exception;
+
+  auto emptyLoc = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn>
+  <maven/>
+  <npm/>
+  <www base="~/tmp/www">
+    <doc location="/">
+      <dir location="~/m"/>
+    </doc>
+  </www>
+</micdn>`;
+  assertThrown!Exception(parse("~/tmp", emptyLoc));
+
+  auto missingLoc = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn>
+  <maven/>
+  <npm/>
+  <www base="~/tmp/www">
+    <doc>
+      <dir location="~/m"/>
+    </doc>
+  </www>
+</micdn>`;
+  assertThrown!Exception(parse("~/tmp", missingLoc));
 }
 
 @("endpoint conflict validation")

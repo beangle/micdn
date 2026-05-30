@@ -81,7 +81,7 @@ class WwwDocRepo {
   static WwwDocRepo build(MicdnConfig config, const WwwDocConfig doc) {
     auto www = config.www;
     auto base = www.base;
-    auto slug = doc.location.length > 1 ? doc.location[1 .. $].replace("/", "_") : "root";
+    auto slug = doc.location[1 .. $].replace("/", "_");
     auto docBase = base ~ "/" ~ slug;
 
     if (exists(docBase)) {

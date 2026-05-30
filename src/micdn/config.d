@@ -375,8 +375,10 @@ WwwConfig parseWww(T)(string home, ref DOMEntity!T micdnDom) {
   foreach (c; children(dom, "doc")) {
     auto docAttrs = getAttrs(c);
     string location = normalizeEndpoint(docAttrs.get("location", ""));
-    if (location.empty)
-      continue;
+    if (!isValidEndpoint(location)) {
+      throw new Exception("www <doc> requires a non-empty location "
+          ~ "(e.g. /manual); empty, '/', or missing location is not allowed");
+    }
     BundleProvider provider = null;
     auto npms = children(c, "npm");
     if (!npms.empty) {

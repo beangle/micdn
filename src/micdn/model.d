@@ -126,8 +126,8 @@ class MicdnConfig {
 
 /** 规范化 endpoint 路径。
 
-    合法形式：空串、"/"、或以 "/" 开头且不以 "/" 结尾（如 /static）。
-    空或 null 或者/ 变为 ""；不以 "/" 开头的添加前导 "/"。
+    输入 "", "/", 空白等会规范化为 ""（非法，须由 `isValidEndpoint` 拒绝）。
+    不以 "/" 开头的添加前导 "/"，并去掉末尾 "/"。
 */
 string normalizeEndpoint(string s) {
   if (s is null || s.length == 0)
@@ -142,11 +142,9 @@ string normalizeEndpoint(string s) {
   return s;
 }
 
-/// 校验 endpoint 是否合法：空串或以 "/" 开头且不以 "/" 结尾。
+/// 校验 endpoint 是否合法：非空，以 "/" 开头且不以 "/" 结尾（如 /manual）。
 bool isValidEndpoint(string s) pure {
-  if (s.length == 0)
-    return true;
-  return s[0] == '/' && s.length > 1 && s[$ - 1] != '/';
+  return s.length > 0 && s[0] == '/' && s.length > 1 && s[$ - 1] != '/';
 }
 
 /** 静态资源配置，定义前端资源（JS/CSS 等）的加载来源。
@@ -433,7 +431,7 @@ class WwwDocConfig {
 
   this(string location, BundleProvider provider) {
     assert(isValidEndpoint(location),
-        "location must be empty, '/', or start with '/' and not end with '/'");
+        "www doc location must start with '/' and not end with '/' (e.g. /manual)");
     this.location = location;
     this.provider = provider;
   }
