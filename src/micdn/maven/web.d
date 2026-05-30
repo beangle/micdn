@@ -37,7 +37,6 @@ import micdn.web;
 import micdn.web.cache;
 import micdn.web.file;
 import micdn.fs.browser;
-import micdn.web.server;
 import micdn.xml;
 
 /// 末段路径含 `.` 则按文件处理（可拉取）；不含则按目录。不解析具体后缀名。
@@ -55,9 +54,8 @@ class MavenService {
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
-    auto uri = getPath(endpoint, req);
-    auto decodedUri = decodeRepositoryUri(uri);
-    auto file = resolveRepositoryPath(repo.base, decodedUri);
+    const uri = getPath(endpoint, req);
+    auto file = resolveRepositoryPath(repo.base, uri);
     if (file is null)
       throw new HTTPStatusException(HTTPStatus.notFound);
 
@@ -66,26 +64,26 @@ class MavenService {
         if (req.method == HTTPMethod.HEAD) {
           throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
         }
-        if (decodedUri.endsWith("/")) {
-          auto listData = genListContents(file, endpoint, decodedUri);
+        if (uri.endsWith("/")) {
+          auto listData = genListContents(file, endpoint, uri);
           render!("index.dt", listData)(res);
         } else {
-          auto pub = endpoint ~ decodedUri;
+          auto pub = endpoint ~ uri;
           res.redirect(req.requestURI.replace(pub, pub ~ "/"));
         }
       } else {
-        sendFile(req, res, file, mavenArtifactCachePolicy(decodedUri));
+        sendFile(req, res, file, mavenArtifactCachePolicy(uri));
       }
     } else {
-      if (decodedUri.endsWith(".diff")) {
+      if (uri.endsWith(".diff")) {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
       // 目录型 URL：本地不存在则直接 404，不重定向（重定向后仍无列表内容）
-      if (decodedUri.endsWith("/") || !looksLikeMavenArtifactFile(decodedUri)) {
+      if (uri.endsWith("/") || !looksLikeMavenArtifactFile(uri)) {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
-      if (repo.fetch(decodedUri)) {
-        sendFile(req, res, file, mavenArtifactCachePolicy(decodedUri));
+      if (repo.fetch(uri)) {
+        sendFile(req, res, file, mavenArtifactCachePolicy(uri));
       } else {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }

@@ -27,7 +27,6 @@ import micdn.npm;
 import micdn.web;
 import micdn.web.cache;
 import micdn.web.file;
-import micdn.web.server;
 
 class NpmService {
   private enum string endpoint = mountNpm;
@@ -38,15 +37,14 @@ class NpmService {
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
-    auto uri = getPath(endpoint, req);
-    auto decodedUri = decodeRepositoryUri(uri);
-    auto path = resolveRepositoryPath(repo.base, decodedUri);
+    const uri = getPath(endpoint, req);
+    auto path = resolveRepositoryPath(repo.base, uri);
     if (path is null)
       throw new HTTPStatusException(HTTPStatus.notFound);
 
     // 支持 NPM 官方 tgz URL：{packageName}/-/{name}-{version}.tgz，不存在则下载后返回
-    if (decodedUri.canFind("/-/") && decodedUri.endsWith(".tgz")) {
-      auto parsed = parseTarballUri(decodedUri);
+    if (uri.canFind("/-/") && uri.endsWith(".tgz")) {
+      auto parsed = parseTarballUri(uri);
       if (parsed[0]!is null && parsed[1]!is null && parsed[2]!is null) {
         if (repo.fetch(parsed[0], parsed[1], parsed[2])) {
           auto local = repo.localTarball(parsed[0], parsed[1], parsed[2]);
@@ -62,11 +60,11 @@ class NpmService {
         if (req.method == HTTPMethod.HEAD) {
           throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
         }
-        if (decodedUri.endsWith("/")) {
-          auto listData = genListContents(path, endpoint, decodedUri);
+        if (uri.endsWith("/")) {
+          auto listData = genListContents(path, endpoint, uri);
           render!("index.dt", listData)(res);
         } else {
-          auto pub = endpoint ~ decodedUri;
+          auto pub = endpoint ~ uri;
           res.redirect(req.requestURI.replace(pub, pub ~ "/"));
         }
       } else {
