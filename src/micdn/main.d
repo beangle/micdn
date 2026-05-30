@@ -47,7 +47,7 @@ import micdn.blob.web;
 import micdn.maven.web;
 import micdn.model;
 import micdn.npm.web;
-import micdn.web.server;
+import micdn.web;
 import micdn.www;
 import micdn.www.web;
 import micdn.config;
@@ -120,15 +120,9 @@ URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
 
   if (config.www !is null) {
     logInfo("Building docs at %s", config.www.base);
-    foreach (doc; config.www.docs) {
-      if (doc.provider is null) {
-        logWarn("Www doc provider is null: %s", doc.location);
-        continue;
-      }
-      auto repo = WwwDocRepo.build(config, doc);
-      auto svc = new WwwDocService(doc, repo);
-      registerEndpointGetHead(router, doc.location, &svc.service);
-    }
+    auto wwwRepo = WwwRepo.build(config);
+    auto wwwService = new WwwService(wwwRepo);
+    registerWwwCatchAll(router, &wwwService.service);
   }
 
   logRegisteredEndpoints(config);
@@ -147,11 +141,13 @@ void logRegisteredEndpoints(MicdnConfig config) {
     parts ~= mountS3;
   }
   if (config.www !is null) {
+    string[] docLocs;
     foreach (doc; config.www.docs) {
       if (doc.provider is null)
         continue;
-      parts ~= format("%s", doc.location);
+      docLocs ~= doc.location;
     }
+    parts ~= "/* (www" ~ (docLocs.length ? ": " ~ docLocs.join(", ") : "") ~ ")";
   }
   logInfo("Registered HTTP endpoints: %s", parts.join(", "));
 }
@@ -262,6 +258,14 @@ void registerEndpointGetHead(T)(URLRouter router, string endpoint, T handler) {
 void registerEndpointAny(T)(URLRouter router, string endpoint, T handler) {
   router.any(endpoint, handler);
   router.any(endpoint ~ "/*", handler);
+}
+
+/// www 兜底路由：须在 maven/npm/static/blob 等固定路由之后注册。
+void registerWwwCatchAll(T)(URLRouter router, T handler) {
+  router.get("/", handler);
+  router.get("/*", handler);
+  router.match(HTTPMethod.HEAD, "/", handler);
+  router.match(HTTPMethod.HEAD, "/*", handler);
 }
 
 /// 解析 listen 字符串 "host:port"，返回 (host, port)。

@@ -43,8 +43,7 @@ class AdminService {
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
-    auto uri = getPath(endpoint, req);
-    auto path = (uri.length > 0 && uri[0] != '/') ? "/" ~ uri : uri;
+    const path = getPath(endpoint, req);
     if (path == "/config.xml") {
       res.statusCode = HTTPStatus.ok;
       res.headers["Content-Type"] = "application/xml; charset=utf-8";

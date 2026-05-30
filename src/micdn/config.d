@@ -26,7 +26,9 @@ import std.string;
 import std.uni : icmp;
 
 import dxml.dom;
+import dxml.parser : EntityType;
 
+import micdn.fs.file : isSafePathSegments;
 import micdn.logging;
 import micdn.model;
 import micdn.xml;
@@ -47,7 +49,7 @@ private void validateMicdnServiceElementsUnique(T)(ref DOMEntity!T dom) {
   foreach (name; ["maven", "npm", "blob", "static", "www"]) {
     size_t n = 0;
     foreach (c; dom.children) {
-      if (c.name == name)
+      if (isNamedElement(c.type) && c.name == name)
         n++;
     }
     if (n > 1)
@@ -57,8 +59,9 @@ private void validateMicdnServiceElementsUnique(T)(ref DOMEntity!T dom) {
 
 /** 从 XML 字符串解析 MicdnConfig。defaultHome 为 xml 所在目录，用于 home 属性为空时。
 */
-MicdnConfig parse(string defaultHome, string content) {
-  auto dom = parseDOM!simpleXML(content).children[0];
+MicdnConfig parse(string defaultHome, string content, const string sourceFile = null) {
+  auto dom = parseDomRoot(content, sourceFile);
+  checkNoStrayText(dom, sourceFile, content);
   validateMicdnServiceElementsUnique(dom);
   auto rootAttrs = getAttrs(dom);
   string listen = rootAttrs.get("listen", "127.0.0.1:8888");
@@ -108,9 +111,15 @@ MicdnConfig parse(string defaultHome, string content) {
 /** 从本地 XML 文件解析 MicdnConfig。
 */
 MicdnConfig parseFile(string xmlFile) {
-  string content = readXml(xmlFile);
   string abs = absolutePath(expandTilde(xmlFile));
-  return parse(dirName(abs), content);
+  try {
+    string content = readXml(xmlFile);
+    return parse(dirName(abs), content, abs);
+  } catch (MicdnXmlException e) {
+    throw e;
+  } catch (Exception e) {
+    throw new MicdnXmlException(abs ~ ": " ~ e.msg);
+  }
 }
 
 /** 将 MicdnConfig 序列化为 micdn.xml 格式的字符串。
@@ -378,6 +387,10 @@ WwwConfig parseWww(T)(string home, ref DOMEntity!T micdnDom) {
     if (!isValidEndpoint(location)) {
       throw new Exception("www <doc> requires a non-empty location "
           ~ "(e.g. /manual); empty, '/', or missing location is not allowed");
+    }
+    if (!isSafePathSegments(location)) {
+      throw new Exception("www <doc> location must not contain '.' or '..' path segments: "
+          ~ location);
     }
     BundleProvider provider = null;
     auto npms = children(c, "npm");
