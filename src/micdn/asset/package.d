@@ -172,7 +172,7 @@ class AssetRepo {
               import micdn.web.file;
 
               if (curlDownload(remote, localJar)) {
-                mount(localJar, base ~ "/" ~ gap.getVersion(), innerDir);
+                mount(localJar, base ~ bundlePath ~ "/" ~ gap.getVersion(), innerDir);
                 break;
               }
             }
