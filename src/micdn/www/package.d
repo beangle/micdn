@@ -15,11 +15,10 @@
  */
 
 module micdn.www;
-/// WWW 文档子模块：每个 doc 含至多一个 dir/npm/zip，按 endpoint 挂载，不提供目录列表。
+/// WWW 静态内容：构建时按 `<doc location>` 挂载到 `www.base` 下同名路径，运行时 `base ~ httpPath` 直接读盘。
 
 import std.file;
-import std.path;
-import std.string;
+import std.path : buildPath;
 
 import vibe.core.log;
 
@@ -27,36 +26,43 @@ import micdn.fs.file;
 import micdn.model;
 import micdn.npm;
 import micdn.web.file;
+import micdn.web;
 
-/// 单个 doc 的本地仓库，根目录为 base，内容来自一个 dir/jar/zip 提供者。
-class WwwDocRepo {
-  /// 该 doc 的本地根目录
+/// `www.base` 下的统一仓库：磁盘布局与 URL 一致（`/manual/foo` → `{base}/manual/foo`）。
+class WwwRepo {
   const string base;
 
   this(string base) {
     this.base = base;
   }
 
-  /** 根据逻辑 URI 解析出对应的本地文件路径。
+  static WwwRepo build(MicdnConfig config) {
+    auto wwwBase = config.www.base;
+    foreach (doc; config.www.docs) {
+      if (!isSafePathSegments(doc.location)) {
+        throw new Exception("www doc location must not contain '.' or '..' path segments: " ~ doc.location);
+      }
+      if (doc.provider is null) {
+        logWarn("Www doc provider is null: %s", doc.location);
+        continue;
+      }
+      logInfo("Mounting www %s", doc.location);
+      mountDoc(config, doc);
+    }
+    return new WwwRepo(wwwBase);
+  }
 
-      路径中含 ".." 或文件不存在时返回 null。不支持逗号合并。解析目录请求，尝试返回 index.html；无列表功能。
-      若为目录且存在 index.html 则返回其路径，否则返回 null。
-      Params:
-          uri = 逻辑 URI（相对该 doc 的 endpoint）
-
-      Returns:
-          本地绝对路径，失败返回 null
+  /** 按 HTTP 路径解析本地文件（须为 `getPath` 已解码路径；规范化并限制在 `base` 下）。
   */
   string get(string uri) const {
-    if (uri.indexOf("..") > -1)
+    auto location = resolveRepositoryPath(base, uri);
+    if (location is null)
       return null;
-    auto location = base ~ uri;
     if (exists(location)) {
       if (std.file.isDir(location)) {
-        auto indexPath = location ~ "/index.html";
-        if (exists(indexPath)) {
+        auto indexPath = buildPath(location, "index.html");
+        if (exists(indexPath))
           return indexPath;
-        }
       } else {
         return location;
       }
@@ -64,37 +70,26 @@ class WwwDocRepo {
     return null;
   }
 
-  /**
+  /** 将 doc 挂载到 `www.base` 下与 `location` 同构的目录（如 `/mobile/student` → `{base}/mobile/student`）。
   */
-
-  /** 判断路径是否为目录。
-  */
-  bool isDirectory(string uri) const {
-    if (uri.indexOf("..") > -1)
-      return false;
-    auto path = base ~ uri;
-    return exists(path) && std.file.isDir(path);
-  }
-
-  /** 根据全局配置构建指定 doc 的本地仓库并返回仓库实例。
-  */
-  static WwwDocRepo build(MicdnConfig config, const WwwDocConfig doc) {
+  private static void mountDoc(MicdnConfig config, const WwwDocConfig doc) {
     auto www = config.www;
-    auto base = www.base;
-    auto slug = doc.location[1 .. $].replace("/", "_");
-    auto docBase = base ~ "/" ~ slug;
-
-    if (exists(docBase)) {
-      setWritable(docBase);
+    auto docDir = resolveRepositoryPath(www.base, doc.location);
+    if (docDir is null) {
+      logWarn("Invalid www doc path: %s", doc.location);
+      return;
     }
-    mkdirRecurse(docBase);
+
+    if (exists(docDir))
+      setWritable(docDir);
+    mkdirRecurse(docDir);
     auto p = doc.provider;
     if (DirProvider dp = cast(DirProvider) p) {
       if (exists(dp.location)) {
-        logInfo("Linking " ~ dp.location ~ " to " ~ docBase);
-        makeSymlink(dp.location, docBase);
+        logInfo("Linking " ~ dp.location ~ " to " ~ docDir);
+        makeSymlink(dp.location, docDir);
       } else {
-        logWarn("Cannot link " ~ dp.location ~ " to " ~ docBase);
+        logWarn("Cannot link " ~ dp.location ~ " to " ~ docDir);
       }
     } else if (NpmProvider np = cast(NpmProvider) p) {
       string scopePart, namePart, versionPart;
@@ -106,30 +101,19 @@ class WwwDocRepo {
         auto npmRepo = NpmRepo.build(config);
         if (npmRepo.fetch(scopePart, namePart, versionPart)) {
           auto tgzPath = npmRepo.localTarball(scopePart, namePart, versionPart);
-          if (!extractTgzToDocBase(tgzPath, docBase, "package/" ~ np.dir)) {
-            logWarn("Failed to extract %s to %s", tgzPath, docBase);
-          }
+          if (!extractTgzToDocBase(tgzPath, docDir, "package/" ~ np.dir))
+            logWarn("Failed to extract %s to %s", tgzPath, docDir);
         } else {
           logWarn("Cannot resolve npm package %s", np.packageSpec);
         }
       }
     } else if (ZipProvider zp = cast(ZipProvider) p) {
       logInfo("Mounting %s", zp.file);
-      auto count = refreshUnzip(zp.file, docBase, zp.dir);
-      if (count == 0) {
+      auto count = refreshUnzip(zp.file, docDir, zp.dir);
+      if (count == 0)
         logWarn("Cannot find %s in %s", zp.dir, zp.file);
-      }
     }
 
-    setReadOnly(docBase);
-    return new WwwDocRepo(docBase);
-  }
-
-  private static void mount(string zipfile, string base, string dir) {
-    logInfo("Mounting %s", zipfile);
-    auto count = refreshUnzip(zipfile, base, dir);
-    if (count == 0) {
-      logWarn("Cannot find %s in %s", dir, zipfile);
-    }
+    setReadOnly(docDir);
   }
 }

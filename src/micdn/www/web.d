@@ -15,40 +15,29 @@
  */
 
 module micdn.www.web;
-/// WWW 文档服务入口，按 endpoint 提供静态文件，不提供目录列表；缓存见 `wwwDocCachePolicy`。
+/// WWW 兜底静态服务：在内置路由之后匹配 `<doc location>`，不提供目录列表。
 
 import std.exception;
-import std.file;
-import std.string;
 
-import vibe.http.router;
 import vibe.http.server;
 
-import micdn.model;
 import micdn.web;
 import micdn.web.cache;
 import micdn.web.file;
 import micdn.www;
 
-class WwwDocService {
-  private const string endpoint;
-  private const WwwDocRepo repo;
+/// 注册于 `/*` 的兜底 handler。
+class WwwService {
+  private WwwRepo repo;
 
-  this(const WwwDocConfig doc, WwwDocRepo repo) {
-    this.endpoint = doc.location;
+  this(WwwRepo repo) {
     this.repo = repo;
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
-    auto uri = getPath(endpoint, req);
-    string path = uri;
-    if (path.length > 0 && !path.startsWith("/"))
-      path = "/" ~ path;
-
-    auto rs = repo.get(path);
-    if (rs is null) {
+    auto rs = repo.get(getPath("", req));
+    if (rs is null)
       throw new HTTPStatusException(HTTPStatus.notFound);
-    }
 
     void setCORS(scope HTTPServerRequest req, scope HTTPServerResponse res) @safe {
       res.headers["Access-Control-Allow-Origin"] = "*";
