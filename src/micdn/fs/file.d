@@ -225,7 +225,7 @@ bool doExtractTgz(string tgzFile, string baseDir) {
     Params:
         tgzFile  = .tgz 文件路径
         docBase  = 目标目录（最终挂载内容所在）
-        innerDir = npm 包内子目录（如 "dist"），null 或空表示使用 package 根
+        innerDir = tgz 内相对路径（固定用 `/`，如 `package/dist`），null 或空表示解压到 docBase 根
 
     Returns:
         true 成功，false 失败
@@ -250,7 +250,12 @@ bool extractTgzToDocBase(string tgzFile, string docBase, string innerDir = null)
   if (!doExtractTgz(tgzFile, extractDir))
     return false;
 
-  string sourceDir = extractDir ~ "/" ~ innerDir;
+  const extractAbs = absolutePath(extractDir);
+  const sourceDir = buildNormalizedPath(extractAbs, innerDir);
+  if (!isPathUnder(extractAbs, sourceDir)) {
+    logWarn("innerDir escapes extract dir: %s", innerDir);
+    return false;
+  }
   if (!exists(sourceDir) || !isDir(sourceDir)) {
     logWarn("Cannot find %s in %s", innerDir, tgzFile);
     return false;
