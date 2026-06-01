@@ -130,84 +130,122 @@ class AssetRepo {
           构建好的 AssetRepo 实例
   */
   static AssetRepo build(MicdnConfig config) {
-    auto asset = config.asset;
-    auto maven = config.maven;
-    auto base = asset.base;
-    if (exists(base)) {
+    auto base = config.asset.base;
+    if (exists(base))
       setWritable(base);
-      //rmdirRecurse( base);
-    }
     mkdirRecurse(base);
 
     bool[string] dynaBundles;
     logInfo("Building static resources at %s", base);
-    foreach (c; asset.bundles) {
-      auto bundlePath = "/" ~ c.name;
-      auto bundleBase = base ~ "/" ~ c.name;
-      string[] allowedVersionDirs = [];
+    foreach (c; config.asset.bundles) {
+      mountBundle(config, c);
       foreach (p; c.providers) {
         if (DirProvider dp = cast(DirProvider) p) {
-          if (exists(dp.location)) {
-            if (exists(bundleBase)) {
-              remove(bundleBase);
-            }
-            logInfo("Linking " ~ dp.location ~ " to " ~ bundleBase);
-            makeSymlink(dp.location, bundleBase);
+          auto bundleBase = base ~ "/" ~ c.name;
+          if (exists(dp.location) && exists(bundleBase))
             dynaBundles[c.name] = true;
-          } else {
-            logWarn("Cannot link " ~ dp.location ~ " to " ~ bundleBase);
-          }
-        } else if (GavJarProvider gap = cast(GavJarProvider) p) {
-          allowedVersionDirs ~= gap.getVersion();
-          logInfo("Mounting %s", gap.gav);
-          string localJar = maven.localFile(gap.gav);
-          string innerDir = gap.dir;
-          innerDir ~= bundlePath ~ "/" ~ gap.getVersion();
-          if (exists(localJar)) {
-            mount(localJar, base ~ bundlePath ~ "/" ~ gap.getVersion(), innerDir);
-          } else if (!localJar.endsWith("SNAPSHOT.jar")) {
-            string[] remotes = maven.remoteUrls(gap.gav);
-            mkdirRecurse(dirName(localJar));
-            foreach (remote; remotes) {
-              logInfo("Downloading %s", remote);
-              import micdn.web.file;
-
-              if (curlDownload(remote, localJar)) {
-                mount(localJar, base ~ bundlePath ~ "/" ~ gap.getVersion(), innerDir);
-                break;
-              }
-            }
-          } else {
-            logWarn("Cannot resolve %s,ignore it.", gap.gav);
-          }
-        } else if (NpmProvider np = cast(NpmProvider) p) {
-          string scopePart, namePart, versionPart;
-          parsePackageSpec(np.packageSpec, scopePart, namePart, versionPart);
-          if (namePart.length == 0 || versionPart.length == 0) {
-            logWarn("Invalid npm package spec: %s", np.packageSpec);
-          } else {
-            allowedVersionDirs ~= versionPart;
-            logInfo("Mounting %s", np.packageSpec);
-            auto npmRepo = NpmRepo.build(config);
-            if (npmRepo.fetch(scopePart, namePart, versionPart)) {
-              auto tgzPath = npmRepo.localTarball(scopePart, namePart, versionPart);
-              auto docBase = base ~ bundlePath ~ "/" ~ versionPart;
-              if (!extractTgzToDocBase(tgzPath, docBase, "package/" ~ np.dir)) {
-                logWarn("Failed to extract %s to %s", tgzPath, docBase);
-              }
-            } else {
-              logWarn("Cannot resolve npm package %s", np.packageSpec);
-            }
-          }
         }
-      }
-      // 清理 bundle 下已从配置移除的 version 文件夹（仅当仅含 NpmProvider 时执行，jar 会创建 webjars 等顶层目录，不能误删）
-      if (allowedVersionDirs.length > 0 && exists(bundleBase) && !bundleBase.isSymlink) {
-        cleanStaleVersionDirs(bundleBase, allowedVersionDirs);
       }
     }
     setReadOnly(base);
     return new AssetRepo(base, dynaBundles.rehash());
+  }
+
+  /** 将单个 static `<bundle>` 安装到 `asset.base` 下。供 `build` 与 `micdn … mount static` 共用。
+    成功返回 true，失败打日志并返回 false。
+  */
+  static bool mountBundle(MicdnConfig config, const AssetBundle bundle) {
+    auto base = config.asset.base;
+    auto bundlePath = "/" ~ bundle.name;
+    auto bundleBase = base ~ "/" ~ bundle.name;
+    mkdirRecurse(base);
+
+    bool ok = true;
+    string[] allowedVersionDirs = [];
+    foreach (p; bundle.providers) {
+      if (DirProvider dp = cast(DirProvider) p) {
+        if (!mountBundleDir(dp, bundleBase))
+          ok = false;
+      } else if (GavJarProvider gap = cast(GavJarProvider) p) {
+        allowedVersionDirs ~= gap.getVersion();
+        if (!mountBundleJar(config, bundlePath, gap))
+          ok = false;
+      } else if (NpmProvider np = cast(NpmProvider) p) {
+        string scopePart, namePart, versionPart;
+        parsePackageSpec(np.packageSpec, scopePart, namePart, versionPart);
+        if (namePart.length == 0 || versionPart.length == 0) {
+          logWarn("Invalid npm package spec: %s", np.packageSpec);
+          ok = false;
+        } else {
+          allowedVersionDirs ~= versionPart;
+          if (!mountBundleNpm(config, bundlePath, np, scopePart, namePart, versionPart))
+            ok = false;
+        }
+      } else {
+        logWarn("Unsupported static provider in bundle %s", bundle.name);
+        ok = false;
+      }
+    }
+    // 清理 bundle 下已从配置移除的 version 文件夹（仅当仅含 NpmProvider 时执行，jar 会创建 webjars 等顶层目录，不能误删）
+    if (allowedVersionDirs.length > 0 && exists(bundleBase) && !bundleBase.isSymlink)
+      cleanStaleVersionDirs(bundleBase, allowedVersionDirs);
+    return ok;
+  }
+
+  private static bool mountBundleDir(const DirProvider dp, string bundleBase) {
+    if (!exists(dp.location)) {
+      logWarn("Cannot link " ~ dp.location ~ " to " ~ bundleBase);
+      return false;
+    }
+    if (exists(bundleBase))
+      remove(bundleBase);
+    logInfo("Linking " ~ dp.location ~ " to " ~ bundleBase);
+    makeSymlink(dp.location, bundleBase);
+    return true;
+  }
+
+  private static bool mountBundleJar(MicdnConfig config, const string bundlePath, const GavJarProvider gap) {
+    auto base = config.asset.base;
+    auto maven = config.maven;
+    logInfo("Mounting %s", gap.gav);
+    string localJar = maven.localFile(gap.gav);
+    string innerDir = gap.dir ~ bundlePath ~ "/" ~ gap.getVersion();
+    auto docBase = base ~ bundlePath ~ "/" ~ gap.getVersion();
+    if (exists(localJar))
+      return mountJar(localJar, docBase, innerDir);
+    if (localJar.endsWith("SNAPSHOT.jar")) {
+      logWarn("Cannot resolve %s, ignore it.", gap.gav);
+      return false;
+    }
+    string[] remotes = maven.remoteUrls(gap.gav);
+    mkdirRecurse(dirName(localJar));
+    foreach (remote; remotes) {
+      logInfo("Downloading %s", remote);
+      import micdn.web.file;
+
+      if (curlDownload(remote, localJar))
+        return mountJar(localJar, docBase, innerDir);
+    }
+    logWarn("Cannot resolve %s", gap.gav);
+    return false;
+  }
+
+  private static bool mountBundleNpm(MicdnConfig config, const string bundlePath, const NpmProvider np,
+      string scopePart, string namePart, string versionPart) {
+    auto base = config.asset.base;
+    logInfo("Mounting %s", np.packageSpec);
+    auto npmRepo = NpmRepo.build(config);
+    if (!npmRepo.fetch(scopePart, namePart, versionPart)) {
+      logWarn("Cannot resolve npm package %s", np.packageSpec);
+      return false;
+    }
+    auto tgzPath = npmRepo.localTarball(scopePart, namePart, versionPart);
+    auto docBase = base ~ bundlePath ~ "/" ~ versionPart;
+    if (!extractTgzToDocBase(tgzPath, docBase, "package/" ~ np.dir)) {
+      logWarn("Failed to extract %s to %s", tgzPath, docBase);
+      return false;
+    }
+    return true;
   }
 
   /** 删除 bundle 目录下不在配置中的 version 子目录（仅 NpmProvider 会创建 version 顶层目录）。
@@ -228,17 +266,11 @@ class AssetRepo {
     }
   }
 
-  /** 将 zip/jar 中的指定子目录解压到仓库的 bundle 路径下。
-
-      Params:
-          zipfile   = zip/jar 文件路径
-          docBase       = 仓库根目录/bundleName
-          dir        = zip 内要解压的子目录（如 META-INF/resources）
-  */
-  private static void mount(string zipfile, string docBase, string dir) {
-    auto count = refreshUnzip(zipfile, docBase, dir);
-    if (count == 0) {
+  private static bool mountJar(string zipfile, string docBase, string dir) {
+    if (refreshUnzip(zipfile, docBase, dir) == 0) {
       logWarn("Cannot find %s in %s", dir, zipfile);
+      return false;
     }
+    return true;
   }
 }

@@ -8,9 +8,11 @@
 
 module micdn.www_test;
 
+import std.conv : octal;
 import std.file;
 import std.path : buildPath;
-
+import micdn.config : parse;
+import micdn.model;
 import micdn.web;
 import micdn.www;
 
@@ -29,6 +31,30 @@ unittest {
   assert(repo.get("/manual/missing.html") is null);
   assert(repo.get("/other/x") is null);
   assert(repo.get("/manual/../etc/passwd") is null);
+}
+
+@("mountDoc links dir and leaves tree writable")
+unittest {
+  auto home = buildPath(tempDir, "micdn-www-mount");
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  auto src = buildPath(home, "src", "manual");
+  mkdirRecurse(src);
+  write(buildPath(src, "index.html"), "ok");
+
+  auto xml = `<?xml version="1.0"?><micdn>
+  <maven/><npm/>
+  <www base="` ~ home ~ `/www">
+    <doc location="/manual"><dir location="` ~ src ~ `"/></doc>
+  </www>
+</micdn>`;
+  auto config = parse(home, xml);
+  assert(WwwRepo.mountDoc(config, config.www.docs[0]));
+  auto repo = new WwwRepo(config.www.base);
+  assert(repo.get("/manual/index.html") !is null);
+  auto attrs = getAttributes(repo.get("/manual/index.html"));
+  assert((attrs & octal!200) != 0, "mounted files should stay writable");
 }
 
 @("WwwRepo rejects encoded traversal")

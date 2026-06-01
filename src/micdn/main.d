@@ -40,6 +40,7 @@ import vibe.http.server;
 import micdn.routes;
 
 import micdn.admin.web;
+import micdn.asset;
 import micdn.asset.web;
 import micdn.blob.s3;
 import micdn.blob.store;
@@ -164,6 +165,14 @@ version (unittest) {
       showHelpInfo();
       return 0;
     }
+    if (args.canFind("mount")) {
+      try {
+        return runMount(args);
+      } catch (Exception e) {
+        writeln(stderr, e.msg);
+        return 1;
+      }
+    }
     bool hasConfig = args.canFind("-f");
     if (!hasConfig) {
       showHelpInfo();
@@ -278,13 +287,120 @@ private Tuple!(string, ushort) parseListen(string listen) {
   return tuple(host, port);
 }
 
+/// 离线安装 www/static 资源（不启动 HTTP 服务）。
+int runMount(string[] args) {
+  if (!args.canFind("-f"))
+    throw new Exception("-f is required for mount");
+
+  auto target = mountTargetArg(args);
+  auto name = mountNameArg(args);
+  auto configPath = resolveConfigFile("micdn.xml");
+  auto config = parseFile(configPath);
+  applyMicdnLogging(config.logFile, config.logLevel);
+
+  if (target == "www")
+    return runMountWww(config, name);
+  if (target == "static")
+    return runMountStatic(config, name);
+  throw new Exception("mount target must be www or static");
+}
+
+private string mountTargetArg(string[] args) {
+  foreach (i, a; args) {
+    if (a == "mount") {
+      if (i + 1 >= args.length || args[i + 1].startsWith("-"))
+        throw new Exception("usage: micdn -f CONFIG mount www|static [name]");
+      return args[i + 1];
+    }
+  }
+  throw new Exception("usage: micdn -f CONFIG mount www|static [name]");
+}
+
+private string mountNameArg(string[] args) {
+  foreach (i, a; args) {
+    if (a == "mount" && i + 2 < args.length && !args[i + 2].startsWith("-"))
+      return args[i + 2];
+  }
+  return null;
+}
+
+private int runMountWww(MicdnConfig config, string docName) {
+  if (config.www is null)
+    throw new Exception("no <www> section in config");
+
+  if (docName.length == 0) {
+    bool ok = true;
+    foreach (doc; config.www.docs) {
+      if (doc.provider is null) {
+        logWarn("Skip www doc without provider: %s", doc.location);
+        continue;
+      }
+      if (!WwwRepo.mountDoc(config, doc))
+        ok = false;
+      else
+        logInfo("mount www ok: %s -> %s", doc.location,
+            resolveRepositoryPath(config.www.base, doc.location));
+    }
+    return ok ? 0 : 1;
+  }
+
+  auto doc = findWwwDoc(config.www, docName);
+  if (doc.provider is null)
+    throw new Exception("doc " ~ doc.location ~ " has no dir/npm/zip provider");
+
+  if (!WwwRepo.mountDoc(config, doc))
+    throw new Exception("mount www failed for " ~ doc.location);
+
+  logInfo("mount www ok: %s -> %s", doc.location, resolveRepositoryPath(config.www.base, doc.location));
+  return 0;
+}
+
+private int runMountStatic(MicdnConfig config, string bundleName) {
+  if (config.asset is null)
+    throw new Exception("no <static> section in config");
+
+  if (bundleName.length == 0) {
+    bool ok = true;
+    foreach (bundle; config.asset.bundles) {
+      if (!AssetRepo.mountBundle(config, bundle))
+        ok = false;
+      else
+        logInfo("mount static ok: %s -> %s", bundle.name, config.asset.base ~ "/" ~ bundle.name);
+    }
+    return ok ? 0 : 1;
+  }
+
+  if (bundleName !in config.asset.bundles)
+    throw new Exception("no <bundle name=\"" ~ bundleName ~ "\"> in config");
+
+  if (!AssetRepo.mountBundle(config, config.asset.bundles[bundleName]))
+    throw new Exception("mount static failed for " ~ bundleName);
+
+  logInfo("mount static ok: %s -> %s", bundleName, config.asset.base ~ "/" ~ bundleName);
+  return 0;
+}
+
+private const(WwwDocConfig) findWwwDoc(const WwwConfig www, string docName) {
+  auto loc = normalizeEndpoint(docName);
+  foreach (d; www.docs) {
+    if (d.location == loc)
+      return d;
+  }
+  throw new Exception("no <doc location=\"" ~ loc ~ "\"> in config");
+}
+
 void showHelpInfo() {
   immutable helpRaw = `
-Usage: micdn -f FILE|DIR|URL
+Usage: micdn -f FILE|DIR|URL [command]
 
   -f FILE    本地配置文件路径
   -f DIR     配置目录，使用 DIR/micdn.xml
   -f URL     从 URL 下载配置到 ~/micdn.xml
+
+Commands:
+  (default)              启动 HTTP 服务
+  mount www [DOC]        离线安装 <www> doc（DOC 为 location，如 /manual 或 manual；省略则全部）
+  mount static [BUNDLE]  离线安装 <static> bundle（省略则全部）
 
 Help Options:
   --help      Show this help message and exit
@@ -292,8 +408,9 @@ Help Options:
 
 Examples:
   micdn -f micdn.xml
-  micdn -f ./conf
-  micdn -f http://example.com/micdn.xml
+  micdn -f micdn.xml mount www manual
+  micdn -f micdn.xml mount static bootstrap
+  micdn -f micdn.xml mount www
 `;
   writeln(strip(helpRaw));
 }
