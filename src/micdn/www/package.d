@@ -39,14 +39,14 @@ class WwwRepo {
   static WwwRepo build(MicdnConfig config) {
     auto wwwBase = config.www.base;
     foreach (doc; config.www.docs) {
-      if (!isSafePathSegments(doc.location)) {
-        throw new Exception("www doc location must not contain '.' or '..' path segments: " ~ doc.location);
+      if (!isSafePathSegments(doc.name)) {
+        throw new Exception("www doc name must not contain '.' or '..' path segments: " ~ doc.name);
       }
       if (doc.provider is null) {
-        logWarn("Www doc provider is null: %s", doc.location);
+        logWarn("Www doc provider is null: %s", doc.name);
         continue;
       }
-      logInfo("Mounting www %s", doc.location);
+      logInfo("Mounting www %s", doc.name);
       mountDoc(config, doc);
     }
     return new WwwRepo(wwwBase);
@@ -77,9 +77,9 @@ class WwwRepo {
     成功返回 true，失败打日志并返回 false。
   */
   static bool mountDoc(MicdnConfig config, const WwwDocConfig doc) {
-    auto docDir = resolveRepositoryPath(config.www.base, doc.location);
+    auto docDir = resolveRepositoryPath(config.www.base, doc.endpoint());
     if (docDir is null) {
-      logWarn("Invalid www doc path: %s", doc.location);
+      logWarn("Invalid www doc path: %s", doc.name);
       return false;
     }
 
@@ -91,7 +91,7 @@ class WwwRepo {
     if (ZipProvider zp = cast(ZipProvider) p)
       return mountDocZip(zp, docDir);
 
-    logWarn("Unsupported www provider for %s", doc.location);
+    logWarn("Unsupported www provider for %s", doc.name);
     return false;
   }
 

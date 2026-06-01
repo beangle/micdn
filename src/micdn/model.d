@@ -95,7 +95,7 @@ class MicdnConfig {
     if (www !is null) {
       foreach (i, doc; www.docs) {
         names ~= "www.doc[" ~ i.to!string ~ "]";
-        endpoints ~= doc.location;
+        endpoints ~= doc.endpoint();
       }
     }
     names ~= "admin";
@@ -145,6 +145,28 @@ string normalizeEndpoint(string s) {
 /// 校验 endpoint 是否合法：非空，以 "/" 开头且不以 "/" 结尾（如 /manual）。
 bool isValidEndpoint(string s) pure {
   return s.length > 0 && s[0] == '/' && s.length > 1 && s[$ - 1] != '/';
+}
+
+/** 规范化 www `<doc name>`：去空白与末尾 `/`，不以 `/` 开头。
+*/
+string normalizeDocName(string s) {
+  if (s is null || s.length == 0)
+    return "";
+  s = s.strip;
+  while (s.length > 1 && s[$ - 1] == '/')
+    s = s[0 .. $ - 1];
+  return s;
+}
+
+/// www doc 名合法：非空、不以 `/` 起止、各段非空且非 `.`/`..`。
+bool isValidDocName(string s) pure {
+  if (s.length == 0 || s[0] == '/' || s[$ - 1] == '/')
+    return false;
+  foreach (part; s.split("/")) {
+    if (part.length == 0 || part == "." || part == "..")
+      return false;
+  }
+  return true;
 }
 
 /** 静态资源配置，定义前端资源（JS/CSS 等）的加载来源。
@@ -407,7 +429,7 @@ class BlobConfig {
 
 }
 
-/** WWW 文档配置，包含多个 doc，每个 doc 有独立 endpoint，至多一个 dir/jar/zip 提供者。
+/** WWW 文档配置，包含多个 doc，每个 doc 有独立 endpoint 与一个 npm/dir/zip 来源（XML 属性）。
 */
 class WwwConfig {
   /// 本地构建根路径（如 ~/.micdn/www）
@@ -421,19 +443,24 @@ class WwwConfig {
   }
 }
 
-/** 单个 WWW doc 配置，对应一个 endpoint，包含至多一个 dir/jar/zip。
+/** 单个 WWW doc 配置，对应一个 endpoint 与一个 BundleProvider（由 npm/dir/zip 属性解析）。
 */
 class WwwDocConfig {
-  /// HTTP 访问路径前缀（如 /www）
-  const string location;
-  /// 资源提供者，至多一个（DirProvider、ZipProvider 或 GavJarProvider）
+  /// doc 路径名（如 `manual`、`mobile/student`），对应 HTTP `/name`
+  const string name;
+  /// 资源提供者（DirProvider、ZipProvider 或 NpmProvider）
   const BundleProvider provider;
 
-  this(string location, BundleProvider provider) {
-    assert(isValidEndpoint(location),
-        "www doc location must start with '/' and not end with '/' (e.g. /manual)");
-    this.location = location;
+  this(string name, BundleProvider provider) {
+    assert(isValidDocName(name),
+        "www doc name must not start with '/' and must not contain '.' or '..' segments (e.g. manual or a/b)");
+    this.name = name;
     this.provider = provider;
+  }
+
+  /// HTTP 访问路径（`/` ~ `name`）。
+  string endpoint() const @safe pure nothrow {
+    return "/" ~ name;
   }
 }
 

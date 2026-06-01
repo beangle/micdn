@@ -146,7 +146,7 @@ void logRegisteredEndpoints(MicdnConfig config) {
     foreach (doc; config.www.docs) {
       if (doc.provider is null)
         continue;
-      docLocs ~= doc.location;
+      docLocs ~= doc.endpoint();
     }
     parts ~= "/* (www" ~ (docLocs.length ? ": " ~ docLocs.join(", ") : "") ~ ")";
   }
@@ -332,26 +332,26 @@ private int runMountWww(MicdnConfig config, string docName) {
     bool ok = true;
     foreach (doc; config.www.docs) {
       if (doc.provider is null) {
-        logWarn("Skip www doc without provider: %s", doc.location);
+        logWarn("Skip www doc without provider: %s", doc.name);
         continue;
       }
       if (!WwwRepo.mountDoc(config, doc))
         ok = false;
       else
-        logInfo("mount www ok: %s -> %s", doc.location,
-            resolveRepositoryPath(config.www.base, doc.location));
+        logInfo("mount www ok: %s -> %s", doc.name,
+            resolveRepositoryPath(config.www.base, doc.endpoint()));
     }
     return ok ? 0 : 1;
   }
 
   auto doc = findWwwDoc(config.www, docName);
   if (doc.provider is null)
-    throw new Exception("doc " ~ doc.location ~ " has no dir/npm/zip provider");
+    throw new Exception("doc " ~ doc.name ~ " has no dir/npm/zip provider");
 
   if (!WwwRepo.mountDoc(config, doc))
-    throw new Exception("mount www failed for " ~ doc.location);
+    throw new Exception("mount www failed for " ~ doc.name);
 
-  logInfo("mount www ok: %s -> %s", doc.location, resolveRepositoryPath(config.www.base, doc.location));
+  logInfo("mount www ok: %s -> %s", doc.name, resolveRepositoryPath(config.www.base, doc.endpoint()));
   return 0;
 }
 
@@ -381,12 +381,12 @@ private int runMountStatic(MicdnConfig config, string bundleName) {
 }
 
 private const(WwwDocConfig) findWwwDoc(const WwwConfig www, string docName) {
-  auto loc = normalizeEndpoint(docName);
+  auto name = normalizeDocName(docName);
   foreach (d; www.docs) {
-    if (d.location == loc)
+    if (d.name == name)
       return d;
   }
-  throw new Exception("no <doc location=\"" ~ loc ~ "\"> in config");
+  throw new Exception("no <doc name=\"" ~ name ~ "\"> in config");
 }
 
 void showHelpInfo() {
@@ -399,7 +399,7 @@ Usage: micdn -f FILE|DIR|URL [command]
 
 Commands:
   (default)              启动 HTTP 服务
-  mount www [DOC]        离线安装 <www> doc（DOC 为 location，如 /manual 或 manual；省略则全部）
+  mount www [NAME]       离线安装 <www> doc（NAME 如 manual 或 a/b；省略则全部）
   mount static [BUNDLE]  离线安装 <static> bundle（省略则全部）
 
 Help Options:

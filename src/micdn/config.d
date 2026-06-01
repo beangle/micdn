@@ -208,21 +208,9 @@ string toXml(const MicdnConfig config) {
     app.put(i`  <www base="$(config.www.base)">`.text);
     app.put("\n");
     foreach (doc; config.www.docs) {
-      app.put(i`    <doc location="$(doc.location)">`.text);
+      app.put("    ");
+      app.put(formatWwwDocXml(doc));
       app.put("\n");
-      if (doc.provider) {
-        if (auto zp = cast(ZipProvider) doc.provider) {
-          app.put(i`      <zip file="$(zp.file)" dir="$(zp.dir)"/>`.text);
-          app.put("\n");
-        } else if (auto dp = cast(DirProvider) doc.provider) {
-          app.put(i`      <dir location="$(dp.location)"/>`.text);
-          app.put("\n");
-        } else if (auto np = cast(NpmProvider) doc.provider) {
-          app.put(i`      <npm package="$(np.packageSpec)" dir="$(np.dir)"/>`.text);
-          app.put("\n");
-        }
-      }
-      app.put("    </doc>\n");
     }
     app.put("  </www>\n");
   }
@@ -374,7 +362,7 @@ BlobConfig parseBlob(T)(string home, ref DOMEntity!T micdnDom) {
   return config;
 }
 
-/// 从 DOM 节点解析 WWW 配置（多 doc，每 doc 有 location 和至多一个 dir/npm/zip）。
+/// 从 DOM 节点解析 WWW 配置（多 doc，每 doc 以属性指定 npm/dir/zip 之一）。
 WwwConfig parseWww(T)(string home, ref DOMEntity!T micdnDom) {
   auto dom = children(micdnDom, "www").front;
   auto attrs = getAttrs(dom);
@@ -383,39 +371,68 @@ WwwConfig parseWww(T)(string home, ref DOMEntity!T micdnDom) {
   WwwDocConfig[] docs;
   foreach (c; children(dom, "doc")) {
     auto docAttrs = getAttrs(c);
-    string location = normalizeEndpoint(docAttrs.get("location", ""));
-    if (!isValidEndpoint(location)) {
-      throw new Exception("www <doc> requires a non-empty location "
-          ~ "(e.g. /manual); empty, '/', or missing location is not allowed");
+    string name = normalizeDocName(docAttrs.get("name", ""));
+    if (!isValidDocName(name)) {
+      throw new Exception("www <doc> requires a valid name "
+          ~ "(e.g. manual or a/b); must not start with '/', end with '/', or contain '..' segments");
     }
-    if (!isSafePathSegments(location)) {
-      throw new Exception("www <doc> location must not contain '.' or '..' path segments: "
-          ~ location);
-    }
-    BundleProvider provider = null;
-    auto npms = children(c, "npm");
-    if (!npms.empty) {
-      attrs = getAttrs(npms.front);
-      string packageSpec = attrs["package"];
-      auto dir = stripLeadingSlash(attrs.get("dir", "dist"));
-      provider = new NpmProvider(packageSpec, dir);
-    }
-    auto dirs = children(c, "dir");
-    if (!dirs.empty && provider is null) {
-      attrs = getAttrs(dirs.front);
-      string loc = expandTilde(attrs["location"].replace("${micdn.home}", home));
-      provider = new DirProvider(loc);
-    }
-    auto zips = children(c, "zip");
-    if (!zips.empty && provider is null) {
-      attrs = getAttrs(zips.front);
-      string file = expandTilde(attrs["file"].replace("${micdn.home}", home));
-      auto dir = stripLeadingSlash(attrs.get("dir", ""));
-      provider = new ZipProvider(file, dir);
-    }
-    docs ~= new WwwDocConfig(location, provider);
+    docs ~= new WwwDocConfig(name, parseWwwDocProvider(home, docAttrs, name));
   }
   return new WwwConfig(base, docs);
+}
+
+private BundleProvider parseWwwDocProvider(string home, string[string] docAttrs, string name) {
+  string npm = docAttrs.get("npm", "").strip();
+  string dir = docAttrs.get("dir", "").strip();
+  string zip = docAttrs.get("zip", "").strip();
+  string inner = stripLeadingSlash(docAttrs.get("inner", "").strip());
+
+  int sources = (npm.length > 0) + (dir.length > 0) + (zip.length > 0);
+  if (sources == 0)
+    throw new Exception("www <doc name=\"" ~ name ~ "\"> requires one of npm, dir, or zip attribute");
+  if (sources > 1)
+    throw new Exception("www <doc name=\"" ~ name ~ "\"> must not set more than one of npm, dir, zip");
+
+  if (inner.length > 0 && !isSafePathSegments(inner))
+    throw new Exception("www <doc name=\"" ~ name ~ "\"> inner must not contain '.' or '..' path segments");
+
+  if (npm.length > 0) {
+    auto subdir = inner.length > 0 ? inner : "dist";
+    return new NpmProvider(npm, subdir);
+  }
+  if (dir.length > 0) {
+    if (inner.length > 0)
+      throw new Exception("www <doc name=\"" ~ name ~ "\"> inner is not allowed with dir");
+    string loc = expandTilde(dir.replace("${micdn.home}", home));
+    return new DirProvider(loc);
+  }
+  auto subdir = inner;
+  string file = expandTilde(zip.replace("${micdn.home}", home));
+  return new ZipProvider(file, subdir);
+}
+
+private string formatWwwDocXml(const WwwDocConfig doc) {
+  import std.format : format;
+
+  string n = escapeXmlAttr(doc.name);
+  if (doc.provider is null)
+    return format(`<doc name="%s" />`, n);
+
+  if (NpmProvider np = cast(NpmProvider) doc.provider) {
+    if (np.dir == "dist")
+      return format(`<doc name="%s" npm="%s" />`, n, escapeXmlAttr(np.packageSpec));
+    return format(`<doc name="%s" npm="%s" inner="%s" />`, n, escapeXmlAttr(np.packageSpec),
+        escapeXmlAttr(np.dir));
+  }
+  if (DirProvider dp = cast(DirProvider) doc.provider)
+    return format(`<doc name="%s" dir="%s" />`, n, escapeXmlAttr(dp.location));
+  if (ZipProvider zp = cast(ZipProvider) doc.provider) {
+    if (zp.dir.length == 0)
+      return format(`<doc name="%s" zip="%s" />`, n, escapeXmlAttr(zp.file));
+    return format(`<doc name="%s" zip="%s" inner="%s" />`, n, escapeXmlAttr(zp.file),
+        escapeXmlAttr(zp.dir));
+  }
+  return format(`<doc name="%s" />`, n);
 }
 
 /// 将字节数格式化为与 `parseSize` 可逆的 `maxSize` 属性（优先 `…M` / `…G`）。

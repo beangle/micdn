@@ -4,6 +4,16 @@
   elementFormDefault="qualified"
   version="1.0.0">
 
+  <!-- www doc 名：不以 / 开头或结尾，段间用 /（如 manual、a/b） -->
+  <xs:simpleType name="docNameType">
+    <xs:annotation>
+      <xs:documentation> 不以 / 开头或结尾；可含多级路径如 a/b </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[^/]+(/[^/]+)*"/>
+    </xs:restriction>
+  </xs:simpleType>
+
   <!-- HTTP 路径前缀：以 / 开头且不以 / 结尾（如 /manual、/maven），不允许空串或 / -->
   <xs:simpleType name="endpointType">
     <xs:annotation>
@@ -144,16 +154,34 @@
     </xs:attribute>
   </xs:complexType>
 
-  <!-- docType for www -->
+  <!-- docType for www：npm / dir / zip 三选一（属性）；inner 仅用于 npm/zip 包内子目录 -->
   <xs:complexType name="docType">
-    <xs:choice minOccurs="1" maxOccurs="1">
-      <xs:element name="npm" type="npmType" />
-      <xs:element name="zip" type="zipType" />
-      <xs:element name="dir" type="dirType" />
-    </xs:choice>
-    <xs:attribute name="location" type="endpointType" use="required">
+    <xs:annotation>
+      <xs:documentation> name 必填；npm、dir、zip 三属性恰填其一（解析期校验）。inner 可选，npm 默认 dist，zip 默认空。 </xs:documentation>
+    </xs:annotation>
+    <xs:attribute name="name" type="docNameType" use="required">
       <xs:annotation>
-        <xs:documentation> 以 / 开头且不以 / 结尾（如 /manual） </xs:documentation>
+        <xs:documentation> doc 路径名，不以 / 开头（如 manual、a/b） </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
+    <xs:attribute name="npm" type="xs:string" use="optional">
+      <xs:annotation>
+        <xs:documentation> NPM 包规格，如 @scope/package@version </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
+    <xs:attribute name="dir" type="xs:string" use="optional">
+      <xs:annotation>
+        <xs:documentation> 本地目录路径 </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
+    <xs:attribute name="zip" type="xs:string" use="optional">
+      <xs:annotation>
+        <xs:documentation> 本地 zip 文件路径 </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
+    <xs:attribute name="inner" type="xs:string" use="optional">
+      <xs:annotation>
+        <xs:documentation> npm/zip 内子目录（相对路径，不能以 / 开头）；npm 默认 dist </xs:documentation>
       </xs:annotation>
     </xs:attribute>
   </xs:complexType>

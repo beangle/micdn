@@ -153,7 +153,41 @@ unittest {
   assert(isValidEndpoint(normalizeEndpoint("/manual/")));
 }
 
-@("www doc rejects location with .. segments")
+@("www doc parses npm dir zip attributes")
+unittest {
+  auto xml = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn>
+  <maven/><npm/>
+  <www base="~/tmp/www">
+    <doc name="manual" npm="@xurp/manual@0.0.2" />
+    <doc name="local" dir="~/docs/local" />
+    <doc name="zipdoc" zip="~/docs/pkg.zip" inner="dist" />
+  </www>
+</micdn>`;
+  auto config = parse("~/tmp", xml);
+  assert(config.www.docs.length == 3);
+  assert(cast(NpmProvider) config.www.docs[0].provider !is null);
+  assert(cast(DirProvider) config.www.docs[1].provider !is null);
+  assert(cast(ZipProvider) config.www.docs[2].provider !is null);
+  assert((cast(NpmProvider) config.www.docs[0].provider).dir == "dist");
+  assert((cast(ZipProvider) config.www.docs[2].provider).dir == "dist");
+}
+
+@("www doc rejects multiple source attributes")
+unittest {
+  import std.exception;
+
+  auto xml = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn>
+  <maven/><npm/>
+  <www base="~/tmp/www">
+    <doc name="manual" npm="@a/b@1" dir="~/m"/>
+  </www>
+</micdn>`;
+  assertThrown!Exception(parse("~/tmp", xml));
+}
+
+@("www doc rejects name with .. segments")
 unittest {
   import std.exception;
 
@@ -162,15 +196,13 @@ unittest {
   <maven/>
   <npm/>
   <www base="~/tmp/www">
-    <doc location="/manual/../admin">
-      <dir location="~/m"/>
-    </doc>
+    <doc name="manual/../admin" dir="~/m"/>
   </www>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", traversal));
 }
 
-@("www doc rejects empty location")
+@("www doc rejects empty name")
 unittest {
   import std.exception;
 
@@ -179,9 +211,7 @@ unittest {
   <maven/>
   <npm/>
   <www base="~/tmp/www">
-    <doc location="/">
-      <dir location="~/m"/>
-    </doc>
+    <doc name="/" dir="~/m"/>
   </www>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", emptyLoc));
@@ -191,12 +221,25 @@ unittest {
   <maven/>
   <npm/>
   <www base="~/tmp/www">
-    <doc>
-      <dir location="~/m"/>
-    </doc>
+    <doc dir="~/m"/>
   </www>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", missingLoc));
+}
+
+@("normalizeDocName and isValidDocName")
+unittest {
+  assert(normalizeDocName("manual") == "manual");
+  assert(normalizeDocName("a/b") == "a/b");
+  assert(normalizeDocName("  a/b/  ") == "a/b");
+  assert(isValidDocName("manual"));
+  assert(isValidDocName("a/b"));
+  assert(!isValidDocName(""));
+  assert(!isValidDocName("/manual"));
+  assert(!isValidDocName("manual/"));
+  assert(!isValidDocName("a/../b"));
+  auto doc = new WwwDocConfig("a/b", null);
+  assert(doc.endpoint() == "/a/b");
 }
 
 @("endpoint conflict validation")
@@ -211,9 +254,7 @@ unittest {
     <bundle name="x"><dir location="~/x"/></bundle>
   </static>
   <www base="~/tmp/www">
-    <doc location="/admin">
-      <dir location="~/manual"/>
-    </doc>
+    <doc name="admin" dir="~/manual"/>
   </www>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", content));
@@ -226,13 +267,12 @@ unittest {
     <bundle name="x"><dir location="~/x"/></bundle>
   </static>
   <www base="~/tmp/www">
-    <doc location="/manual">
-      <dir location="~/manual"/>
-    </doc>
+    <doc name="manual" dir="~/manual"/>
   </www>
 </micdn>`;
   auto config = parse("~/tmp", ok);
-  assert(config.www.docs[0].location == "/manual");
+  assert(config.www.docs[0].name == "manual");
+  assert(config.www.docs[0].endpoint() == "/manual");
 }
 
 @("endpoint conflict: prefix and multiple scenarios")
@@ -248,7 +288,7 @@ unittest {
     <bundle name="x"><dir location="~/x"/></bundle>
   </static>
   <www base="~/tmp/www">
-    <doc location="/maven"><dir location="~/m"/></doc>
+    <doc name="maven" dir="~/m"/>
   </www>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", mavenPrefix),
@@ -266,7 +306,7 @@ unittest {
     <bucket name="b" key="k"/>
   </blob>
   <www base="~/tmp/www">
-    <doc location="/blob"><dir location="~/m"/></doc>
+    <doc name="blob" dir="~/m"/>
   </www>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", staticBlob),
@@ -278,8 +318,8 @@ unittest {
   <maven/>
   <npm/>
   <www base="~/tmp/www">
-    <doc location="/doc"><dir location="~/d1"/></doc>
-    <doc location="/doc/guide"><dir location="~/d2"/></doc>
+    <doc name="doc" dir="~/d1"/>
+    <doc name="doc/guide" dir="~/d2"/>
   </www>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", wwwPrefix),
@@ -294,13 +334,14 @@ unittest {
     <bundle name="x"><dir location="~/x"/></bundle>
   </static>
   <www base="~/tmp/www">
-    <doc location="/manual"><dir location="~/m"/></doc>
+    <doc name="manual" dir="~/m"/>
   </www>
 </micdn>`;
   auto config = parse("~/tmp", noConflict);
   assert(config.maven.base.length > 0);
   assert(config.asset.base.length > 0);
-  assert(config.www.docs[0].location == "/manual");
+  assert(config.www.docs[0].name == "manual");
+  assert(config.www.docs[0].endpoint() == "/manual");
 }
 
 @("micdn log attributes parse")

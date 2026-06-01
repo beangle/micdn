@@ -46,7 +46,7 @@ unittest {
   auto xml = `<?xml version="1.0"?><micdn>
   <maven/><npm/>
   <www base="` ~ home ~ `/www">
-    <doc location="/manual"><dir location="` ~ src ~ `"/></doc>
+    <doc name="manual" dir="` ~ src ~ `" />
   </www>
 </micdn>`;
   auto config = parse(home, xml);
