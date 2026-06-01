@@ -18,7 +18,7 @@ module micdn.www;
 /// WWW 静态内容：构建时按 `<doc location>` 挂载到 `www.base` 下同名路径，运行时 `base ~ httpPath` 直接读盘。
 
 import std.file;
-import std.path : buildPath;
+import std.path : buildPath, dirName;
 
 import vibe.core.log;
 
@@ -70,50 +70,90 @@ class WwwRepo {
     return null;
   }
 
-  /** 将 doc 挂载到 `www.base` 下与 `location` 同构的目录（如 `/mobile/student` → `{base}/mobile/student`）。
+  /** 将单个 www `<doc>` 挂载到 `www.base` 下与 `location` 同构的目录
+    （如 `/manual` → `{base}/manual`）。供 `build` 与 `micdn … mount-www` 共用。
+
+    按 provider 处理 dir 符号链接、npm 解压或 zip 增量解压；目录保持可写以便重复挂载。
+    成功返回 true，失败打日志并返回 false。
   */
-  private static void mountDoc(MicdnConfig config, const WwwDocConfig doc) {
-    auto www = config.www;
-    auto docDir = resolveRepositoryPath(www.base, doc.location);
+  static bool mountDoc(MicdnConfig config, const WwwDocConfig doc) {
+    auto docDir = resolveRepositoryPath(config.www.base, doc.location);
     if (docDir is null) {
       logWarn("Invalid www doc path: %s", doc.location);
-      return;
+      return false;
     }
 
+    auto p = doc.provider;
+    if (DirProvider dp = cast(DirProvider) p)
+      return mountDocDir(dp, docDir);
+    if (NpmProvider np = cast(NpmProvider) p)
+      return mountDocNpm(config, np, docDir);
+    if (ZipProvider zp = cast(ZipProvider) p)
+      return mountDocZip(zp, docDir);
+
+    logWarn("Unsupported www provider for %s", doc.location);
+    return false;
+  }
+
+  /// `<dir>`：清空 `docDir` 后创建符号链接（与 static bundle 一致，不先 mkdir）。
+  private static bool mountDocDir(const DirProvider dp, string docDir) {
+    if (!exists(dp.location)) {
+      logWarn("Cannot link " ~ dp.location ~ " to " ~ docDir);
+      return false;
+    }
+    mkdirRecurse(dirName(docDir));
+    clearDocDirForSymlink(docDir);
+    logInfo("Linking " ~ dp.location ~ " to " ~ docDir);
+    makeSymlink(dp.location, docDir);
+    return true;
+  }
+
+  /// `<npm>`：拉取 tgz 并解压到可写的 `docDir`。
+  private static bool mountDocNpm(MicdnConfig config, const NpmProvider np, string docDir) {
+    string scopePart, namePart, versionPart;
+    parsePackageSpec(np.packageSpec, scopePart, namePart, versionPart);
+    if (namePart.length == 0 || versionPart.length == 0) {
+      logWarn("Invalid npm package spec: %s", np.packageSpec);
+      return false;
+    }
+    ensureDocDirWritable(docDir);
+    logInfo("Mounting %s", np.packageSpec);
+    auto npmRepo = NpmRepo.build(config);
+    if (!npmRepo.fetch(scopePart, namePart, versionPart)) {
+      logWarn("Cannot resolve npm package %s", np.packageSpec);
+      return false;
+    }
+    auto tgzPath = npmRepo.localTarball(scopePart, namePart, versionPart);
+    if (!extractTgzToDocBase(tgzPath, docDir, "package/" ~ np.dir)) {
+      logWarn("Failed to extract %s to %s", tgzPath, docDir);
+      return false;
+    }
+    return true;
+  }
+
+  /// `<zip>`：增量解压到可写的 `docDir`。
+  private static bool mountDocZip(const ZipProvider zp, string docDir) {
+    ensureDocDirWritable(docDir);
+    logInfo("Mounting %s", zp.file);
+    if (refreshUnzip(zp.file, docDir, zp.dir) == 0) {
+      logWarn("Cannot find %s in %s", zp.dir, zp.file);
+      return false;
+    }
+    return true;
+  }
+
+  private static void ensureDocDirWritable(string docDir) {
     if (exists(docDir))
       setWritable(docDir);
     mkdirRecurse(docDir);
-    auto p = doc.provider;
-    if (DirProvider dp = cast(DirProvider) p) {
-      if (exists(dp.location)) {
-        logInfo("Linking " ~ dp.location ~ " to " ~ docDir);
-        makeSymlink(dp.location, docDir);
-      } else {
-        logWarn("Cannot link " ~ dp.location ~ " to " ~ docDir);
-      }
-    } else if (NpmProvider np = cast(NpmProvider) p) {
-      string scopePart, namePart, versionPart;
-      parsePackageSpec(np.packageSpec, scopePart, namePart, versionPart);
-      if (namePart.length == 0 || versionPart.length == 0) {
-        logWarn("Invalid npm package spec: %s", np.packageSpec);
-      } else {
-        logInfo("Mounting %s", np.packageSpec);
-        auto npmRepo = NpmRepo.build(config);
-        if (npmRepo.fetch(scopePart, namePart, versionPart)) {
-          auto tgzPath = npmRepo.localTarball(scopePart, namePart, versionPart);
-          if (!extractTgzToDocBase(tgzPath, docDir, "package/" ~ np.dir))
-            logWarn("Failed to extract %s to %s", tgzPath, docDir);
-        } else {
-          logWarn("Cannot resolve npm package %s", np.packageSpec);
-        }
-      }
-    } else if (ZipProvider zp = cast(ZipProvider) p) {
-      logInfo("Mounting %s", zp.file);
-      auto count = refreshUnzip(zp.file, docDir, zp.dir);
-      if (count == 0)
-        logWarn("Cannot find %s in %s", zp.dir, zp.file);
-    }
+  }
 
-    setReadOnly(docDir);
+  private static void clearDocDirForSymlink(string docDir) {
+    if (!exists(docDir))
+      return;
+    if (isSymlink(docDir))
+      remove(docDir);
+    else
+      rmdirRecurse(docDir);
   }
 }
