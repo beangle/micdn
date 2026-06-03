@@ -157,7 +157,7 @@
   <!-- docType for www：npm / dir / zip 三选一（属性）；inner 仅用于 npm/zip 包内子目录 -->
   <xs:complexType name="docType">
     <xs:annotation>
-      <xs:documentation> name 必填；npm、dir、zip 三属性恰填其一（解析期校验）。inner 可选，npm 默认 dist，zip 默认空。 </xs:documentation>
+      <xs:documentation> name 必填；npm、dir、zip 三属性恰填其一（解析期校验）。inner、try-file 可选；npm 默认 dist，zip 默认空。 </xs:documentation>
     </xs:annotation>
     <xs:attribute name="name" type="docNameType" use="required">
       <xs:annotation>
@@ -182,6 +182,11 @@
     <xs:attribute name="inner" type="xs:string" use="optional">
       <xs:annotation>
         <xs:documentation> npm/zip 内子目录（相对路径，不能以 / 开头）；npm 默认 dist </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
+    <xs:attribute name="try-file" type="xs:string" use="optional">
+      <xs:annotation>
+        <xs:documentation> 未命中 $uri / $uri/ 时回退的单个文件（相对 doc 根，如 index.html） </xs:documentation>
       </xs:annotation>
     </xs:attribute>
   </xs:complexType>
