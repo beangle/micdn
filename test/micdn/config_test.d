@@ -153,6 +153,33 @@ unittest {
   assert(isValidEndpoint(normalizeEndpoint("/manual/")));
 }
 
+@("www doc parses try-file attribute")
+unittest {
+  auto xml = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn>
+  <maven/><npm/>
+  <www base="~/tmp/www">
+    <doc name="m/edu/learning" dir="~/docs/spa" try-file="index.html" />
+  </www>
+</micdn>`;
+  auto config = parse("~/tmp", xml);
+  assert(config.www.docs[0].tryFile == "index.html");
+}
+
+@("www doc rejects unsafe try-file")
+unittest {
+  import std.exception;
+
+  auto xml = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn>
+  <maven/><npm/>
+  <www base="~/tmp/www">
+    <doc name="manual" dir="~/m" try-file="../secret.html" />
+  </www>
+</micdn>`;
+  assertThrown!Exception(parse("~/tmp", xml));
+}
+
 @("www doc parses npm dir zip attributes")
 unittest {
   auto xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -238,7 +265,7 @@ unittest {
   assert(!isValidDocName("/manual"));
   assert(!isValidDocName("manual/"));
   assert(!isValidDocName("a/../b"));
-  auto doc = new WwwDocConfig("a/b", null);
+  auto doc = new WwwDocConfig("a/b", new DirProvider("/tmp"));
   assert(doc.endpoint() == "/a/b");
 }
 

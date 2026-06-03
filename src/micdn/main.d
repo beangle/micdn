@@ -143,11 +143,8 @@ void logRegisteredEndpoints(MicdnConfig config) {
   }
   if (config.www !is null) {
     string[] docLocs;
-    foreach (doc; config.www.docs) {
-      if (doc.provider is null)
-        continue;
+    foreach (doc; config.www.docs)
       docLocs ~= doc.endpoint();
-    }
     parts ~= "/* (www" ~ (docLocs.length ? ": " ~ docLocs.join(", ") : "") ~ ")";
   }
   logInfo("Registered HTTP endpoints: %s", parts.join(", "));
@@ -331,10 +328,6 @@ private int runMountWww(MicdnConfig config, string docName) {
   if (docName.length == 0) {
     bool ok = true;
     foreach (doc; config.www.docs) {
-      if (doc.provider is null) {
-        logWarn("Skip www doc without provider: %s", doc.name);
-        continue;
-      }
       if (!WwwRepo.mountDoc(config, doc))
         ok = false;
       else
@@ -345,8 +338,6 @@ private int runMountWww(MicdnConfig config, string docName) {
   }
 
   auto doc = findWwwDoc(config.www, docName);
-  if (doc.provider is null)
-    throw new Exception("doc " ~ doc.name ~ " has no dir/npm/zip provider");
 
   if (!WwwRepo.mountDoc(config, doc))
     throw new Exception("mount www failed for " ~ doc.name);

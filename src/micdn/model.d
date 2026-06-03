@@ -30,6 +30,7 @@ import std.string;
 import std.uni;
 
 import micdn.config;
+import micdn.fs.file : isSafePathSegments;
 import micdn.routes;
 
 /** 根配置类，聚合静态资源、Maven 仓库、NPM 仓库、Blob 存储、WWW 文档等子配置。
@@ -295,6 +296,7 @@ class AssetBundle {
           p = DirProvider、GavJarProvider 或 NpmProvider 实例
   */
   void addProvider(BundleProvider p) {
+    assert(p !is null, "bundle provider must not be null");
     providers.length += 1;
     providers[providers.length - 1] = p;
   }
@@ -450,12 +452,18 @@ class WwwDocConfig {
   const string name;
   /// 资源提供者（DirProvider、ZipProvider 或 NpmProvider）
   const BundleProvider provider;
+  /// SPA 等场景：$uri / $uri/ 均未命中时，回退到 doc 根下该相对路径（如 `index.html`）。
+  const string tryFile;
 
-  this(string name, BundleProvider provider) {
+  this(string name, BundleProvider provider, string tryFile = "") {
     assert(isValidDocName(name),
         "www doc name must not start with '/' and must not contain '.' or '..' segments (e.g. manual or a/b)");
+    assert(provider !is null, "www doc provider must not be null");
+    assert(tryFile.length == 0 || isSafePathSegments(tryFile),
+        "www doc try-file must not contain '.' or '..' path segments");
     this.name = name;
     this.provider = provider;
+    this.tryFile = tryFile;
   }
 
   /// HTTP 访问路径（`/` ~ `name`）。

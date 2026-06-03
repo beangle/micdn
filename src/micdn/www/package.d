@@ -17,6 +17,7 @@
 module micdn.www;
 /// WWW 静态内容：构建时按 `<doc location>` 挂载到 `www.base` 下同名路径，运行时 `base ~ httpPath` 直接读盘。
 
+import std.algorithm;
 import std.file;
 import std.path : buildPath, dirName;
 
@@ -31,34 +32,28 @@ import micdn.web;
 /// `www.base` 下的统一仓库：磁盘布局与 URL 一致（`/manual/foo` → `{base}/manual/foo`）。
 class WwwRepo {
   const string base;
+  const WwwDocConfig[] docs;
 
-  this(string base) {
+  this(string base, const WwwDocConfig[] docs = null) {
     this.base = base;
+    this.docs = docs;
   }
 
   static WwwRepo build(MicdnConfig config) {
     auto wwwBase = config.www.base;
     foreach (doc; config.www.docs) {
-      if (!isSafePathSegments(doc.name)) {
-        throw new Exception("www doc name must not contain '.' or '..' path segments: " ~ doc.name);
-      }
-      if (doc.provider is null) {
-        logWarn("Www doc provider is null: %s", doc.name);
-        continue;
-      }
       logInfo("Mounting www %s", doc.name);
       mountDoc(config, doc);
     }
-    return new WwwRepo(wwwBase);
+    return new WwwRepo(wwwBase, config.www.docs);
   }
 
   /** 按 HTTP 路径解析本地文件（须为 `getPath` 已解码路径；规范化并限制在 `base` 下）。
+    顺序：$uri → $uri/（目录 index.html）→ 所属 doc 的 `try-file`。
   */
   string get(string uri) const {
     auto location = resolveRepositoryPath(base, uri);
-    if (location is null)
-      return null;
-    if (exists(location)) {
+    if (location !is null && exists(location)) {
       if (std.file.isDir(location)) {
         auto indexPath = buildPath(location, "index.html");
         if (exists(indexPath))
@@ -67,7 +62,31 @@ class WwwRepo {
         return location;
       }
     }
+
+    auto doc = findDoc(uri);
+    if (doc !is null && doc.tryFile.length > 0) {
+      auto fallback = resolveRepositoryPath(base, doc.endpoint() ~ "/" ~ doc.tryFile);
+      if (fallback !is null && exists(fallback) && !std.file.isDir(fallback))
+        return fallback;
+    }
     return null;
+  }
+
+  private const(WwwDocConfig) findDoc(string uri) const {
+    size_t bestIdx = size_t.max;
+    size_t bestLen = 0;
+    foreach (i, d; docs) {
+      auto ep = d.endpoint();
+      if (uri.length < ep.length || !uri.startsWith(ep))
+        continue;
+      if (uri.length > ep.length && uri[ep.length] != '/')
+        continue;
+      if (ep.length > bestLen) {
+        bestIdx = i;
+        bestLen = ep.length;
+      }
+    }
+    return bestIdx == size_t.max ? null : docs[bestIdx];
   }
 
   /** 将单个 www `<doc>` 挂载到 `www.base` 下与 `location` 同构的目录
@@ -78,21 +97,16 @@ class WwwRepo {
   */
   static bool mountDoc(MicdnConfig config, const WwwDocConfig doc) {
     auto docDir = resolveRepositoryPath(config.www.base, doc.endpoint());
-    if (docDir is null) {
-      logWarn("Invalid www doc path: %s", doc.name);
-      return false;
-    }
+    assert(docDir !is null, "www doc path escapes base: " ~ doc.name);
 
-    auto p = doc.provider;
-    if (DirProvider dp = cast(DirProvider) p)
+    if (DirProvider dp = cast(DirProvider) doc.provider)
       return mountDocDir(dp, docDir);
-    if (NpmProvider np = cast(NpmProvider) p)
+    if (NpmProvider np = cast(NpmProvider) doc.provider)
       return mountDocNpm(config, np, docDir);
-    if (ZipProvider zp = cast(ZipProvider) p)
+    if (ZipProvider zp = cast(ZipProvider) doc.provider)
       return mountDocZip(zp, docDir);
 
-    logWarn("Unsupported www provider for %s", doc.name);
-    return false;
+    assert(false, "unsupported www provider for " ~ doc.name);
   }
 
   /// `<dir>`：清空 `docDir` 后创建符号链接（与 static bundle 一致，不先 mkdir）。
