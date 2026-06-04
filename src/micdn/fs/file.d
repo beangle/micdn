@@ -384,7 +384,20 @@ do {
   }
 }
 
+/** 仅将目录本身设为可写（目录 +700，不递归子项、不修改符号链接）。
+
+    static / www 的 `prepareBase` 在 build 与 `mount` 前调用，保证能在 base 下
+    新建 bundle / doc 子目录；子项权限沿用现有文件或解压结果。
+*/
+void ensureDirWritable(string dir) {
+  if (exists(dir) && dir.isDir)
+    dir.setAttributes(dir.getAttributes | octal!700);
+}
+
 /** 递归将目录及子项设为只读（目录 555，文件 444），符号链接不修改。
+
+    保留供测试或手工维护场景使用；micdn 的 static / www build 与 mount 不再调用。
+    与 `setWritable` 成对，可整树锁定后再整树恢复可写。
 */
 void setReadOnly(string dir) {
   if (!exists(dir)) {
@@ -412,7 +425,10 @@ private void doSetReadOnly(string dir) {
 }
 
 /** 递归将目录及子项设为可写（目录 +700，文件 +200），符号链接不修改。
-    用于在覆盖/解压前恢复写入权限。
+
+    保留供测试或手工维护场景使用；micdn 的 static / www 改用 `ensureDirWritable`
+    只对 base 目录本身 chmod，避免 mount 时对大目录树递归 chmod。
+    与 `setReadOnly` 成对。
 */
 void setWritable(string dir) {
   if (!exists(dir)) {

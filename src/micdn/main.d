@@ -325,6 +325,8 @@ private int runMountWww(MicdnConfig config, string docName) {
   if (config.www is null)
     throw new Exception("no <www> section in config");
 
+  WwwRepo.prepareBase(config.www.base);
+
   if (docName.length == 0) {
     bool ok = true;
     foreach (doc; config.www.docs) {
@@ -349,6 +351,8 @@ private int runMountWww(MicdnConfig config, string docName) {
 private int runMountStatic(MicdnConfig config, string bundleName) {
   if (config.asset is null)
     throw new Exception("no <static> section in config");
+
+  AssetRepo.prepareBase(config.asset.base);
 
   if (bundleName.length == 0) {
     bool ok = true;

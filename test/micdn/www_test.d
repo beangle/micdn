@@ -34,6 +34,32 @@ unittest {
   assert(repo.get("/manual/../etc/passwd") is null);
 }
 
+@("WwwRepo build ensures www base dir is writable")
+unittest {
+  import std.conv : octal;
+
+  auto home = buildPath(tempDir, "micdn-www-build-writable");
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  auto src = buildPath(home, "src", "manual");
+  mkdirRecurse(src);
+  write(buildPath(src, "index.html"), "ok");
+
+  auto xml = `<?xml version="1.0"?><micdn>
+  <maven/><npm/>
+  <www base="` ~ home ~ `/www">
+    <doc name="manual" dir="` ~ src ~ `" />
+  </www>
+</micdn>`;
+  auto config = parse(home, xml);
+  mkdirRecurse(config.www.base);
+  config.www.base.setAttributes(octal!555);
+
+  auto repo = WwwRepo.build(config);
+  assert(repo.get("/manual/index.html") !is null);
+}
+
 @("mountDoc links dir and leaves tree writable")
 unittest {
   auto home = buildPath(tempDir, "micdn-www-mount");
@@ -93,6 +119,30 @@ unittest {
   assert(repo.get("/m/edu/learning/route/foo") !is null);
   assert(repo.get("/m/edu/learning/route/foo").endsWith("index.html"));
   assert(repo.get("/other/route") is null);
+}
+
+@("WwwRepo try-file falls back for m/edu/teaching deep link")
+unittest {
+  auto home = buildPath(tempDir, "micdn-www-teaching");
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  auto src = buildPath(home, "src", "m", "edu", "teaching");
+  mkdirRecurse(src);
+  write(buildPath(src, "index.html"), "spa");
+
+  auto xml = `<?xml version="1.0"?><micdn>
+  <maven/><npm/>
+  <www base="` ~ home ~ `/www">
+    <doc name="m/edu/teaching" dir="` ~ src ~ `" try-file="index.html" />
+  </www>
+</micdn>`;
+  auto config = parse(home, xml);
+  auto repo = WwwRepo.build(config);
+
+  assert(repo.get("/m/edu/teaching") !is null);
+  assert(repo.get("/m/edu/teaching/a/bc") !is null);
+  assert(repo.get("/m/edu/teaching/a/bc").endsWith("index.html"));
 }
 
 @("WwwRepo try-file uses longest doc prefix")

@@ -41,8 +41,12 @@ class WwwRepo {
 
   static WwwRepo build(MicdnConfig config) {
     auto wwwBase = config.www.base;
+    prepareBase(wwwBase);
     foreach (doc; config.www.docs) {
-      logInfo("Mounting www %s", doc.name);
+      if (doc.tryFile.length > 0)
+        logInfo("Mounting www %s (try-file=%s)", doc.name, doc.tryFile);
+      else
+        logInfo("Mounting www %s", doc.name);
       mountDoc(config, doc);
     }
     return new WwwRepo(wwwBase, config.www.docs);
@@ -66,13 +70,21 @@ class WwwRepo {
     auto doc = findDoc(uri);
     if (doc !is null && doc.tryFile.length > 0) {
       auto fallback = resolveRepositoryPath(base, doc.endpoint() ~ "/" ~ doc.tryFile);
-      if (fallback !is null && exists(fallback) && !std.file.isDir(fallback))
+      import std.stdio;
+      writeln("fallback: ", fallback);
+      writeln("exists: ", exists(fallback));
+      writeln("isDir: ", std.file.isDir(fallback));
+      if (fallback !is null && exists(fallback) && !std.file.isDir(fallback)){
+        writeln("returning fallback: ", fallback);
         return fallback;
+      }
     }
     return null;
   }
 
   private const(WwwDocConfig) findDoc(string uri) const {
+    if (docs is null)
+      return null;
     size_t bestIdx = size_t.max;
     size_t bestLen = 0;
     foreach (i, d; docs) {
@@ -92,7 +104,7 @@ class WwwRepo {
   /** 将单个 www `<doc>` 挂载到 `www.base` 下与 `location` 同构的目录
     （如 `/manual` → `{base}/manual`）。供 `build` 与 `micdn … mount-www` 共用。
 
-    按 provider 处理 dir 符号链接、npm 解压或 zip 增量解压；目录保持可写以便重复挂载。
+    按 provider 处理 dir 符号链接、npm 解压或 zip 增量解压。
     成功返回 true，失败打日志并返回 false。
   */
   static bool mountDoc(MicdnConfig config, const WwwDocConfig doc) {
@@ -122,7 +134,7 @@ class WwwRepo {
     return true;
   }
 
-  /// `<npm>`：拉取 tgz 并解压到可写的 `docDir`。
+  /// `<npm>`：拉取 tgz 并解压到 `docDir`。
   private static bool mountDocNpm(MicdnConfig config, const NpmProvider np, string docDir) {
     string scopePart, namePart, versionPart;
     parsePackageSpec(np.packageSpec, scopePart, namePart, versionPart);
@@ -130,7 +142,7 @@ class WwwRepo {
       logWarn("Invalid npm package spec: %s", np.packageSpec);
       return false;
     }
-    ensureDocDirWritable(docDir);
+    mkdirRecurse(docDir);
     logInfo("Mounting %s", np.packageSpec);
     auto npmRepo = NpmRepo.build(config);
     if (!npmRepo.fetch(scopePart, namePart, versionPart)) {
@@ -145,9 +157,9 @@ class WwwRepo {
     return true;
   }
 
-  /// `<zip>`：增量解压到可写的 `docDir`。
+  /// `<zip>`：增量解压到 `docDir`。
   private static bool mountDocZip(const ZipProvider zp, string docDir) {
-    ensureDocDirWritable(docDir);
+    mkdirRecurse(docDir);
     logInfo("Mounting %s", zp.file);
     if (refreshUnzip(zp.file, docDir, zp.dir) == 0) {
       logWarn("Cannot find %s in %s", zp.dir, zp.file);
@@ -156,10 +168,10 @@ class WwwRepo {
     return true;
   }
 
-  private static void ensureDocDirWritable(string docDir) {
-    if (exists(docDir))
-      setWritable(docDir);
-    mkdirRecurse(docDir);
+  /** 确保 `www.base` 存在且目录本身可写（见 `ensureDirWritable`，不递归子项）。 */
+  static void prepareBase(string wwwBase) {
+    mkdirRecurse(wwwBase);
+    ensureDirWritable(wwwBase);
   }
 
   private static void clearDocDirForSymlink(string docDir) {

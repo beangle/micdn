@@ -185,6 +185,7 @@ unittest {
   import std.file : read;
   import std.stdio;
 
+  // 手工场景：递归只读后再递归可写，以便删除整树（见 `setReadOnly` / `setWritable`）。
   auto zipPath = "/tmp/beangle-bundles-bui-0.2.1.jar";
   if (exists(zipPath)) {
     auto base = "/tmp/beangle-bundles-bui-0.2.1";

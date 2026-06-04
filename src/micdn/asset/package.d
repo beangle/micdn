@@ -118,10 +118,15 @@ class AssetRepo {
     }
   }
 
+  /** 确保 `asset.base` 存在且目录本身可写（见 `ensureDirWritable`，不递归子项）。 */
+  static void prepareBase(string base) {
+    mkdirRecurse(base);
+    ensureDirWritable(base);
+  }
+
   /** 根据全局配置构建静态资源仓库目录并返回仓库实例。
 
-      会创建 base 目录，按 bundle 配置链接/下载 jar 并解压、挂载到对应路径，
-      最后将根目录设为只读。
+      创建 base 目录，按 bundle 配置链接/下载 jar 并解压、挂载。
 
       Params:
           config = 包含 asset、maven 等配置的全局配置
@@ -131,9 +136,7 @@ class AssetRepo {
   */
   static AssetRepo build(MicdnConfig config) {
     auto base = config.asset.base;
-    if (exists(base))
-      setWritable(base);
-    mkdirRecurse(base);
+    prepareBase(base);
 
     bool[string] dynaBundles;
     logInfo("Building static resources at %s", base);
@@ -147,7 +150,6 @@ class AssetRepo {
         }
       }
     }
-    setReadOnly(base);
     return new AssetRepo(base, dynaBundles.rehash());
   }
 
