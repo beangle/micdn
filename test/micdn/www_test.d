@@ -145,6 +145,43 @@ unittest {
   assert(repo.get("/m/edu/teaching/a/bc").endsWith("index.html"));
 }
 
+@("WwwRepo try-file returns path without runtime exists check")
+unittest {
+  auto tmp = buildPath(tempDir, "micdn-www-tryfile-missing");
+  scope (exit)
+    if (exists(tmp))
+      rmdirRecurse(tmp);
+  mkdirRecurse(buildPath(tmp, "app"));
+
+  auto dummy = new DirProvider("/tmp");
+  auto doc = new WwwDocConfig("app", dummy, "index.html");
+  auto repo = new WwwRepo(tmp, [doc]);
+
+  assert(repo.get("/app/route/foo").endsWith("index.html"));
+}
+
+@("mountDoc warns when try-file missing after mount")
+unittest {
+  auto home = buildPath(tempDir, "micdn-www-tryfile-mount-warn");
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  auto src = buildPath(home, "src", "spa");
+  mkdirRecurse(src);
+  write(buildPath(src, "app.js"), "js");
+
+  auto xml = `<?xml version="1.0"?><micdn>
+  <maven/><npm/>
+  <www base="` ~ home ~ `/www">
+    <doc name="spa" dir="` ~ src ~ `" try-file="index.html" />
+  </www>
+</micdn>`;
+  auto config = parse(home, xml);
+  assert(WwwRepo.mountDoc(config, config.www.docs[0]));
+  auto repo = new WwwRepo(config.www.base, config.www.docs);
+  assert(repo.get("/spa/deep/link").endsWith("index.html"));
+}
+
 @("WwwRepo try-file uses longest doc prefix")
 unittest {
   auto tmp = buildPath(tempDir, "micdn-www-tryfile-prefix");

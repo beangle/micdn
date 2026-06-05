@@ -68,16 +68,9 @@ class WwwRepo {
     }
 
     auto doc = findDoc(uri);
-    if (doc !is null && doc.tryFile.length > 0) {
-      auto fallback = resolveRepositoryPath(base, doc.endpoint() ~ "/" ~ doc.tryFile);
-      import std.stdio;
-      writeln("fallback: ", fallback);
-      writeln("exists: ", exists(fallback));
-      writeln("isDir: ", std.file.isDir(fallback));
-      if (fallback !is null && exists(fallback) && !std.file.isDir(fallback)){
-        writeln("returning fallback: ", fallback);
-        return fallback;
-      }
+    if (doc !is null && doc.tryFile.length > 0){
+      logInfo("returning fallback: %s", doc.endpoint() ~ "/" ~ doc.tryFile);
+      return resolveRepositoryPath(base, doc.endpoint() ~ "/" ~ doc.tryFile);
     }
     return null;
   }
@@ -111,14 +104,32 @@ class WwwRepo {
     auto docDir = resolveRepositoryPath(config.www.base, doc.endpoint());
     assert(docDir !is null, "www doc path escapes base: " ~ doc.name);
 
-    if (DirProvider dp = cast(DirProvider) doc.provider)
-      return mountDocDir(dp, docDir);
-    if (NpmProvider np = cast(NpmProvider) doc.provider)
-      return mountDocNpm(config, np, docDir);
-    if (ZipProvider zp = cast(ZipProvider) doc.provider)
-      return mountDocZip(zp, docDir);
+    if (DirProvider dp = cast(DirProvider) doc.provider) {
+      if (!mountDocDir(dp, docDir))
+        return false;
+    } else if (NpmProvider np = cast(NpmProvider) doc.provider) {
+      if (!mountDocNpm(config, np, docDir))
+        return false;
+    } else if (ZipProvider zp = cast(ZipProvider) doc.provider) {
+      if (!mountDocZip(zp, docDir))
+        return false;
+    } else {
+      assert(false, "unsupported www provider for " ~ doc.name);
+    }
 
-    assert(false, "unsupported www provider for " ~ doc.name);
+    warnMissingTryFile(config.www.base, doc);
+    return true;
+  }
+
+  /// mount 完成后校验 `try-file` 是否已在磁盘上；缺失则警告（运行期由 sendFile 处理 404）。
+  private static void warnMissingTryFile(string wwwBase, const WwwDocConfig doc) {
+    if (doc.tryFile.length == 0)
+      return;
+    auto path = resolveRepositoryPath(wwwBase, doc.endpoint() ~ "/" ~ doc.tryFile);
+    if (path is null)
+      return;
+    if (!exists(path) || std.file.isDir(path))
+      logWarn("www doc %s try-file %s not found at %s", doc.name, doc.tryFile, path);
   }
 
   /// `<dir>`：清空 `docDir` 后创建符号链接（与 static bundle 一致，不先 mkdir）。
