@@ -113,8 +113,6 @@ void loadBucketsFromConfig(const(BlobConfig) config, BlobRepo repo) {
 class BlobRepo {
   const string base;
 
-  bool[string] images;
-
   ulong maxSize = 100 * 1024 * 1024;
 
   Bucket[string] buckets;
@@ -124,16 +122,6 @@ class BlobRepo {
     this.maxSize = config.maxSize;
     mkdirRecurse(expandTilde(config.base));
     loadBucketsFromConfig(config, this);
-    this.images[".jpg"] = true;
-    this.images[".png"] = true;
-    this.images[".gif"] = true;
-    this.images[".jpeg"] = true;
-    this.images[".webp"] = true;
-    this.images[".svg"] = true;
-    this.images[".ico"] = true;
-    this.images[".bmp"] = true;
-    this.images[".tiff"] = true;
-    this.images[".tif"] = true;
   }
 
   /** 按 path 风格解析：endpoint 之后路径的首段为桶名，其余为对象路径（见 `blobPathSplitBucket`）。 */

@@ -41,6 +41,7 @@ import micdn.model;
 import micdn.routes;
 import micdn.web;
 import micdn.web.cache;
+import micdn.web.ext;
 import micdn.web.file;
 
 class BlobService {
@@ -211,10 +212,7 @@ bool downloadAuthorized(BlobRepo repo, const Bucket bucket, HTTPServerRequest re
   if (signedQueryTokenMatches(bucket, uri, req))
     return true;
   if (bucket.publicImages) {
-    import std.path : extension;
-
-    auto ext = extension(objectPath);
-    if ((ext in repo.images) is null)
+    if (!isImage(objectPath))
       return false;
     return refererSameSiteAsRequest(req);
   }
@@ -257,11 +255,8 @@ package bool refererSameSiteAsRequest(HTTPServerRequest req) @trusted {
 /// GET 下载响应体；缓存策略见 `blobObjectCachePolicy`。
 void sendObject(BlobRepo repo, const Bucket bucket, string objectPath,
     HTTPServerRequest req, HTTPServerResponse res) {
-  import std.path;
-
   auto physicalPath = repo.toPhysicalPath(bucket, objectPath);
-  auto ext = extension(objectPath);
-  if (ext in repo.images) {
+  if (isImage(objectPath)) {
     sendFile(req, res, physicalPath, blobObjectCachePolicy());
   } else {
     auto realname = repo.getRealname(bucket, objectPath);

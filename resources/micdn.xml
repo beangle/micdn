@@ -121,11 +121,8 @@
     </bundle>
   </static>
 
-  <www>
-    <doc location="/manual">
-      <!-- <zip file="${micdn.home}/manual.zip" dir="manual" /> -->
-      <npm package="@xurp/manual@0.0.2" />
-    </doc>
+  <www base="/var/cache/micdn/www">
+    <doc name="manual" npm="@xurp/manual@0.0.2" try-file="index.html"/>
   </www>
 
 </micdn>

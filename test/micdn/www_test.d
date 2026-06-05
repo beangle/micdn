@@ -99,6 +99,29 @@ unittest {
   assert(repo.get(decodeRepositoryUri("/%5cWindows%5cwin.ini")) is null);
 }
 
+@("WwwRepo try-file skips fallback for missing static assets")
+unittest {
+  auto tmp = buildPath(tempDir, "micdn-www-tryfile-static");
+  scope (exit)
+    if (exists(tmp))
+      rmdirRecurse(tmp);
+  auto docRoot = buildPath(tmp, "app");
+  mkdirRecurse(buildPath(docRoot, "assets"));
+  write(buildPath(docRoot, "index.html"), "spa");
+  write(buildPath(docRoot, "assets", "ok.js"), "js");
+
+  auto dummy = new DirProvider("/tmp");
+  auto doc = new WwwDocConfig("app", dummy, "index.html");
+  auto repo = new WwwRepo(tmp, [doc]);
+
+  assert(repo.get("/app/route/foo") !is null);
+  assert(repo.get("/app/route/foo").endsWith("index.html"));
+  assert(repo.get("/app/assets/ok.js") !is null);
+  assert(repo.get("/app/assets/missing.js") is null);
+  assert(repo.get("/app/missing.css") is null);
+  assert(repo.get("/app/missing.woff2") is null);
+}
+
 @("WwwRepo try-file falls back for spa deep link")
 unittest {
   auto tmp = buildPath(tempDir, "micdn-www-tryfile");

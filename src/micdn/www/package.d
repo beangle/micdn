@@ -28,6 +28,7 @@ import micdn.model;
 import micdn.npm;
 import micdn.web.file;
 import micdn.web;
+import micdn.web.ext;
 
 /// `www.base` 下的统一仓库：磁盘布局与 URL 一致（`/manual/foo` → `{base}/manual/foo`）。
 class WwwRepo {
@@ -53,7 +54,7 @@ class WwwRepo {
   }
 
   /** 按 HTTP 路径解析本地文件（须为 `getPath` 已解码路径；规范化并限制在 `base` 下）。
-    顺序：$uri → $uri/（目录 index.html）→ 所属 doc 的 `try-file`。
+    顺序：$uri → $uri/（目录 index.html）→ 所属 doc 的 `try-file`（带静态扩展名且未命中则不回退）。
   */
   string get(string uri) const {
     auto location = resolveRepositoryPath(base, uri);
@@ -68,8 +69,9 @@ class WwwRepo {
     }
 
     auto doc = findDoc(uri);
-    if (doc !is null && doc.tryFile.length > 0){
-      logInfo("returning fallback: %s", doc.endpoint() ~ "/" ~ doc.tryFile);
+    if (doc !is null && doc.tryFile.length > 0) {
+      if (isStaticAsset(uri))
+        return null;
       return resolveRepositoryPath(base, doc.endpoint() ~ "/" ~ doc.tryFile);
     }
     return null;

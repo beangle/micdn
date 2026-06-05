@@ -404,7 +404,7 @@ class NpmProvider : BundleProvider {
 
     配置中来自 `<bucket name="…" key="…" publicImages="…"/>`；运行时放入 `BlobRepo.buckets`。
     `publicImages` 缺省为 true；为 false 时关闭匿名图片路径。为 true 时，GET 图片（扩展名见
-    `BlobRepo.images`）可在 `Referer` 与当前请求的站点一致时匿名下载（见 `micdn.blob.web`）。
+    `micdn.web.ext.imageExtensions`）可在 `Referer` 与当前请求的站点一致时匿名下载（见 `micdn.blob.web`）。
     `name` 为空表示未匹配到配置（等价于 `Bucket.init`）。
 */
 struct Bucket {
