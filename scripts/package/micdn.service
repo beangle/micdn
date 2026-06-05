@@ -7,7 +7,13 @@ Type=simple
 ExecStart=/usr/bin/micdn -f /etc/micdn/micdn.xml
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
-RestartSec=5
+# 启动阶段失败退出码 2 → 不重启；正常运行后异常退出/崩溃仍由 on-failure 拉起
+RestartPreventExitStatus=2
+StartLimitBurst=5
+StartLimitIntervalSec=120
+StandardOutput=journal
+StandardError=journal
+# 启动/配置错误写 stderr → journal；正常运行时若配置了 log-file 则业务日志在文件中
 User=micdn
 Group=beangle
 UMask=0002

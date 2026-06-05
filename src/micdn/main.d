@@ -27,7 +27,7 @@ import std.file : getcwd, exists;
 import std.range : empty;
 import std.stdio;
 import std.string : startsWith, strip, lastIndexOf;
-import std.path : dirName, expandTilde;
+import std.path : absolutePath, dirName, expandTilde;
 
 import vibe.core.args;
 import vibe.core.core;
@@ -35,7 +35,7 @@ import vibe.core.log;
 
 import vibe.http.common : HTTPMethod;
 import vibe.http.router;
-import vibe.http.server;
+import vibe.http.server : HTTPListener;
 
 import micdn.routes;
 
@@ -53,6 +53,14 @@ import micdn.www;
 import micdn.www.web;
 import micdn.config;
 import micdn.logging;
+
+/// 仅启动阶段失败时使用（systemd `RestartPreventExitStatus=2`）；正常运行后进程退出/崩溃用其它码，仍由 systemd 拉起。
+enum ExitStartupError = 2;
+
+private int reportStartupError(string msg) {
+  stderr.writeln("micdn: ", msg);
+  return ExitStartupError;
+}
 
 /// 可热加载的请求分发器：持有一个可替换的 URLRouter，支持通过 SIGHUP 完整热加载配置。
 class ReloadableDispatcher : HTTPServerRequestHandler {
@@ -166,26 +174,24 @@ version (unittest) {
       try {
         return runMount(args);
       } catch (Exception e) {
-        writeln(stderr, e.msg);
-        return 1;
+        return reportStartupError(e.msg);
       }
     }
     bool hasConfig = args.canFind("-f");
     if (!hasConfig) {
       showHelpInfo();
-      return 1;
+      return ExitStartupError;
     }
     string configFile;
+    ReloadableDispatcher dispatcher;
+    HTTPListener listener;
     try {
       configFile = resolveConfigFile("micdn.xml");
 
-      if (!exists(expandTilde(configFile))) {
-        logError("Config file[" ~ configFile ~ "] not exists!");
-        return 1;
-      }
+      if (!exists(expandTilde(configFile)))
+        return reportStartupError("Config file[" ~ configFile ~ "] not exists!");
 
-      auto configPath = expandTilde(configFile);
-      auto config = parseFile(configPath);
+      auto config = parseFile(expandTilde(configFile));
       applyMicdnLogging(config.logFile, config.logLevel);
       logInfo("Find config: %s", configFile);
 
@@ -198,23 +204,23 @@ version (unittest) {
       settings.port = port;
       settings.serverString = null;
 
-      auto dispatcher = new ReloadableDispatcher(configPath, "", settings);
+      dispatcher = new ReloadableDispatcher(absolutePath(expandTilde(configFile)), "", settings);
       dispatcher.setRouter(buildRouter(config, settings, () => dispatcher.tryReload()));
 
-      auto listener = listenHTTP(settings, dispatcher);
-      scope (exit)
-        listener.stopListening();
-
-      version (Posix) {
-        startSighupReloadThread(dispatcher);
-      }
-
-      runApplication(&args);
-      return 0;
+      listener = listenHTTP(settings, dispatcher);
     } catch (Exception e) {
-      logError("%s", e.msg);
-      return 1;
+      return reportStartupError(e.msg);
     }
+
+    scope (exit)
+      listener.stopListening();
+
+    version (Posix) {
+      startSighupReloadThread(dispatcher);
+    }
+
+    runApplication(&args);
+    return 0;
   }
 }
 
@@ -292,7 +298,7 @@ int runMount(string[] args) {
   auto target = mountTargetArg(args);
   auto name = mountNameArg(args);
   auto configPath = resolveConfigFile("micdn.xml");
-  auto config = parseFile(configPath);
+  auto config = parseFile(expandTilde(configPath));
   applyMicdnLogging(config.logFile, config.logLevel);
 
   if (target == "www")

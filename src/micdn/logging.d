@@ -10,6 +10,7 @@ module micdn.logging;
 /// 固定行格式：`yyyy-MM-dd HH:mm:ss`（本机本地时区）、左对齐 5 列 level、` - `、消息。
 /// vibe 传入的 `msg.time` 为 UTC，此处转换为本地后再格式化。
 /// 输出目标由 `log-file` 决定：`console` 为控制台，否则为文件（二者互斥）。
+/// 启动阶段在解析配置前不注册 logger；解析失败时错误写入 stderr（供 journalctl 捕获）。
 
 import std.datetime.systime;
 import std.file : mkdirRecurse;

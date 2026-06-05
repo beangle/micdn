@@ -134,7 +134,7 @@ string resolveConfigFile(string defaultConfigFileName) {
 }
 
 /** 从 XML 文本中提取 remote 属性值，用正则避免递归解析。未找到返回 null。
-*/
+ */
 string extractRemoteUrl(string content) {
   auto m = matchFirst(content, regex(r"remote\s*=\s*[\x22\x27]([^\x22\x27]+)[\x22\x27]"));
   return (m && m.captures.length > 1) ? m.captures[1] : null;
