@@ -48,6 +48,21 @@ sudo apt install ldc dub build-essential zlib1g-dev libssl-dev
 
 ---
 
+## druntime / Phobos 的静、动态链接
+
+micdn 的 **`dub.json` 与打包脚本不指定** druntime、Phobos 的链接方式；与 **`dub build --build=release-nobounds --compiler=ldc2`** 配套使用时，**由本机 LDC 环境决定**：
+
+| 因素 | 说明 |
+|------|------|
+| **`ldc2.conf`** | 发行版 ldc 包常在 `/etc/ldc2.conf` 注入 `-link-defaultlib-shared`，默认可执行文件**动态**链 druntime（如 Fedora）。官方 [LDC 预编译包](https://github.com/ldc-developers/ldc/releases) 通常默认可执行文件**静态**链 druntime。 |
+| **是否提供 `.a`** | 若系统 ldc 仅安装 shared 库（如 Fedora `ldc-libs` 只有 `libdruntime-ldc-shared.so.*`），即使显式 `-link-defaultlib-shared=false` 也会链接失败；此时只能动态链，目标机需安装对应 ldc 运行时包。 |
+
+构建完成后可用 **`ldd target/micdn`** 查看：若出现 `libdruntime-ldc-shared.so`、`libphobos2-ldc-shared.so`，则二进制**动态**依赖 ldc 运行时；若无，则 druntime 已**静态**编入可执行文件，目标机通常无需安装 ldc。
+
+rpm/deb 包的 **`Requires` / `Depends` 目前仅声明 `curl`**；若你在动态链环境下打包，请自行确认目标机是否已具备与构建时 soname 一致的 ldc 运行时库，必要时在发布说明或包依赖中补充。
+
+---
+
 ## 打包脚本与发行版对应关系
 
 | 脚本 | 产物 | 典型环境 |
