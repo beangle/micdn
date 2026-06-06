@@ -109,6 +109,7 @@ Version: ${VERSION_RPM}
 Release: ${REVISION}
 Summary: Beangle Minimal CDN Server
 License: GPLv3+
+Vendor: Beangle
 URL: https://github.com/beangle/micdn
 Source0: %{name}-%{version}.tar.gz
 # 重编二进制时：ldc、dub 等；CentOS7 上 ldc/dub 可能来自 EPEL/第三方仓库

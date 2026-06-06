@@ -43,6 +43,7 @@ fi
 
   # assign variables
   MAINTAINER="duantihua <duantihua@163.com>"
+  VENDOR="Beangle"
   VERSION=`awk -F'"' '/"version"/{print $4; exit}' $MICDN_HOME/dub.json`
   MAJOR=$(awk -F. '{ print $1 +0 }' <<<$VERSION)
   MINOR=$(awk -F. '{ print $2 +0 }' <<<$VERSION)
@@ -131,6 +132,7 @@ fi
     Group: Development/System
     License: GPLv3+
     URL: http://github.io/beangle/micdn
+    Vendor: '$VENDOR'
     Packager: '$MAINTAINER'
     ExclusiveArch: '$ARCH'
     Requires: '$DEPEND'

@@ -70,6 +70,7 @@ Section: web
 Priority: optional
 Architecture: ${ARCH}
 Maintainer: ${MAINTAINER}
+Homepage: https://github.com/beangle/micdn
 Depends: curl
 Description: Beangle Minimal CDN Server
  Mini CDN, serve static resource, maven artifacts and binary file storage.
