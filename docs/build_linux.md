@@ -70,6 +70,7 @@ rpm/deb 包的 **`Requires` / `Depends` 目前仅声明 `curl`**；若你在动�
 | **`scripts/build_rpm.sh`** | `target/micdn-*.x86_64.rpm` | Fedora / RHEL / openSUSE 等 **RPM** 系 |
 | **`scripts/build_srpm.sh`** | `target/micdn-*.src.rpm` | 同上；用于 mock/koji 或 `rpmbuild --rebuild` 再出二进制 RPM |
 | **`scripts/build_deb.sh`** | `target/micdn_*_amd64.deb` | Debian / Ubuntu 等 **deb** 系 |
+| **AUR `PKGBUILD`** | `micdn-*.pkg.tar.zst` | **Arch Linux**（维护与发布见 **[build_aur.md](./build_aur.md)**） |
 | **`scripts/build_image.sh`** | OCI 镜像 `micdn:<version>` | 已安装 **Podman**（见 **[container_build.md](./container_build.md)**） |
 
 所有脚本均在**仓库根目录**下执行（路径含 `dub.json`、`scripts/`）。
