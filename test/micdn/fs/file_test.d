@@ -87,6 +87,80 @@ unittest {
   assert(readText(buildPath(base, "x.txt")) == "BBBBB");
 }
 
+@("refreshUnzip skips unchanged zip via manifest")
+unittest {
+  import std.file : exists, mkdirRecurse, rmdirRecurse, write;
+  import std.json : parseJSON;
+
+  string tmp = buildPath(tempDir(), "micdn-manifest-skip-" ~ randomUUID().toString);
+  mkdirRecurse(tmp);
+  scope (exit) {
+    if (exists(tmp))
+      rmdirRecurse(tmp);
+  }
+
+  void writeZip(string path, ubyte[] content) {
+    auto m = new ArchiveMember();
+    m.name = "x.txt";
+    m.expandedData(content);
+    ZipArchive z = new ZipArchive();
+    z.addMember(m);
+    write(path, z.build());
+  }
+
+  string zipPath = buildPath(tmp, "app.zip");
+  string base = buildPath(tmp, "out");
+  writeZip(zipPath, cast(ubyte[]) "hello");
+
+  assert(refreshUnzip(zipPath, base, null, "test:app") == 1);
+  auto manifestPath = buildPath(base, mountManifestFileName);
+  assert(exists(manifestPath));
+  auto manifest = parseJSON(readText(manifestPath));
+  assert(manifest["artifact"].str == "test:app");
+  assert(manifest["source"]["fileCount"].integer == 1);
+  assert(!("path" in manifest["source"]));
+
+  assert(refreshUnzip(zipPath, base, null, "test:app") == 1);
+  assert(readText(buildPath(base, "x.txt")) == "hello");
+
+  assert(refreshUnzip(zipPath, base, null, "test:other") == 1);
+  manifest = parseJSON(readText(manifestPath));
+  assert(manifest["artifact"].str == "test:other");
+}
+
+@("refreshUnzip force remounts despite unchanged manifest")
+unittest {
+  import std.file : exists, mkdirRecurse, rmdirRecurse, write;
+
+  string tmp = buildPath(tempDir(), "micdn-manifest-force-" ~ randomUUID().toString);
+  mkdirRecurse(tmp);
+  scope (exit) {
+    if (exists(tmp))
+      rmdirRecurse(tmp);
+  }
+
+  void writeZip(string path, ubyte[] content) {
+    auto m = new ArchiveMember();
+    m.name = "x.txt";
+    m.expandedData(content);
+    ZipArchive z = new ZipArchive();
+    z.addMember(m);
+    write(path, z.build());
+  }
+
+  string zipPath = buildPath(tmp, "app.zip");
+  string base = buildPath(tmp, "out");
+  writeZip(zipPath, cast(ubyte[]) "v1");
+
+  assert(refreshUnzip(zipPath, base, null, "test:app") == 1);
+  assert(readText(buildPath(base, "x.txt")) == "v1");
+  assert(refreshUnzip(zipPath, base, null, "test:app") == 1);
+
+  std.file.write(buildPath(base, "x.txt"), "stale");
+  assert(refreshUnzip(zipPath, base, null, "test:app", true) == 1);
+  assert(readText(buildPath(base, "x.txt")) == "v1");
+}
+
 @("refreshUnzip skips unsafe zip entries")
 unittest {
   string tmp = buildPath(tempDir(), "micdn-zipslip-" ~ randomUUID().toString);
@@ -158,6 +232,39 @@ unittest {
   auto docBase = work ~ "/out";
   assert(!extractTgzToDocBase(tgz, docBase, "package/../../.."));
   assert(!exists(docBase));
+}
+
+@("extractTgzToDocBase skips unchanged tgz via manifest")
+unittest {
+  import std.file : exists, mkdirRecurse, rmdirRecurse, write;
+  import std.json : parseJSON;
+  import std.process;
+
+  auto work = tempDir() ~ "micdn_tgz_manifest_" ~ randomUUID().toString();
+  scope (exit) {
+    if (exists(work))
+      rmdirRecurse(work);
+  }
+  mkdirRecurse(work ~ "/pkg/package/lib");
+  write(work ~ "/pkg/package/lib/index.js", "ok");
+  auto tgz = work ~ "/pkg.tgz";
+  auto tar = execute(["tar", "-czf", tgz, "-C", work ~ "/pkg", "package"]);
+  assert(tar.status == 0, "tar failed: " ~ tar.output);
+
+  auto docBase = work ~ "/out";
+  assert(extractTgzToDocBase(tgz, docBase, "package/lib", "wujie@2.1.0"));
+  auto manifestPath = buildPath(docBase, mountManifestFileName);
+  assert(exists(manifestPath));
+  auto manifest = parseJSON(readText(manifestPath));
+  assert(manifest["artifact"].str == "wujie@2.1.0");
+  assert(manifest["source"]["inner"].str == "package/lib");
+  assert(readText(buildPath(docBase, "index.js")) == "ok");
+
+  assert(extractTgzToDocBase(tgz, docBase, "package/lib", "wujie@2.1.0"));
+
+  write(buildPath(docBase, "index.js"), "stale");
+  assert(extractTgzToDocBase(tgz, docBase, "package/lib", "wujie@2.1.0", true));
+  assert(readText(buildPath(docBase, "index.js")) == "ok");
 }
 
 @("isSafePathSegments rejects traversal segments")

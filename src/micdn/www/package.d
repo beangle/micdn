@@ -19,7 +19,7 @@ module micdn.www;
 
 import std.algorithm;
 import std.file;
-import std.path : buildPath, dirName;
+import std.path : baseName, buildPath, dirName;
 
 import vibe.core.log;
 
@@ -44,10 +44,6 @@ class WwwRepo {
     auto wwwBase = config.www.base;
     prepareBase(wwwBase);
     foreach (doc; config.www.docs) {
-      if (doc.tryFile.length > 0)
-        logInfo("Mounting www %s (try-file=%s)", doc.name, doc.tryFile);
-      else
-        logInfo("Mounting www %s", doc.name);
       mountDoc(config, doc);
     }
     return new WwwRepo(wwwBase, config.www.docs);
@@ -102,7 +98,7 @@ class WwwRepo {
     按 provider 处理 dir 符号链接、npm 解压或 zip 增量解压。
     成功返回 true，失败打日志并返回 false。
   */
-  static bool mountDoc(MicdnConfig config, const WwwDocConfig doc) {
+  static bool mountDoc(MicdnConfig config, const WwwDocConfig doc, bool force = false) {
     auto docDir = resolveRepositoryPath(config.www.base, doc.endpoint());
     assert(docDir !is null, "www doc path escapes base: " ~ doc.name);
 
@@ -110,10 +106,10 @@ class WwwRepo {
       if (!mountDocDir(dp, docDir))
         return false;
     } else if (NpmProvider np = cast(NpmProvider) doc.provider) {
-      if (!mountDocNpm(config, np, docDir))
+      if (!mountDocNpm(config, np, docDir, force))
         return false;
     } else if (ZipProvider zp = cast(ZipProvider) doc.provider) {
-      if (!mountDocZip(zp, docDir))
+      if (!mountDocZip(zp, docDir, force))
         return false;
     } else {
       assert(false, "unsupported www provider for " ~ doc.name);
@@ -148,22 +144,20 @@ class WwwRepo {
   }
 
   /// `<npm>`：拉取 tgz 并解压到 `docDir`。
-  private static bool mountDocNpm(MicdnConfig config, const NpmProvider np, string docDir) {
+  private static bool mountDocNpm(MicdnConfig config, const NpmProvider np, string docDir, bool force) {
     string scopePart, namePart, versionPart;
     parsePackageSpec(np.packageSpec, scopePart, namePart, versionPart);
     if (namePart.length == 0 || versionPart.length == 0) {
       logWarn("Invalid npm package spec: %s", np.packageSpec);
       return false;
     }
-    mkdirRecurse(docDir);
-    logInfo("Mounting %s", np.packageSpec);
     auto npmRepo = NpmRepo.build(config);
     if (!npmRepo.fetch(scopePart, namePart, versionPart)) {
       logWarn("Cannot resolve npm package %s", np.packageSpec);
       return false;
     }
     auto tgzPath = npmRepo.localTarball(scopePart, namePart, versionPart);
-    if (!extractTgzToDocBase(tgzPath, docDir, "package/" ~ np.dir)) {
+    if (!extractTgzToDocBase(tgzPath, docDir, "package/" ~ np.dir, np.packageSpec, force)) {
       logWarn("Failed to extract %s to %s", tgzPath, docDir);
       return false;
     }
@@ -171,10 +165,8 @@ class WwwRepo {
   }
 
   /// `<zip>`：增量解压到 `docDir`。
-  private static bool mountDocZip(const ZipProvider zp, string docDir) {
-    mkdirRecurse(docDir);
-    logInfo("Mounting %s", zp.file);
-    if (refreshUnzip(zp.file, docDir, zp.dir) == 0) {
+  private static bool mountDocZip(const ZipProvider zp, string docDir, bool force) {
+    if (refreshUnzip(zp.file, docDir, zp.dir, baseName(zp.file), force) == 0) {
       logWarn("Cannot find %s in %s", zp.dir, zp.file);
       return false;
     }

@@ -297,15 +297,28 @@ int runMount(string[] args) {
 
   auto target = mountTargetArg(args);
   auto name = mountNameArg(args);
+  auto force = mountForceArg(args);
   auto configPath = resolveConfigFile("micdn.xml");
   auto config = parseFile(expandTilde(configPath));
   applyMicdnLogging(config.logFile, config.logLevel);
 
   if (target == "www")
-    return runMountWww(config, name);
+    return runMountWww(config, name, force);
   if (target == "static")
-    return runMountStatic(config, name);
+    return runMountStatic(config, name, force);
   throw new Exception("mount target must be www or static");
+}
+
+private bool mountForceArg(string[] args) {
+  foreach (i, a; args) {
+    if (a != "mount" || i + 1 >= args.length)
+      continue;
+    foreach (j; i + 1 .. args.length) {
+      if (args[j] == "--force")
+        return true;
+    }
+  }
+  return false;
 }
 
 private string mountTargetArg(string[] args) {
@@ -327,7 +340,7 @@ private string mountNameArg(string[] args) {
   return null;
 }
 
-private int runMountWww(MicdnConfig config, string docName) {
+private int runMountWww(MicdnConfig config, string docName, bool force) {
   if (config.www is null)
     throw new Exception("no <www> section in config");
 
@@ -336,7 +349,7 @@ private int runMountWww(MicdnConfig config, string docName) {
   if (docName.length == 0) {
     bool ok = true;
     foreach (doc; config.www.docs) {
-      if (!WwwRepo.mountDoc(config, doc))
+      if (!WwwRepo.mountDoc(config, doc, force))
         ok = false;
       else
         logInfo("mount www ok: %s -> %s", doc.name,
@@ -347,14 +360,14 @@ private int runMountWww(MicdnConfig config, string docName) {
 
   auto doc = findWwwDoc(config.www, docName);
 
-  if (!WwwRepo.mountDoc(config, doc))
+  if (!WwwRepo.mountDoc(config, doc, force))
     throw new Exception("mount www failed for " ~ doc.name);
 
   logInfo("mount www ok: %s -> %s", doc.name, resolveRepositoryPath(config.www.base, doc.endpoint()));
   return 0;
 }
 
-private int runMountStatic(MicdnConfig config, string bundleName) {
+private int runMountStatic(MicdnConfig config, string bundleName, bool force) {
   if (config.asset is null)
     throw new Exception("no <static> section in config");
 
@@ -363,7 +376,7 @@ private int runMountStatic(MicdnConfig config, string bundleName) {
   if (bundleName.length == 0) {
     bool ok = true;
     foreach (bundle; config.asset.bundles) {
-      if (!AssetRepo.mountBundle(config, bundle))
+      if (!AssetRepo.mountBundle(config, bundle, force))
         ok = false;
       else
         logInfo("mount static ok: %s -> %s", bundle.name, config.asset.base ~ "/" ~ bundle.name);
@@ -374,7 +387,7 @@ private int runMountStatic(MicdnConfig config, string bundleName) {
   if (bundleName !in config.asset.bundles)
     throw new Exception("no <bundle name=\"" ~ bundleName ~ "\"> in config");
 
-  if (!AssetRepo.mountBundle(config, config.asset.bundles[bundleName]))
+  if (!AssetRepo.mountBundle(config, config.asset.bundles[bundleName], force))
     throw new Exception("mount static failed for " ~ bundleName);
 
   logInfo("mount static ok: %s -> %s", bundleName, config.asset.base ~ "/" ~ bundleName);
@@ -402,6 +415,7 @@ Commands:
   (default)              启动 HTTP 服务
   mount www [NAME]       离线安装 <www> doc（NAME 如 manual 或 a/b；省略则全部）
   mount static [BUNDLE]  离线安装 <static> bundle（省略则全部）
+                         --force  删除已有挂载目录后重新安装（忽略 manifest.json）
 
 Help Options:
   --help      Show this help message and exit
@@ -411,6 +425,7 @@ Examples:
   micdn -f micdn.xml
   micdn -f micdn.xml mount www manual
   micdn -f micdn.xml mount static bootstrap
+  micdn -f micdn.xml mount www manual --force
   micdn -f micdn.xml mount www
 `;
   writeln(strip(helpRaw));

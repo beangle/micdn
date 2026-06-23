@@ -29,7 +29,6 @@ import std.typecons;
 import dxml.dom;
 
 import vibe.core.args;
-import vibe.core.log;
 import vibe.http.server;
 
 import micdn.fs.file : isPathUnder;
@@ -114,7 +113,6 @@ string resolveConfigFile(string defaultConfigFileName) {
   if (config.startsWith("http://") || config.startsWith("https://")) {
     auto localPath = expandTilde("~/" ~ defaultConfigFileName);
     if (curlDownload(config, localPath)) {
-      logInfo("Downloaded %s -> %s", config, localPath);
       return localPath;
     }
     throw new Exception("Failed to download config from " ~ config);
@@ -148,8 +146,6 @@ void fetchRemoteIfNeeded(string configPath) {
   auto content = cast(string) read(configPath);
   auto url = extractRemoteUrl(content);
   if (url !is null) {
-    if (curlDownload(url, configPath)) {
-      logInfo("Downloaded config from %s -> %s", url, configPath);
-    }
+    curlDownload(url, configPath);
   }
 }

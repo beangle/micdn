@@ -125,7 +125,6 @@ class GavRepo {
     foreach (r; this.remotes) {
       auto remote = r ~ uri;
       if (curlDownload(remote, local)) {
-        logInfo("Downloaded %s", remote);
         break;
       }
     }

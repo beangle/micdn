@@ -156,7 +156,7 @@ class AssetRepo {
   /** 将单个 static `<bundle>` 安装到 `asset.base` 下。供 `build` 与 `micdn … mount static` 共用。
     成功返回 true，失败打日志并返回 false。
   */
-  static bool mountBundle(MicdnConfig config, const AssetBundle bundle) {
+  static bool mountBundle(MicdnConfig config, const AssetBundle bundle, bool force = false) {
     auto base = config.asset.base;
     auto bundlePath = "/" ~ bundle.name;
     auto bundleBase = base ~ "/" ~ bundle.name;
@@ -170,7 +170,7 @@ class AssetRepo {
           ok = false;
       } else if (GavJarProvider gap = cast(GavJarProvider) p) {
         allowedVersionDirs ~= gap.getVersion();
-        if (!mountBundleJar(config, bundlePath, gap))
+        if (!mountBundleJar(config, bundlePath, gap, force))
           ok = false;
       } else if (NpmProvider np = cast(NpmProvider) p) {
         string scopePart, namePart, versionPart;
@@ -180,7 +180,7 @@ class AssetRepo {
           ok = false;
         } else {
           allowedVersionDirs ~= versionPart;
-          if (!mountBundleNpm(config, bundlePath, np, scopePart, namePart, versionPart))
+          if (!mountBundleNpm(config, bundlePath, np, scopePart, namePart, versionPart, force))
             ok = false;
         }
       } else {
@@ -206,15 +206,15 @@ class AssetRepo {
     return true;
   }
 
-  private static bool mountBundleJar(MicdnConfig config, const string bundlePath, const GavJarProvider gap) {
+  private static bool mountBundleJar(MicdnConfig config, const string bundlePath, const GavJarProvider gap,
+      bool force) {
     auto base = config.asset.base;
     auto maven = config.maven;
-    logInfo("Mounting %s", gap.gav);
     string localJar = maven.localFile(gap.gav);
     string innerDir = gap.dir ~ bundlePath ~ "/" ~ gap.getVersion();
     auto docBase = base ~ bundlePath ~ "/" ~ gap.getVersion();
     if (exists(localJar))
-      return mountJar(localJar, docBase, innerDir);
+      return mountJar(localJar, docBase, innerDir, gap.gav, force);
     if (localJar.endsWith("SNAPSHOT.jar")) {
       logWarn("Cannot resolve %s, ignore it.", gap.gav);
       return false;
@@ -226,16 +226,15 @@ class AssetRepo {
       import micdn.web.file;
 
       if (curlDownload(remote, localJar))
-        return mountJar(localJar, docBase, innerDir);
+        return mountJar(localJar, docBase, innerDir, gap.gav, force);
     }
     logWarn("Cannot resolve %s", gap.gav);
     return false;
   }
 
   private static bool mountBundleNpm(MicdnConfig config, const string bundlePath, const NpmProvider np,
-      string scopePart, string namePart, string versionPart) {
+      string scopePart, string namePart, string versionPart, bool force) {
     auto base = config.asset.base;
-    logInfo("Mounting %s", np.packageSpec);
     auto npmRepo = NpmRepo.build(config);
     if (!npmRepo.fetch(scopePart, namePart, versionPart)) {
       logWarn("Cannot resolve npm package %s", np.packageSpec);
@@ -243,7 +242,7 @@ class AssetRepo {
     }
     auto tgzPath = npmRepo.localTarball(scopePart, namePart, versionPart);
     auto docBase = base ~ bundlePath ~ "/" ~ versionPart;
-    if (!extractTgzToDocBase(tgzPath, docBase, "package/" ~ np.dir)) {
+    if (!extractTgzToDocBase(tgzPath, docBase, "package/" ~ np.dir, np.packageSpec, force)) {
       logWarn("Failed to extract %s to %s", tgzPath, docBase);
       return false;
     }
@@ -268,8 +267,8 @@ class AssetRepo {
     }
   }
 
-  private static bool mountJar(string zipfile, string docBase, string dir) {
-    if (refreshUnzip(zipfile, docBase, dir) == 0) {
+  private static bool mountJar(string zipfile, string docBase, string dir, string artifact, bool force) {
+    if (refreshUnzip(zipfile, docBase, dir, artifact, force) == 0) {
       logWarn("Cannot find %s in %s", dir, zipfile);
       return false;
     }

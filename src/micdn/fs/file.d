@@ -18,6 +18,7 @@ module micdn.fs.file;
 /// 文件解压、权限调整等与文件系统相关的实用函数。
 
 import std.conv;
+import std.datetime;
 import std.file;
 import std.path;
 import std.stdio;
@@ -215,26 +216,166 @@ bool doExtractTgz(string tgzFile, string baseDir) {
   return result.status == 0;
 }
 
-/** 将 tgz（npm 包）解压到临时目录，再按 innerDir 搬到 docBase。
+enum mountManifestFileName = "manifest.json";
 
-    先解压到 docBase_npm_extract，npm 包内有一层 package/ 目录。
-    若 innerDir 为 null 或空，将 package/ 整体 rename 为 docBase；
-    若 innerDir 非空，将 package/innerDir 整个 mv 到 docBase。
-    最后删除临时目录。
+private struct MountManifest {
+  uint fileCount;
+  string inner;
+  string artifact;
+  ulong size;
+  SysTime mtime;
+}
+
+private string normalizeInnerForManifest(string innerDir) {
+  if (innerDir is null || innerDir.length == 0)
+    return "";
+  auto s = innerDir;
+  while (s.endsWith("/"))
+    s = s[0 .. $ - 1];
+  return s;
+}
+
+private bool readMountManifest(string path, ref MountManifest manifest) {
+  import std.json : JSONType, parseJSON;
+  import std.datetime : SysTime;
+
+  if (!exists(path))
+    return false;
+  try {
+    auto root = parseJSON(readText(path));
+    if (root.type != JSONType.object)
+      return false;
+    if (root["source"].type != JSONType.object)
+      return false;
+    auto source = root["source"];
+    if (source["inner"].type != JSONType.string)
+      return false;
+    if (source["size"].type != JSONType.integer)
+      return false;
+    if (source["mtime"].type != JSONType.string)
+      return false;
+    if (source["fileCount"].type != JSONType.integer)
+      return false;
+
+    manifest.inner = source["inner"].str;
+    manifest.size = source["size"].integer.to!ulong;
+    manifest.mtime = SysTime.fromISOExtString(source["mtime"].str);
+    manifest.fileCount = source["fileCount"].integer.to!uint;
+    manifest.artifact = root["artifact"].type == JSONType.string ? root["artifact"].str : "";
+    return true;
+  } catch (Exception) {
+    return false;
+  }
+}
+
+private void writeMountManifest(string base, string sourceFile, string innerDir, string artifact,
+    uint fileCount) {
+  import std.datetime : Clock;
+  import std.json : JSONValue, toJSON;
+
+  auto inner = normalizeInnerForManifest(innerDir);
+  auto mtime = timeLastModified(sourceFile);
+  auto size = getSize(sourceFile);
+
+  JSONValue root = JSONValue.emptyObject;
+  root["mountedAt"] = JSONValue(Clock.currTime().toISOExtString());
+  if (artifact.length > 0)
+    root["artifact"] = JSONValue(artifact);
+
+  JSONValue source = JSONValue.emptyObject;
+  source["inner"] = JSONValue(inner);
+  source["size"] = JSONValue(size.to!long);
+  source["mtime"] = JSONValue(mtime.toISOExtString());
+  source["fileCount"] = JSONValue(fileCount);
+  root["source"] = source;
+
+  auto manifestPath = buildPath(base, mountManifestFileName);
+  auto tmpPath = buildPath(base, ".manifest.json.tmp");
+  std.file.write(tmpPath, toJSON(root));
+  if (exists(manifestPath))
+    remove(manifestPath);
+  rename(tmpPath, manifestPath);
+}
+
+private bool canSkipMountManifest(string sourceFile, string base, string innerDir, string artifact) {
+  MountManifest manifest;
+  auto manifestPath = buildPath(base, mountManifestFileName);
+  if (!readMountManifest(manifestPath, manifest))
+    return false;
+  if (normalizeInnerForManifest(innerDir) != manifest.inner)
+    return false;
+  if (!exists(sourceFile))
+    return false;
+  if (getSize(sourceFile) != manifest.size)
+    return false;
+  if (timeLastModified(sourceFile) != manifest.mtime)
+    return false;
+  if (artifact.length > 0 && manifest.artifact != artifact)
+    return false;
+  return true;
+}
+
+private string mountArtifactLabel(string sourceFile, string artifact) {
+  if (artifact.length > 0)
+    return artifact;
+  return baseName(sourceFile);
+}
+
+private string mountSkipLabel(string sourceFile, string artifact, ref MountManifest manifest) {
+  if (artifact.length > 0)
+    return artifact;
+  if (manifest.artifact.length > 0)
+    return manifest.artifact;
+  return baseName(sourceFile);
+}
+
+/** 将 tgz（npm 包）解压到 docBase；成功后写入 `{docBase}/manifest.json`，tgz 未变时可跳过解压。
 
     Params:
         tgzFile  = .tgz 文件路径
         docBase  = 目标目录（最终挂载内容所在）
-        innerDir = tgz 内相对路径（固定用 `/`，如 `package/dist`），null 或空表示解压到 docBase 根
+        innerDir = tgz 内相对路径（如 `package/lib`），null 或空表示解压到 docBase 根
+        artifact = 可选逻辑产物标识（如 `wujie@2.1.0`）
+        force    = true 时删除 docBase 后全量解压，忽略 manifest 快路径
 
     Returns:
         true 成功，false 失败
 */
-bool extractTgzToDocBase(string tgzFile, string docBase, string innerDir = null) {
+bool extractTgzToDocBase(string tgzFile, string docBase, string innerDir = null, string artifact = null,
+    bool force = false) {
+  if (!exists(tgzFile))
+    return false;
+
+  if (!force && canSkipMountManifest(tgzFile, docBase, innerDir, artifact)) {
+    MountManifest manifest;
+    readMountManifest(buildPath(docBase, mountManifestFileName), manifest);
+    logInfo("Skipping %s", mountSkipLabel(tgzFile, artifact, manifest));
+    return true;
+  }
+
+  logInfo("Mounting %s", mountArtifactLabel(tgzFile, artifact));
+
+  if (force)
+    clearMountDir(docBase);
+  else {
+    auto manifestPath = buildPath(docBase, mountManifestFileName);
+    if (exists(manifestPath))
+      remove(manifestPath);
+  }
+
+  if (!extractTgzToDocBaseImpl(tgzFile, docBase, innerDir))
+    return false;
+  writeMountManifest(docBase, tgzFile, innerDir, artifact, 1);
+  return true;
+}
+
+private bool extractTgzToDocBaseImpl(string tgzFile, string docBase, string innerDir = null) {
   if (!exists(tgzFile))
     return false;
 
   if (null == innerDir || innerDir.length == 0) {
+    if (exists(docBase))
+      rmdirRecurse(docBase);
     return doExtractTgz(tgzFile, docBase);
   }
 
@@ -269,23 +410,56 @@ bool extractTgzToDocBase(string tgzFile, string docBase, string innerDir = null)
   return true;
 }
 
+private string innerDirPrefix(string innerDir) {
+  if (innerDir is null || innerDir.length == 0)
+    return null;
+  auto prefix = innerDir;
+  if (!prefix.endsWith("/"))
+    prefix ~= "/";
+  return prefix;
+}
+
 /** 增量解压 zip/jar：已存在、未压缩大小与 zip 内一致且 **CRC32** 一致时跳过写入，否则覆盖。
 
-    仅比较大小会误判（同长度内容已变），故与 zip 中央目录中的 CRC 对齐后再决定是否跳过。
+    解压成功后写入 `{base}/manifest.json`；下次启动若源 zip 的 size/mtime 与 manifest 一致则跳过整包解压。
 
     Params:
         zipfile  = zip/jar 文件路径
         base     = 目标解压根目录
         innerDir = zip 内要解压的子目录，null 表示全部
+        artifact = 可选逻辑产物标识（如 GAV），写入 manifest 并参与快路径校验
+        force    = true 时删除 base 后全量解压，忽略 manifest 快路径
 
     Returns:
         匹配的文件数量（含跳过的）
 */
-uint refreshUnzip(string zipfile, string base, string innerDir = null) {
-  string prefix = innerDir;
-  if (null != prefix && prefix.length > 0 && !prefix.endsWith("/")) {
-    prefix ~= "/";
+uint refreshUnzip(string zipfile, string base, string innerDir = null, string artifact = null,
+    bool force = false) {
+  if (!force && canSkipMountManifest(zipfile, base, innerDir, artifact)) {
+    MountManifest manifest;
+    readMountManifest(buildPath(base, mountManifestFileName), manifest);
+    logInfo("Skipping %s", mountSkipLabel(zipfile, artifact, manifest));
+    return manifest.fileCount;
   }
+
+  logInfo("Mounting %s", mountArtifactLabel(zipfile, artifact));
+
+  if (force)
+    clearMountDir(base);
+  else {
+    auto manifestPath = buildPath(base, mountManifestFileName);
+    if (exists(manifestPath))
+      remove(manifestPath);
+  }
+
+  auto count = refreshUnzipImpl(zipfile, base, innerDir);
+  if (count > 0)
+    writeMountManifest(base, zipfile, innerDir, artifact, count);
+  return count;
+}
+
+private uint refreshUnzipImpl(string zipfile, string base, string innerDir = null) {
+  string prefix = innerDirPrefix(innerDir);
   uint count = 0;
   if (!exists(zipfile))
     return 0;
@@ -307,6 +481,9 @@ uint refreshUnzip(string zipfile, string base, string innerDir = null) {
         }
         if (targetName.length == 0)
           continue;
+        if (targetName == mountManifestFileName) {
+          continue;
+        }
         if (!isSafeZipEntryTargetName(targetName)) {
           logWarn("Skip unsafe zip entry %s in %s", name, zipfile);
           continue;
@@ -344,6 +521,17 @@ uint refreshUnzip(string zipfile, string base, string innerDir = null) {
     return 0;
   }
   return count;
+}
+
+/** 删除挂载目录（符号链接仅 remove，目录则递归删除）。供 `mount --force` 使用。 */
+void clearMountDir(string dir) {
+  if (!exists(dir))
+    return;
+  logInfo("Removing %s", dir);
+  if (isSymlink(dir))
+    remove(dir);
+  else
+    rmdirRecurse(dir);
 }
 
 /** 创建符号链接。
