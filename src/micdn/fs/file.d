@@ -331,6 +331,8 @@ private string mountSkipLabel(string sourceFile, string artifact, ref MountManif
 
 /** 将 tgz（npm 包）解压到 docBase；成功后写入 `{docBase}/manifest.json`，tgz 未变时可跳过解压。
 
+    manifest 有效则跳过；否则删除 docBase 后全量解压。
+
     Params:
         tgzFile  = .tgz 文件路径
         docBase  = 目标目录（最终挂载内容所在）
@@ -354,14 +356,7 @@ bool extractTgzToDocBase(string tgzFile, string docBase, string innerDir = null,
   }
 
   logInfo("Mounting %s", mountArtifactLabel(tgzFile, artifact));
-
-  if (force)
-    clearMountDir(docBase);
-  else {
-    auto manifestPath = buildPath(docBase, mountManifestFileName);
-    if (exists(manifestPath))
-      remove(manifestPath);
-  }
+  clearMountDir(docBase);
 
   if (!extractTgzToDocBaseImpl(tgzFile, docBase, innerDir))
     return false;
@@ -419,19 +414,19 @@ private string innerDirPrefix(string innerDir) {
   return prefix;
 }
 
-/** 增量解压 zip/jar：已存在、未压缩大小与 zip 内一致且 **CRC32** 一致时跳过写入，否则覆盖。
+/** 解压 zip/jar 到 base；成功后写入 `{base}/manifest.json`，源文件未变时可跳过整包解压。
 
-    解压成功后写入 `{base}/manifest.json`；下次启动若源 zip 的 size/mtime 与 manifest 一致则跳过整包解压。
+    manifest 有效则跳过；否则删除 base 后全量解压（不做逐文件 CRC/大小比对）。
 
     Params:
         zipfile  = zip/jar 文件路径
         base     = 目标解压根目录
         innerDir = zip 内要解压的子目录，null 表示全部
         artifact = 可选逻辑产物标识（如 GAV），写入 manifest 并参与快路径校验
-        force    = true 时删除 base 后全量解压，忽略 manifest 快路径
+        force    = true 时忽略 manifest 快路径
 
     Returns:
-        匹配的文件数量（含跳过的）
+        解压的文件 entry 数量
 */
 uint refreshUnzip(string zipfile, string base, string innerDir = null, string artifact = null,
     bool force = false) {
@@ -443,14 +438,7 @@ uint refreshUnzip(string zipfile, string base, string innerDir = null, string ar
   }
 
   logInfo("Mounting %s", mountArtifactLabel(zipfile, artifact));
-
-  if (force)
-    clearMountDir(base);
-  else {
-    auto manifestPath = buildPath(base, mountManifestFileName);
-    if (exists(manifestPath))
-      remove(manifestPath);
-  }
+  clearMountDir(base);
 
   auto count = refreshUnzipImpl(zipfile, base, innerDir);
   if (count > 0)
@@ -495,23 +483,9 @@ private uint refreshUnzipImpl(string zipfile, string base, string innerDir = nul
           if (lastSlash > 0) {
             mkdirRecurse(base ~ "/" ~ targetName[0 .. lastSlash]);
           }
-          auto targetFile = base ~ "/" ~ targetName;
-          bool spawn = true;
-          if (exists(targetFile) && getSize(targetFile) == am.expandedSize) {
-            import std.zlib : crc32;
-
-            try {
-              auto onDisk = cast(ubyte[]) read(targetFile);
-              if (onDisk.length == am.expandedSize && crc32(0, cast(void[]) onDisk) == am.crc32)
-                spawn = false;
-            } catch (Exception) {
-            }
-          }
-          if (spawn) {
-            zip.expand(am);
-            assert(am.expandedData.length == am.expandedSize);
-            std.file.write(targetFile, am.expandedData);
-          }
+          zip.expand(am);
+          assert(am.expandedData.length == am.expandedSize);
+          std.file.write(base ~ "/" ~ targetName, am.expandedData);
           count += 1;
         }
       }
