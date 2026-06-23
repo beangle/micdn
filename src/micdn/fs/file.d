@@ -351,7 +351,7 @@ bool extractTgzToDocBase(string tgzFile, string docBase, string innerDir = null,
   if (!force && canSkipMountManifest(tgzFile, docBase, innerDir, artifact)) {
     MountManifest manifest;
     readMountManifest(buildPath(docBase, mountManifestFileName), manifest);
-    logInfo("Skipping %s", mountSkipLabel(tgzFile, artifact, manifest));
+    logInfo("Caching %s...", mountSkipLabel(tgzFile, artifact, manifest));
     return true;
   }
 
@@ -433,7 +433,7 @@ uint refreshUnzip(string zipfile, string base, string innerDir = null, string ar
   if (!force && canSkipMountManifest(zipfile, base, innerDir, artifact)) {
     MountManifest manifest;
     readMountManifest(buildPath(base, mountManifestFileName), manifest);
-    logInfo("Skipping %s", mountSkipLabel(zipfile, artifact, manifest));
+    logInfo("Caching %s...", mountSkipLabel(zipfile, artifact, manifest));
     return manifest.fileCount;
   }
 
