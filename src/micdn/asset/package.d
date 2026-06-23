@@ -157,41 +157,50 @@ class AssetRepo {
     成功返回 true，失败打日志并返回 false。
   */
   static bool mountBundle(MicdnConfig config, const AssetBundle bundle, bool force = false) {
-    auto base = config.asset.base;
-    auto bundlePath = "/" ~ bundle.name;
-    auto bundleBase = base ~ "/" ~ bundle.name;
-    mkdirRecurse(base);
-
-    bool ok = true;
-    string[] allowedVersionDirs = [];
-    foreach (p; bundle.providers) {
-      if (DirProvider dp = cast(DirProvider) p) {
-        if (!mountBundleDir(dp, bundleBase))
-          ok = false;
-      } else if (GavJarProvider gap = cast(GavJarProvider) p) {
-        allowedVersionDirs ~= gap.getVersion();
-        if (!mountBundleJar(config, bundlePath, gap, force))
-          ok = false;
-      } else if (NpmProvider np = cast(NpmProvider) p) {
-        string scopePart, namePart, versionPart;
-        parsePackageSpec(np.packageSpec, scopePart, namePart, versionPart);
-        if (namePart.length == 0 || versionPart.length == 0) {
-          logWarn("Invalid npm package spec: %s", np.packageSpec);
-          ok = false;
-        } else {
-          allowedVersionDirs ~= versionPart;
-          if (!mountBundleNpm(config, bundlePath, np, scopePart, namePart, versionPart, force))
-            ok = false;
-        }
-      } else {
-        logWarn("Unsupported static provider in bundle %s", bundle.name);
-        ok = false;
+    try {
+      auto base = config.asset.base;
+      auto bundlePath = "/" ~ bundle.name;
+      auto bundleBase = base ~ "/" ~ bundle.name;
+      mkdirRecurse(base);
+      if (!verifyMountDirWritable(base)) {
+        logError("Mount static %s failed: %s is not writable", bundle.name, base);
+        return false;
       }
+
+      bool ok = true;
+      string[] allowedVersionDirs = [];
+      foreach (p; bundle.providers) {
+        if (DirProvider dp = cast(DirProvider) p) {
+          if (!mountBundleDir(dp, bundleBase))
+            ok = false;
+        } else if (GavJarProvider gap = cast(GavJarProvider) p) {
+          allowedVersionDirs ~= gap.getVersion();
+          if (!mountBundleJar(config, bundlePath, gap, force))
+            ok = false;
+        } else if (NpmProvider np = cast(NpmProvider) p) {
+          string scopePart, namePart, versionPart;
+          parsePackageSpec(np.packageSpec, scopePart, namePart, versionPart);
+          if (namePart.length == 0 || versionPart.length == 0) {
+            logWarn("Invalid npm package spec: %s", np.packageSpec);
+            ok = false;
+          } else {
+            allowedVersionDirs ~= versionPart;
+            if (!mountBundleNpm(config, bundlePath, np, scopePart, namePart, versionPart, force))
+              ok = false;
+          }
+        } else {
+          logWarn("Unsupported static provider in bundle %s", bundle.name);
+          ok = false;
+        }
+      }
+      // 清理 bundle 下已从配置移除的 version 文件夹（仅当仅含 NpmProvider 时执行，jar 会创建 webjars 等顶层目录，不能误删）
+      if (allowedVersionDirs.length > 0 && exists(bundleBase) && !bundleBase.isSymlink)
+        cleanStaleVersionDirs(bundleBase, allowedVersionDirs);
+      return ok;
+    } catch (Exception e) {
+      logError("Mount static %s failed: %s", bundle.name, e.msg);
+      return false;
     }
-    // 清理 bundle 下已从配置移除的 version 文件夹（仅当仅含 NpmProvider 时执行，jar 会创建 webjars 等顶层目录，不能误删）
-    if (allowedVersionDirs.length > 0 && exists(bundleBase) && !bundleBase.isSymlink)
-      cleanStaleVersionDirs(bundleBase, allowedVersionDirs);
-    return ok;
   }
 
   private static bool mountBundleDir(const DirProvider dp, string bundleBase) {
@@ -213,6 +222,10 @@ class AssetRepo {
     string localJar = maven.localFile(gap.gav);
     string innerDir = gap.dir ~ bundlePath ~ "/" ~ gap.getVersion();
     auto docBase = base ~ bundlePath ~ "/" ~ gap.getVersion();
+    if (!verifyMountDirWritable(docBase)) {
+      logError("Mount static %s failed: %s is not writable", gap.gav, docBase);
+      return false;
+    }
     if (exists(localJar))
       return mountJar(localJar, docBase, innerDir, gap.gav, force);
     if (localJar.endsWith("SNAPSHOT.jar")) {
@@ -242,6 +255,10 @@ class AssetRepo {
     }
     auto tgzPath = npmRepo.localTarball(scopePart, namePart, versionPart);
     auto docBase = base ~ bundlePath ~ "/" ~ versionPart;
+    if (!verifyMountDirWritable(docBase)) {
+      logError("Mount static %s failed: %s is not writable", np.packageSpec, docBase);
+      return false;
+    }
     if (!extractTgzToDocBase(tgzPath, docBase, "package/" ~ np.dir, np.packageSpec, force)) {
       logWarn("Failed to extract %s to %s", tgzPath, docBase);
       return false;

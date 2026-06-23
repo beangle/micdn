@@ -99,24 +99,37 @@ class WwwRepo {
     成功返回 true，失败打日志并返回 false。
   */
   static bool mountDoc(MicdnConfig config, const WwwDocConfig doc, bool force = false) {
-    auto docDir = resolveRepositoryPath(config.www.base, doc.endpoint());
-    assert(docDir !is null, "www doc path escapes base: " ~ doc.name);
+    try {
+      auto docDir = resolveRepositoryPath(config.www.base, doc.endpoint());
+      assert(docDir !is null, "www doc path escapes base: " ~ doc.name);
 
-    if (DirProvider dp = cast(DirProvider) doc.provider) {
-      if (!mountDocDir(dp, docDir))
+      auto writableDir = docDir;
+      if (cast(DirProvider) doc.provider)
+        writableDir = dirName(docDir);
+      if (!verifyMountDirWritable(writableDir)) {
+        logError("Mount www %s failed: %s is not writable", doc.name, writableDir);
         return false;
-    } else if (NpmProvider np = cast(NpmProvider) doc.provider) {
-      if (!mountDocNpm(config, np, docDir, force))
-        return false;
-    } else if (ZipProvider zp = cast(ZipProvider) doc.provider) {
-      if (!mountDocZip(zp, docDir, force))
-        return false;
-    } else {
-      assert(false, "unsupported www provider for " ~ doc.name);
+      }
+
+      if (DirProvider dp = cast(DirProvider) doc.provider) {
+        if (!mountDocDir(dp, docDir))
+          return false;
+      } else if (NpmProvider np = cast(NpmProvider) doc.provider) {
+        if (!mountDocNpm(config, np, docDir, force))
+          return false;
+      } else if (ZipProvider zp = cast(ZipProvider) doc.provider) {
+        if (!mountDocZip(zp, docDir, force))
+          return false;
+      } else {
+        assert(false, "unsupported www provider for " ~ doc.name);
+      }
+
+      warnMissingTryFile(config.www.base, doc);
+      return true;
+    } catch (Exception e) {
+      logError("Mount www %s failed: %s", doc.name, e.msg);
+      return false;
     }
-
-    warnMissingTryFile(config.www.base, doc);
-    return true;
   }
 
   /// mount 完成后校验 `try-file` 是否已在磁盘上；缺失则警告（运行期由 sendFile 处理 404）。

@@ -556,6 +556,23 @@ void ensureDirWritable(string dir) {
     dir.setAttributes(dir.getAttributes | octal!700);
 }
 
+/** 确保目录存在，并探测当前进程能否在其中创建文件（挂载前校验用）。 */
+bool verifyMountDirWritable(string dir) {
+  if (dir.length == 0)
+    return false;
+  try {
+    mkdirRecurse(dir);
+    if (!exists(dir) || !isDir(dir))
+      return false;
+    auto probe = buildPath(dir, ".micdn-write-probe");
+    std.file.write(probe, "");
+    remove(probe);
+    return true;
+  } catch (Exception) {
+    return false;
+  }
+}
+
 /** 递归将目录及子项设为只读（目录 555，文件 444），符号链接不修改。
 
     保留供测试或手工维护场景使用；micdn 的 static / www build 与 mount 不再调用。

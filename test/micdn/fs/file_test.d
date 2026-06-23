@@ -267,6 +267,16 @@ unittest {
   assert(readText(buildPath(docBase, "index.js")) == "ok");
 }
 
+@("verifyMountDirWritable accepts writable directory")
+unittest {
+  string tmp = buildPath(tempDir(), "micdn-writable-" ~ randomUUID().toString);
+  scope (exit) {
+    if (exists(tmp))
+      rmdirRecurse(tmp);
+  }
+  assert(verifyMountDirWritable(tmp));
+}
+
 @("isSafePathSegments rejects traversal segments")
 unittest {
   assert(isSafePathSegments("/manual"));

@@ -7,10 +7,11 @@ Type=simple
 ExecStart=/usr/bin/micdn -f /etc/micdn/micdn.xml
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
-# 启动阶段失败退出码 2 → 不重启；正常运行后异常退出/崩溃仍由 on-failure 拉起
+# 配置/XML 错误 exit 2 时不重启（systemd ≥229：el8/Fedora 生效；el7 忽略，仍可能反复重启）
 RestartPreventExitStatus=2
+# 120s 内最多 5 次启动；[Service] 段 StartLimitInterval= 兼容 el7(219)～Fedora（勿写 StartLimitIntervalSec 于此段）
 StartLimitBurst=5
-StartLimitIntervalSec=120
+StartLimitInterval=120
 StandardOutput=journal
 StandardError=journal
 # 启动/配置错误写 stderr → journal；正常运行时若配置了 log-file 则业务日志在文件中
