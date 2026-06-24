@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.4 (2026-06-06)
+
+- 挂载：manifest.json 快路径跳过未变更 jar/npm/zip；无效时删目录全量解压；`mount --force` 强制重装
+- 可靠：挂载前目录可写探测；单 doc/bundle 失败不阻断 HTTP 启动
+- 运维：systemd 启动限流兼容 el7/el8/Fedora；curl 下载单条日志；快路径日志改为 `Caching …`
+- 打包：AUR 文档；RPM/DEB 增加 home/vendor
+
+完整说明见 docs/release-v0.2.4.md
+
 ## v0.2.3 (2026-06-05)
 
 - WWW/SPA：www doc 改为 name 加 npm/dir/zip 属性；新增 try-file 深链接回退；缺失 JS/CSS 等静态资源不再被 HTML 顶替
