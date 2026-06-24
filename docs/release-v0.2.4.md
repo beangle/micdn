@@ -1,6 +1,6 @@
 # Micdn v0.2.4 Release Notes
 
-**发布日期：** 2026-06-06  
+**发布日期：** 2026-06-06
 **对比基线：** [v0.2.3](https://github.com/beangle/micdn/compare/v0.2.3...v0.2.4)
 
 ---
@@ -21,7 +21,7 @@ v0.2.4 在 v0.2.3 基础上聚焦 **挂载性能与可靠性**：用 `manifest.j
 | **强制重装** | `mount … --force` 删除挂载目录后全量解压（忽略 manifest） |
 | **启动容错** | 挂载前探测目录可写；单 doc/bundle 失败 `logError` 后服务仍 listen |
 | **systemd** | `StartLimitInterval=` 置于 `[Service]`，兼容 el7 / el8 / Fedora |
-| **日志** | curl 下载成功/失败各一条；manifest 快路径由 `Skipping` 改为 `Caching` |
+| **日志** | curl 下载成功/失败各一条； |
 | **打包** | RPM/DEB 增加 home/vendor；新增 AUR 构建说明 |
 
 ---

@@ -4,7 +4,7 @@
 
 - 挂载：manifest.json 快路径跳过未变更 jar/npm/zip；无效时删目录全量解压；`mount --force` 强制重装
 - 可靠：挂载前目录可写探测；单 doc/bundle 失败不阻断 HTTP 启动
-- 运维：systemd 启动限流兼容 el7/el8/Fedora；curl 下载单条日志；快路径日志改为 `Caching …`
+- 运维：systemd 启动限流兼容 el7/el8/Fedora；curl 下载单条日志
 - 打包：AUR 文档；RPM/DEB 增加 home/vendor
 
 完整说明见 docs/release-v0.2.4.md
