@@ -55,7 +55,7 @@ import micdn.www;
 import micdn.www.web;
 import micdn.config;
 import micdn.logging;
-import micdn.validate;
+import micdn.resolve;
 
 /// 仅启动阶段失败时使用（systemd `RestartPreventExitStatus=2`）；正常运行后进程退出/崩溃用其它码，仍由 systemd 拉起。
 enum ExitStartupError = 2;
@@ -200,9 +200,9 @@ version (unittest) {
         return reportStartupError(e.msg);
       }
     }
-    if (args.canFind("validate")) {
+    if (args.canFind("resolve")) {
       try {
-        return runValidate(args);
+        return runResolve(args);
       } catch (Exception e) {
         return reportStartupError(e.msg);
       }
@@ -356,10 +356,10 @@ int runMount(string[] args) {
   throw new Exception("mount target must be www or static");
 }
 
-/// 校验全部服务：第一阶段 parseFile（XML/属性），第二阶段部署前提；不启动 HTTP。
-int runValidate(string[] args) {
+/// 解析并安装全部服务：parseFile（XML/属性）后下载缺失 artifact、mount www/static 并校验；不启动 HTTP。
+int runResolve(string[] args) {
   if (!args.canFind("-f"))
-    throw new Exception("-f is required for validate");
+    throw new Exception("-f is required for resolve");
 
   auto configPath = resolveConfigFile("micdn.xml");
   auto expanded = expandTilde(configPath);
@@ -371,10 +371,10 @@ int runValidate(string[] args) {
   applyMicdnLogging(config.logFile, config.logLevel);
   parseListen(config.listen);
 
-  if (!validateMicdn(config))
+  if (!resolveMicdn(config))
     return 1;
 
-  logInfo("validate ok: %s", expanded);
+  logInfo("resolve ok: %s", expanded);
   return 0;
 }
 
@@ -482,7 +482,7 @@ Usage: micdn -f FILE|DIR|URL [command]
 
 Commands:
   (default)              启动 HTTP 服务
-  validate               校验全部服务（XML/属性、listen、根目录可写、GAV/dir/zip 等），不启动 HTTP
+  resolve                解析配置并安装 www/static（下载 jar/npm、解压 zip/tgz，校验挂载目录）；不启动 HTTP
   mount www [NAME]       离线安装 <www> doc（NAME 如 manual 或 a/b；省略则全部）
   mount static [BUNDLE]  离线安装 <static> bundle（省略则全部）
                          --force  删除已有挂载目录后重新安装（忽略 manifest.json）
@@ -493,7 +493,7 @@ Help Options:
 
 Examples:
   micdn -f micdn.xml
-  micdn -f micdn.xml validate
+  micdn -f micdn.xml resolve
   micdn -f micdn.xml mount www manual
   micdn -f micdn.xml mount static bootstrap
   micdn -f micdn.xml mount www manual --force

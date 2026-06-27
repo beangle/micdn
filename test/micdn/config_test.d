@@ -22,7 +22,7 @@ import std.path;
 
 import micdn.config;
 import micdn.model;
-import micdn.validate;
+import micdn.resolve;
 import micdn.xml;
 
 auto CentralURL = "https://repo1.maven.org/maven2";
@@ -411,11 +411,11 @@ unittest {
   assertThrown!Exception(parse("~/tmp", dup));
 }
 
-@("validateMicdn checks configured service data roots")
+@("resolveMicdn checks configured service data roots")
 unittest {
   import std.conv : octal;
 
-  auto home = buildPath(tempDir, "micdn-validate-roots");
+  auto home = buildPath(tempDir, "micdn-resolve-roots");
   scope (exit)
     if (exists(home))
       rmdirRecurse(home);
@@ -435,8 +435,8 @@ unittest {
 </micdn>`;
   auto config = parse(home, xml);
   mkdirRecurse(home ~ "/src");
-  assert(validateMicdn(config));
+  assert(resolveMicdn(config));
 
   config.www.base.setAttributes(octal!555);
-  assert(!validateMicdn(config));
+  assert(!resolveMicdn(config));
 }

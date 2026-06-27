@@ -79,12 +79,12 @@ sudo chmod 2775 /var/log/micdn
 
 ---
 
-## 校验配置（`validate`）
+## 解析配置（`resolve`）
 
-在 **restart / reload 前** 或 CI 中检查配置与部署前提（**不启动 HTTP、不下载、不解压**）：
+在 **restart / reload 前**、CI 或首次部署时，解析配置并安装 www/static（**不启动 HTTP**）：
 
 ```bash
-sudo -u micdn micdn -f /etc/micdn/micdn.xml validate
+sudo -u micdn micdn -f /etc/micdn/micdn.xml resolve
 ```
 
 ### 两阶段
@@ -92,13 +92,13 @@ sudo -u micdn micdn -f /etc/micdn/micdn.xml validate
 | 阶段 | 内容 | 失败时 |
 |------|------|--------|
 | **1. 配置** | `parseFile`：XSD、endpoint 冲突、doc/bundle 属性、try-file 路径等 | stderr `micdn: …`，退出码 **2** |
-| **2. 部署** | `listen` 格式；maven/npm/static/www/blob **根目录可写**；www/static 的 dir/zip/jar/npm **路径与本地 artifact** | 日志 `Validate failed: …`，退出码 **1** |
+| **2. 部署** | `listen` 格式；maven/npm/static/www/blob **根目录可写**；下载缺失 jar/npm、解压 zip/tgz、mount www/static；校验 zip/npm **inner `dir`** 与挂载目录 | 日志 `Resolve … failed: …`，退出码 **1** |
 
-第二阶段还会检查：GAV 格式（`group:artifact:version`）、`<dir location>` 是否存在、zip/jar 是否在本地 maven/npm 缓存、npm spec 是否合法。**`try-file` 尚未挂载时仅 WARN**，不导致失败。
+还会检查：GAV 格式（`group:artifact:version`）、`<dir location>` 是否存在、本地 zip 是否合法、npm spec 是否合法。**`try-file` 缺失仅 WARN**，不导致失败。
 
-成功时输出 `validate ok: …`，退出码 **0**。
+成功时输出 `resolve ok: …`，退出码 **0**。
 
-与 **`mount`** 的分工：`validate` 做检查；`mount www|static` 做离线安装。本地尚无 jar/tgz 时 validate 会失败，需先 `mount` 或启动过一次拉取后再 validate。
+与 **`mount`** 的分工：`resolve` 一次性处理配置中的全部 www doc 与 static bundle（等同 `mount www` + `mount static`，但不支持 `--force`）；`mount www|static [NAME]` 可单独重装指定项并加 `--force`。
 
 ---
 
