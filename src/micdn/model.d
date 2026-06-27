@@ -377,6 +377,18 @@ class GavJarProvider : BundleProvider {
   }
 }
 
+/** Maven 坐标是否形如非空的 `groupId:artifactId:version`（恰好两段冒号、三段均非空）。 */
+bool isValidGav(string gav) pure {
+  auto parts = split(gav, ":");
+  if (parts.length != 3)
+    return false;
+  foreach (p; parts) {
+    if (p.length == 0)
+      return false;
+  }
+  return true;
+}
+
 /** 从 NPM 仓库的 tgz 包加载资源。
 
     对应配置中的 <npm package="@scope/name@version" dir="dist" />，

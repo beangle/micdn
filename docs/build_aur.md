@@ -209,9 +209,12 @@ journalctl -u micdn -b -n 30
 ### 离线安装静态资源（0.2.3+）
 
 ```bash
+sudo -u micdn micdn -f /etc/micdn/micdn.xml validate
 sudo -u micdn micdn -f /etc/micdn/micdn.xml mount www
 sudo -u micdn micdn -f /etc/micdn/micdn.xml mount static
 ```
+
+`validate` 见 **[maintenance.md](./maintenance.md)**。
 
 ---
 

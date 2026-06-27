@@ -17,10 +17,12 @@
 module micdn.config_test;
 
 import std.exception;
+import std.file;
 import std.path;
 
 import micdn.config;
 import micdn.model;
+import micdn.validate;
 import micdn.xml;
 
 auto CentralURL = "https://repo1.maven.org/maven2";
@@ -407,4 +409,34 @@ unittest {
   <maven/>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", dup));
+}
+
+@("validateMicdn checks configured service data roots")
+unittest {
+  import std.conv : octal;
+
+  auto home = buildPath(tempDir, "micdn-validate-roots");
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+
+  auto xml = `<?xml version="1.0"?><micdn home="` ~ home ~ `">
+  <maven base="` ~ home ~ `/maven"/>
+  <npm base="` ~ home ~ `/npm"/>
+  <static base="` ~ home ~ `/static">
+    <bundle name="x"><dir location="` ~ home ~ `/src"/></bundle>
+  </static>
+  <www base="` ~ home ~ `/www">
+    <doc name="m" dir="` ~ home ~ `/src"/>
+  </www>
+  <blob base="` ~ home ~ `/blob" maxSize="1M">
+    <bucket name="b" key="k"/>
+  </blob>
+</micdn>`;
+  auto config = parse(home, xml);
+  mkdirRecurse(home ~ "/src");
+  assert(validateMicdn(config));
+
+  config.www.base.setAttributes(octal!555);
+  assert(!validateMicdn(config));
 }

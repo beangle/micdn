@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- CLI：`micdn -f CONFIG validate` 校验全部服务（XML/属性、listen、数据根可写、GAV/dir/zip/jar/npm 本地 artifact）；不启动 HTTP、不下载不解压
+
 ## v0.2.4 (2026-06-06)
 
 - 挂载：manifest.json 快路径跳过未变更 jar/npm/zip；无效时删目录全量解压；`mount --force` 强制重装

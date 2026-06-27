@@ -79,6 +79,39 @@ sudo chmod 2775 /var/log/micdn
 
 ---
 
+## 校验配置（`validate`）
+
+在 **restart / reload 前** 或 CI 中检查配置与部署前提（**不启动 HTTP、不下载、不解压**）：
+
+```bash
+sudo -u micdn micdn -f /etc/micdn/micdn.xml validate
+```
+
+### 两阶段
+
+| 阶段 | 内容 | 失败时 |
+|------|------|--------|
+| **1. 配置** | `parseFile`：XSD、endpoint 冲突、doc/bundle 属性、try-file 路径等 | stderr `micdn: …`，退出码 **2** |
+| **2. 部署** | `listen` 格式；maven/npm/static/www/blob **根目录可写**；www/static 的 dir/zip/jar/npm **路径与本地 artifact** | 日志 `Validate failed: …`，退出码 **1** |
+
+第二阶段还会检查：GAV 格式（`group:artifact:version`）、`<dir location>` 是否存在、zip/jar 是否在本地 maven/npm 缓存、npm spec 是否合法。**`try-file` 尚未挂载时仅 WARN**，不导致失败。
+
+成功时输出 `validate ok: …`，退出码 **0**。
+
+与 **`mount`** 的分工：`validate` 做检查；`mount www|static` 做离线安装。本地尚无 jar/tgz 时 validate 会失败，需先 `mount` 或启动过一次拉取后再 validate。
+
+---
+
+## 离线安装静态资源（`mount`）
+
+```bash
+sudo -u micdn micdn -f /etc/micdn/micdn.xml mount www
+sudo -u micdn micdn -f /etc/micdn/micdn.xml mount static
+sudo -u micdn micdn -f /etc/micdn/micdn.xml mount www manual --force   # 强制重装
+```
+
+---
+
 ## 在配置中新增本地目录时
 
 若在 **`micdn.xml`** 中为 `<dir location="...">` 等指定**新路径**（例如新的挂载点），需保证：
