@@ -33,13 +33,15 @@ import vibe.core.args;
 import vibe.core.core;
 import vibe.core.log;
 
-import vibe.http.common : HTTPMethod;
+import vibe.http.common : HTTPMethod, HTTPStatusException;
 import vibe.http.router;
 import vibe.http.server : HTTPListener;
 
 import micdn.routes;
 
 import micdn.admin.web;
+import micdn.admin.idle_gc;
+import micdn.admin.metrics;
 import micdn.asset;
 import micdn.asset.web;
 import micdn.blob.s3;
@@ -69,11 +71,14 @@ class ReloadableDispatcher : HTTPServerRequestHandler {
   private string _configFile;
   private string _routerPrefix;
   private HTTPServerSettings _settings;
+  private ReloadResult delegate() _onReload;
 
-  this(string configFile, string routerPrefix, HTTPServerSettings settings) {
+  this(string configFile, string routerPrefix, HTTPServerSettings settings,
+      ReloadResult delegate() onReload) {
     _configFile = configFile;
     _routerPrefix = routerPrefix;
     _settings = settings;
+    _onReload = onReload;
   }
 
   void setRouter(URLRouter router) {
@@ -81,23 +86,40 @@ class ReloadableDispatcher : HTTPServerRequestHandler {
   }
 
   override void handleRequest(HTTPServerRequest req, HTTPServerResponse res) {
-    _currentRouter.handleRequest(req, res);
+    requestStarted();
+    scope (exit)
+      requestFinished();
+    try {
+      _currentRouter.handleRequest(req, res);
+    } catch (Exception e) {
+      if (typeid(e) != typeid(HTTPStatusException))
+        recordHandlerError();
+      throw e;
+    }
   }
 
   ReloadResult tryReload() {
     try {
       fetchRemoteIfNeeded(_configFile);
       auto config = parseFile(_configFile);
-      auto router = buildRouter(config, _settings, () => this.tryReload());
-      if (config.blob !is null)
-        _settings.maxRequestSize = config.blob.maxSize;
+      auto listenPair = parseListen(config.listen);
+      applyLimits(_settings, config);
+      auto router = buildRouter(config, _settings, _onReload);
       _currentRouter = router;
-      return ReloadResult(true, null);
+      recordReload(true);
+      return ReloadResult(true, null, listenPair[1]);
     } catch (Exception e) {
       logError("Reload failed: %s", e.msg);
-      return ReloadResult(false, e.msg);
+      recordReload(false);
+      return ReloadResult(false, e.msg, 0);
     }
   }
+}
+
+private void applyLimits(HTTPServerSettings settings, MicdnConfig config) {
+  if (config.blob !is null)
+    settings.maxRequestSize = config.blob.maxSize;
+  setLimits(settings.maxRequestSize, settings.keepAliveTimeout.total!"seconds"());
 }
 
 /// 根据 config 构建 URLRouter，注册所有服务路由。
@@ -105,7 +127,7 @@ URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
     ReloadResult delegate() onReload) {
   auto router = new URLRouter("");
 
-  auto adminService = new AdminService(config, onReload);
+  auto adminService = new AdminService(config, getVersion(), onReload);
   registerEndpoint(router, "/admin", &adminService.service);
 
   if (config.asset !is null) {
@@ -192,7 +214,16 @@ version (unittest) {
     }
     string configFile;
     ReloadableDispatcher dispatcher;
+    IdleGcMinimizer idleGc;
     HTTPListener listener;
+
+    ReloadResult reloadAndSync() {
+      auto r = dispatcher.tryReload();
+      if (r.ok)
+        setListenPort(r.listenPort);
+      return r;
+    }
+
     try {
       configFile = resolveConfigFile("micdn.xml");
 
@@ -212,8 +243,16 @@ version (unittest) {
       settings.port = port;
       settings.serverString = null;
 
-      dispatcher = new ReloadableDispatcher(absolutePath(expandTilde(configFile)), "", settings);
-      dispatcher.setRouter(buildRouter(config, settings, () => dispatcher.tryReload()));
+      markProcessStarted();
+      idleGc = new IdleGcMinimizer();
+      setListenPort(port);
+      applyLimits(settings, config);
+      idleGc.start();
+
+      dispatcher = new ReloadableDispatcher(absolutePath(expandTilde(configFile)), "", settings,
+          &reloadAndSync);
+
+      dispatcher.setRouter(buildRouter(config, settings, &reloadAndSync));
 
       listener = listenHTTP(settings, dispatcher);
     } catch (Exception e) {
@@ -224,7 +263,7 @@ version (unittest) {
       listener.stopListening();
 
     version (Posix) {
-      startSighupReloadThread(dispatcher);
+      startSighupReloadThread(&reloadAndSync);
     }
 
     runApplication(&args);
@@ -234,7 +273,7 @@ version (unittest) {
 
 /// 启动 SIGHUP 监听线程，收到信号时在事件循环中触发 reload（供 systemctl reload 使用）。
 version (Posix) {
-  void startSighupReloadThread(ReloadableDispatcher dispatcher) {
+  void startSighupReloadThread(ReloadResult delegate() reload) {
     import core.thread;
 
     version (Linux) {
@@ -249,7 +288,7 @@ version (Posix) {
         int sig;
         while (sigwait(&mask, &sig) == 0 && sig == SIGHUP) {
           runTask({
-            auto r = dispatcher.tryReload();
+            auto r = reload();
             logInfo("Config reload (SIGHUP): %s", r.ok ? "ok" : ("failed: " ~ r.error));
           });
         }
@@ -464,5 +503,5 @@ Examples:
 }
 
 string getVersion() {
-  return "0.2.4";
+  return "0.2.5";
 }

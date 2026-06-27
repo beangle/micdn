@@ -1,8 +1,13 @@
 # Changelog
 
-## Unreleased
+## v0.2.5 (2026-06-27)
 
 - CLI：`micdn -f CONFIG validate` 校验全部服务（XML/属性、listen、数据根可写、GAV/dir/zip/jar/npm 本地 artifact）；不启动 HTTP、不下载不解压
+- 修复：`sendFiles` 小文件合并响应改用内存读出再写出，避免 `FileStream` 与 `bodyWriter` 组合触发 GC 句柄泄漏告警（静态资源逗号合并 URI）
+- 运维：`/admin/metrics.json`（JSON）与 `/admin/metrics`（HTML 仪表盘，5s 刷新）只读指标，仅 localhost；含请求数/在途/峰值、TCP established、RSS/GC、open FDs、reload 与 idle GC minimize 次数等
+- 内存：内置 idle `GC.minimize`（每 15 分钟检查；RSS ≥ 20MB 且在途请求 ≤ 200 时触发，冷却 15 分钟）；无 micdn.xml 配置、无 per-request `/proc` 钩子
+
+完整说明见 docs/release-v0.2.5.md
 
 ## v0.2.4 (2026-06-06)
 

@@ -261,6 +261,18 @@ private void sendFilesImpl(scope HTTPServerRequest req, scope HTTPServerResponse
     return;
   }
 
+  if (size <= maxWholeFileMemSend) {
+    ubyte[] data;
+    data.reserve(cast(size_t) size);
+    foreach (i, p; paths) {
+      if (i > 0)
+        data ~= '\n';
+      data ~= readFile(p);
+    }
+    res.bodyWriter.write(data);
+    return;
+  }
+
   FileStream[] fss;
   fss.reserve(paths.length);
   foreach (ref p; paths) {

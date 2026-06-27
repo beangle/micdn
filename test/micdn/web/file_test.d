@@ -16,6 +16,16 @@
 
 module test.micdn.web.file_test;
 
+import std.file;
+import std.path;
+
+import vibe.http.common : HTTPMethod;
+import vibe.http.server : createTestHTTPServerRequest, createTestHTTPServerResponse, TestHTTPResponseMode;
+import vibe.inet.message : InetHeaderMap;
+import vibe.inet.url : URL;
+import vibe.stream.memory : createMemoryOutputStream;
+
+import micdn.web.cache;
 import micdn.web.file;
 import std.exception : assertThrown;
 
@@ -40,4 +50,22 @@ unittest {
 
   assertThrown(parseRange("0-", 0));
   assertThrown(parseRange("-1", 0));
+}
+
+@("web sendFiles concatenates small files in memory")
+unittest {
+  auto dir = buildPath(tempDir(), "micdn-sendfiles-test");
+  mkdirRecurse(dir);
+  scope (exit) rmdirRecurse(dir);
+
+  auto f1 = buildPath(dir, "a.js");
+  auto f2 = buildPath(dir, "b.js");
+  write(f1, "console.log(1);");
+  write(f2, "console.log(2);");
+
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://localhost/a.js,b.js"), HTTPMethod.GET, InetHeaderMap.init, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  sendFiles(req, res, [f1, f2], publicMaxAge1yImmutable);
+  assert(cast(string) output.data == "console.log(1);\nconsole.log(2);");
 }

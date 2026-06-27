@@ -15,30 +15,32 @@
  */
 
 module micdn.admin.web;
-/// 管理接口服务，提供 /admin/config.xml 等运维接口。
+/// 管理接口服务，提供 /admin/config.xml、/admin/metrics 等运维接口。
 
-import vibe.core.core;
 import vibe.http.router;
 import vibe.http.server;
 
+import micdn.admin.access : requireLocalhostPeer;
+import micdn.admin.metrics : metricsJson, metricsPageHtml, snapshotMetrics;
+import micdn.config;
 import micdn.model;
 import micdn.web;
-import micdn.config;
-
-/// Reload 结果：ok 为 true 表示成功，否则 error 为错误信息。
 struct ReloadResult {
   bool ok;
   string error;
+  ushort listenPort;
 }
 
 /// 管理服务，挂载于 /admin 下，提供配置查看、reload 等接口。
 class AdminService {
   private const string endpoint = "/admin";
   private const MicdnConfig config;
+  private const string appVersion;
   private ReloadResult delegate() onReload;
 
-  this(MicdnConfig config, ReloadResult delegate() onReload = null) {
+  this(MicdnConfig config, string appVersion, ReloadResult delegate() onReload = null) {
     this.config = config;
+    this.appVersion = appVersion;
     this.onReload = onReload;
   }
 
@@ -49,10 +51,7 @@ class AdminService {
       res.headers["Content-Type"] = "application/xml; charset=utf-8";
       res.writeBody(config.toXml());
     } else if (path == "/reload" && onReload !is null) {
-      auto peer = req.peer;
-      if (peer != "127.0.0.1" && peer != "::1") {
-        throw new HTTPStatusException(HTTPStatus.forbidden, "reload only allowed from localhost");
-      }
+      requireLocalhostPeer(req);
       auto result = onReload();
       if (result.ok) {
         res.statusCode = HTTPStatus.ok;
@@ -63,6 +62,16 @@ class AdminService {
         res.headers["Content-Type"] = "text/plain; charset=utf-8";
         res.writeBody("reload failed: " ~ result.error);
       }
+    } else if (path == "/metrics.json") {
+      requireLocalhostPeer(req);
+      res.statusCode = HTTPStatus.ok;
+      res.headers["Content-Type"] = "application/json; charset=utf-8";
+      res.writeBody(metricsJson(snapshotMetrics()));
+    } else if (path == "/metrics") {
+      requireLocalhostPeer(req);
+      res.statusCode = HTTPStatus.ok;
+      res.headers["Content-Type"] = "text/html; charset=utf-8";
+      res.writeBody(metricsPageHtml(appVersion));
     } else {
       throw new HTTPStatusException(HTTPStatus.notFound);
     }
