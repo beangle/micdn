@@ -1,19 +1,12 @@
 # Changelog
 
-## v0.2.6 (2026-06-28)
+## v0.2.5 (2026-06-28)
 
-- CLI：`validate` 重命名为 **`resolve`**，一次性下载/挂载全部 www/static 并校验 inner `dir`（等同 `mount www` + `mount static`）
-- 运维：admin 指标合并为 `metrics.d`（含 idle GC、RSS/GC）；`/admin/metrics` 改用 `views/metrics.dt`；idle GC 去掉冷却，每 15 分钟 tick 满足条件即 minimize
-- 依赖：vibe-http **1.5.1**、vibe-inet **1.3.1**、vibe-stream **1.4.1**、vibe-serialization **1.2.0**（`notls` 不变）
-
-完整说明见 docs/release-v0.2.6.md
-
-## v0.2.5 (2026-06-27)
-
-- CLI：`micdn -f CONFIG validate` 校验全部服务（XML/属性、listen、数据根可写、GAV/dir/zip/jar/npm 本地 artifact）；不启动 HTTP、不下载不解压
+- CLI：`micdn -f CONFIG resolve` 解析并安装全部 www/static（下载 jar/npm、解压 zip/tgz、校验 inner dir 与挂载目录）；不启动 HTTP
 - 修复：`sendFiles` 小文件合并响应改用内存读出再写出，避免 `FileStream` 与 `bodyWriter` 组合触发 GC 句柄泄漏告警（静态资源逗号合并 URI）
-- 运维：`/admin/metrics.json`（JSON）与 `/admin/metrics`（HTML 仪表盘，5s 刷新）只读指标，仅 localhost；含请求数/在途/峰值、TCP established、RSS/GC、open FDs、reload 与 idle GC minimize 次数等
-- 内存：内置 idle `GC.minimize`（每 15 分钟检查；RSS ≥ 20MB 且在途请求 ≤ 200 时触发，冷却 15 分钟）；无 micdn.xml 配置、无 per-request `/proc` 钩子
+- 运维：`/admin/metrics.json`（JSON）与 `/admin/metrics`（HTML 仪表盘，`views/metrics.dt`）只读指标，仅 localhost；指标逻辑合并于 `metrics.d`（含 idle GC、RSS/GC）
+- 内存：内置 idle `GC.minimize`（每 15 分钟 tick；RSS ≥ 20MB 且在途请求 ≤ 200 时触发）；无 micdn.xml 配置、无 per-request `/proc` 钩子
+- 依赖：vibe-http **1.5.1**、vibe-inet **1.3.1**、vibe-stream **1.4.1**、vibe-serialization **1.2.0**（`notls` 不变）
 
 完整说明见 docs/release-v0.2.5.md
 

@@ -502,5 +502,5 @@ Examples:
 }
 
 string getVersion() {
-  return "0.2.6";
+  return "0.2.5";
 }
