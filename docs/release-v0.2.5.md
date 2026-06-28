@@ -20,7 +20,7 @@ v0.2.5 在 v0.2.4 基础上增加 **部署前解析 CLI（`resolve`）**、**静
 | **CLI** | `micdn -f CONFIG resolve` 解析配置并安装 www/static（下载 jar/npm、解压 zip/tgz，校验挂载目录） |
 | **修复** | `sendFiles` 小文件合并走内存读出，避免 `FileStream` 泄漏告警 |
 | **可观测** | `/admin/metrics.json` + `/admin/metrics` HTML 仪表盘（`views/metrics.dt`，仅 localhost） |
-| **内存** | 内置 idle `GC.minimize`（15 分钟 tick，RSS ≥ 20MB 且在途请求 ≤ 200） |
+| **内存** | 内置 idle `GC.minimize`（15 分钟 tick，RSS ≥ 50MB 且在途请求 ≤ 200） |
 | **依赖** | vibe-http 1.5.1、vibe-inet 1.3.1、vibe-stream 1.4.1 |
 
 ---
@@ -60,7 +60,7 @@ micdn -f /etc/micdn/micdn.xml resolve
 | 参数 | 值 |
 |------|-----|
 | 检查间隔 | 15 分钟 |
-| 触发条件 | RSS ≥ **20 MB** 且 `requestsActive` ≤ **200** |
+| 触发条件 | RSS ≥ **50 MB** 且 `requestsActive` ≤ **200** |
 | 动作 | `GC.collect()` + `GC.minimize()`（Linux 上含 `malloc_trim`） |
 
 每个 tick 满足条件即执行（无额外冷却）；reload 成功后更新 metrics 的 `listenPort`。

@@ -253,7 +253,7 @@ string metricsJson(MetricsSnapshot s) {
 
 /// 内置 idle GC 策略（不可通过 micdn.xml 修改）。
 private immutable Duration gcCheckInterval = 15.minutes;
-private immutable ulong gcMinRssKb = 20 * 1024;
+private immutable ulong gcMinRssKb = 50 * 1024;
 private immutable long gcMaxActiveRequests = 200;
 
 /** 是否应触发 idle 收缩（纯逻辑，便于单测）。 */

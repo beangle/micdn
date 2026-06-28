@@ -104,9 +104,9 @@ unittest {
 
 @("admin metrics idle gc should minimize when rss high and active requests low")
 unittest {
-  assert(shouldIdleMinimize(0, 21 * 1024));
-  assert(shouldIdleMinimize(200, 20 * 1024));
+  assert(shouldIdleMinimize(0, 51 * 1024));
+  assert(shouldIdleMinimize(200, 50 * 1024));
 
-  assert(!shouldIdleMinimize(201, 21 * 1024));
-  assert(!shouldIdleMinimize(0, 19 * 1024));
+  assert(!shouldIdleMinimize(201, 51 * 1024));
+  assert(!shouldIdleMinimize(0, 49 * 1024));
 }

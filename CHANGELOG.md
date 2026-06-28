@@ -5,7 +5,7 @@
 - CLI：`micdn -f CONFIG resolve` 解析并安装全部 www/static（下载 jar/npm、解压 zip/tgz、校验 inner dir 与挂载目录）；不启动 HTTP
 - 修复：`sendFiles` 小文件合并响应改用内存读出再写出，避免 `FileStream` 与 `bodyWriter` 组合触发 GC 句柄泄漏告警（静态资源逗号合并 URI）
 - 运维：`/admin/metrics.json`（JSON）与 `/admin/metrics`（HTML 仪表盘，`views/metrics.dt`）只读指标，仅 localhost；指标逻辑合并于 `metrics.d`（含 idle GC、RSS/GC）
-- 内存：内置 idle `GC.minimize`（每 15 分钟 tick；RSS ≥ 20MB 且在途请求 ≤ 200 时触发）；无 micdn.xml 配置、无 per-request `/proc` 钩子
+- 内存：内置 idle `GC.minimize`（每 15 分钟 tick；RSS ≥ 50MB 且在途请求 ≤ 200 时触发）；无 micdn.xml 配置、无 per-request `/proc` 钩子
 - 依赖：vibe-http **1.5.1**、vibe-inet **1.3.1**、vibe-stream **1.4.1**、vibe-serialization **1.2.0**（`notls` 不变）
 
 完整说明见 docs/release-v0.2.5.md
