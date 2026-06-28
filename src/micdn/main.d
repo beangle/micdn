@@ -40,7 +40,6 @@ import vibe.http.server : HTTPListener;
 import micdn.routes;
 
 import micdn.admin.web;
-import micdn.admin.idle_gc;
 import micdn.admin.metrics;
 import micdn.asset;
 import micdn.asset.web;

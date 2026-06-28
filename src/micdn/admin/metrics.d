@@ -7,18 +7,137 @@
  */
 
 module micdn.admin.metrics;
-/// 进程内原子计数与内存/TCP 快照，供 `/admin/metrics.json` 与 `/admin/metrics` 只读输出。
+/// 进程内指标：原子计数、RSS/GC 快照、TCP 统计、idle `GC.minimize`；HTML 见 `views/metrics.dt`。
 
 import core.atomic;
+import core.memory : GC;
 import core.sys.posix.unistd : getpid;
 import core.time : MonoTime;
 
+import std.algorithm : all;
+import std.ascii : isDigit;
 import std.conv : to;
+import std.datetime;
 import std.file : read;
 import std.format : format;
-import std.string : split, toLower, indexOf, splitLines;
+import std.path : baseName;
+import std.string : split, strip, toLower, indexOf, splitLines, startsWith;
 
-import micdn.admin.memstats : MemSnapshot, ProcessExtras, readProcessExtras, snapshotMem;
+import vibe.core.core : Timer, setTimer;
+import vibe.core.log;
+
+/// 从 `/proc/self/status` 读取的进程级内存（kB）；含代码、栈、libc、D 堆等全部 resident 页。
+struct ProcessMemoryKb {
+  /// VmRSS：当前驻留物理内存（kB）。空闲时仍含监听、配置、线程栈等常驻成本，不等于「未释放的请求内存」。
+  ulong rssKb;
+  /// VmHWM：自进程启动以来 RSS 峰值（kB）。只增不减（除非进程重启），用于观察是否曾冲高。
+  ulong hwmKb;
+}
+
+/// D GC 堆快照（`GC.stats`）；仅 druntime 托管堆，不含 C malloc / 代码段 / 线程栈。
+///
+/// 与直觉不同，`gcUsed` 不必大于 `gcFree`：高峰回收或 `GC.minimize` 后，pool 里
+/// 大量页会进 `freeSize`，空闲时常出现 gcFree ≫ gcUsed，属正常。是否泄露看 RSS/HWM 趋势，
+/// 勿以二者大小关系判断。
+struct GcHeapStats {
+  /// 仍被 D 对象引用的堆字节（`GC.stats.usedSize`）；JSON `gcUsed`。
+  size_t usedBytes;
+  /// GC 已映射但尚未分配给对象、也未还给 OS 的空闲堆字节（`GC.stats.freeSize`）；JSON `gcFree`。
+  size_t freeBytes;
+  ulong allocatedInCurrentThread;
+}
+
+/// RSS + GC 合并快照。
+struct MemSnapshot {
+  ProcessMemoryKb process;
+  GcHeapStats gc;
+}
+
+/// `/proc` 补充（open fd、线程数；-1 表示不可用）。
+struct ProcessExtras {
+  long openFds = -1;
+  long threads = -1;
+}
+
+/// `GC.collect` + `GC.minimize`（及 Linux 上 `malloc_trim(0)`）前后对比。
+struct GcMinimizeResult {
+  MemSnapshot before;
+  MemSnapshot after;
+  int mallocTrim; /// `malloc_trim(0)` 返回值；非 Linux 为 -1
+}
+
+ProcessMemoryKb readProcessMemoryKb() {
+  auto status = cast(string) read("/proc/" ~ getpid().to!string ~ "/status");
+  ProcessMemoryKb ret;
+  foreach (line; status.splitLines()) {
+    if (line.startsWith("VmRSS:"))
+      ret.rssKb = parseStatusKb(line);
+    else if (line.startsWith("VmHWM:"))
+      ret.hwmKb = parseStatusKb(line);
+  }
+  return ret;
+}
+
+GcHeapStats readGcHeapStats() {
+  auto st = GC.stats;
+  return GcHeapStats(st.usedSize, st.freeSize, st.allocatedInCurrentThread);
+}
+
+MemSnapshot snapshotMem() {
+  return MemSnapshot(readProcessMemoryKb(), readGcHeapStats());
+}
+
+ProcessExtras readProcessExtras() {
+  ProcessExtras ret;
+  version (linux) {
+    try {
+      ret.openFds = countOpenFds(getpid());
+    } catch (Exception) {
+    }
+  }
+  auto status = cast(string) read("/proc/" ~ getpid().to!string ~ "/status");
+  foreach (line; status.splitLines()) {
+    if (line.startsWith("Threads:")) {
+      ret.threads = parseStatusCount(line);
+      break;
+    }
+  }
+  return ret;
+}
+
+/** 统计 `/proc/<pid>/fd` 下数字条目数（不含 `.` / `..`）。 */
+long countOpenFds(int pid) {
+  version (linux) {
+    import std.file : dirEntries, SpanMode;
+
+    long n;
+    foreach (entry; dirEntries(format("/proc/%s/fd", pid), SpanMode.shallow)) {
+      if (isProcFdEntryName(baseName(entry.name)))
+        n++;
+    }
+    return n;
+  }
+  return -1;
+}
+
+bool isProcFdEntryName(string name) pure @safe {
+  return name.length && name.all!isDigit;
+}
+
+GcMinimizeResult runGcMinimize() {
+  GcMinimizeResult ret;
+  ret.before = snapshotMem();
+  GC.collect();
+  GC.minimize();
+  version (Linux) {
+    import core.stdc.malloc : malloc_trim;
+
+    ret.mallocTrim = malloc_trim(0);
+  } else
+    ret.mallocTrim = -1;
+  ret.after = snapshotMem();
+  return ret;
+}
 
 shared long g_requestsActive;
 shared long g_requestsActiveMax;
@@ -121,6 +240,7 @@ MetricsSnapshot snapshotMetrics() {
 }
 
 string metricsJson(MetricsSnapshot s) {
+  // memory.rssKb/hwmKb ← ProcessMemoryKb；memory.gcUsed/gcFree ← GcHeapStats.usedBytes/freeBytes
   return format(
       `{"uptimeSeconds":%s,"pid":%s,"listenPort":%s,"limits":{"maxConnections":%s,"maxRequestSize":%s,"keepAliveTimeoutSec":%s},"requests":{"total":%s,"active":%s,"activeMax":%s},"tcp":{"established":%s,"establishedMax":%s},"handlerErrors":%s,"reload":{"total":%s,"failed":%s},"gcMinimize":{"total":%s},"memory":{"rssKb":%s,"hwmKb":%s,"gcUsed":%s,"gcFree":%s,"gcAllocatedInThread":%s},"process":{"openFds":%s,"threads":%s}}`,
       s.uptimeSeconds, s.pid, s.listenPort, s.limits.maxConnections, s.limits.maxRequestSize,
@@ -130,271 +250,52 @@ string metricsJson(MetricsSnapshot s) {
       s.mem.gc.freeBytes, s.mem.gc.allocatedInCurrentThread, s.process.openFds, s.process.threads);
 }
 
-string metricsPageHtml(string appVersion) {
-  return `<!DOCTYPE html>
-<html lang="zh">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Micdn Metrics</title>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: "SF Pro Text", "Segoe UI", system-ui, sans-serif;
-      background: #f5f5f0;
-      color: #2c2c2c;
-      min-height: 100vh;
-      padding: 1.5rem 1rem 2.5rem;
+
+/// 内置 idle GC 策略（不可通过 micdn.xml 修改）。
+private immutable Duration gcCheckInterval = 15.minutes;
+private immutable ulong gcMinRssKb = 20 * 1024;
+private immutable long gcMaxActiveRequests = 200;
+
+/** 是否应触发 idle 收缩（纯逻辑，便于单测）。 */
+bool shouldIdleMinimize(long activeRequests, ulong rssKb) {
+  if (activeRequests > gcMaxActiveRequests)
+    return false;
+  if (rssKb < gcMinRssKb)
+    return false;
+  return true;
+}
+
+/// 周期性检查并在负载较低时调用 `runGcMinimize()`。
+final class IdleGcMinimizer {
+  private Timer _timer;
+  private bool _timerActive;
+
+  void start() {
+    stopTimer();
+    _timer = setTimer(gcCheckInterval, &onTimer, true);
+    _timerActive = true;
+  }
+
+  void stopTimer() {
+    if (_timerActive) {
+      _timer.stop();
+      _timerActive = false;
     }
-    .wrap { max-width: 960px; margin: 0 auto; }
-    header {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 1rem;
-      margin-bottom: 1.25rem;
-    }
-    h1 { margin: 0; font-size: 1.35rem; font-weight: 600; }
-    .meta { font-size: 0.8rem; color: #888; }
-    .meta span { margin-left: 0.75rem; }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 0.85rem;
-    }
-    .card {
-      background: #fff;
-      border-radius: 10px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-      padding: 1rem 1.1rem;
-    }
-    .card.wide { grid-column: 1 / -1; }
-    .card h2 {
-      margin: 0 0 0.75rem;
-      font-size: 0.72rem;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: #888;
-    }
-    .stat {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      padding: 0.28rem 0;
-      font-size: 0.9rem;
-    }
-    .stat .label { color: #666; }
-    .stat .value {
-      font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
-      font-weight: 500;
-    }
-    .stat .value.warn { color: #c64600; }
-    .ops-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 0.55rem;
-    }
-    .ops-grid .stat {
-      width: 100%;
-      margin: 0;
-      padding: 0.45rem 0.65rem;
-      background: #fafaf8;
-      border: 1px solid #ececea;
-      border-radius: 6px;
-      gap: 0.75rem;
-    }
-    .ops-grid .stat .label { flex: 1 1 auto; min-width: 0; }
-    .ops-grid .stat .value {
-      flex: 0 0 auto;
-      text-align: right;
-      white-space: nowrap;
-    }
-    .bar-wrap { margin-top: 0.35rem; }
-    .bar {
-      height: 6px;
-      background: #eee;
-      border-radius: 3px;
-      overflow: hidden;
-    }
-    .bar > i {
-      display: block;
-      height: 100%;
-      background: linear-gradient(90deg, #3584e4, #1c71d8);
-      border-radius: 3px;
-      width: 0%;
-      transition: width 0.3s ease;
-    }
-    .footer {
-      margin-top: 1.5rem;
-      text-align: center;
-      font-size: 0.75rem;
-      color: #999;
-    }
-    .footer a { color: #999; text-decoration: none; }
-    .footer a:hover { color: #666; }
-    .err {
-      display: none;
-      margin-bottom: 1rem;
-      padding: 0.75rem 1rem;
-      background: #fdecea;
-      color: #c01c28;
-      border-radius: 8px;
-      font-size: 0.85rem;
-    }
-    @media (prefers-color-scheme: dark) {
-      body { background: #1a1a1a; color: #e4e4e4; }
-      .meta, .card h2 { color: #909090; }
-      .card { background: #2d2d2d; box-shadow: 0 1px 3px rgba(0,0,0,0.35); }
-      .stat .label { color: #b0b0b0; }
-      .stat .value.warn { color: #ff7800; }
-      .ops-grid .stat {
-        background: #252525;
-        border-color: #404040;
-      }
-      .bar { background: #404040; }
-      .err { background: #3d1f1f; color: #ff6b6b; }
-      .footer, .footer a { color: #6b6b6b; }
-      .footer a:hover { color: #909090; }
-    }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <header>
-      <h1>Micdn Metrics</h1>
-      <div class="meta">
-        <span id="version">` ~ appVersion ~ `</span>
-        <span id="updated">—</span>
-      </div>
-    </header>
-    <div class="err" id="err"></div>
-    <div class="grid">
-      <section class="card">
-        <h2>Load</h2>
-        <div class="stat"><span class="label">Total requests</span><span class="value" id="reqTotal">—</span></div>
-        <div class="stat"><span class="label">Active requests</span><span class="value" id="reqActive">—</span></div>
-        <div class="stat"><span class="label">Peak active</span><span class="value" id="reqActiveMax">—</span></div>
-        <div class="bar-wrap"><div class="bar"><i id="reqBar"></i></div></div>
-        <div class="stat"><span class="label">TCP established</span><span class="value" id="tcpEst">—</span></div>
-        <div class="stat"><span class="label">Peak TCP</span><span class="value" id="tcpEstMax">—</span></div>
-        <div class="stat"><span class="label">Req/s (avg)</span><span class="value" id="reqRate">—</span></div>
-      </section>
-      <section class="card">
-        <h2>Memory</h2>
-        <div class="stat"><span class="label">RSS</span><span class="value" id="rss">—</span></div>
-        <div class="stat"><span class="label">HWM</span><span class="value" id="hwm">—</span></div>
-        <div class="stat"><span class="label">GC used</span><span class="value" id="gcUsed">—</span></div>
-        <div class="stat"><span class="label">GC free</span><span class="value" id="gcFree">—</span></div>
-      </section>
-      <section class="card">
-        <h2>Process</h2>
-        <div class="stat"><span class="label">PID</span><span class="value" id="pid">—</span></div>
-        <div class="stat"><span class="label">Uptime</span><span class="value" id="uptime">—</span></div>
-        <div class="stat"><span class="label">Listen port</span><span class="value" id="port">—</span></div>
-        <div class="stat"><span class="label">Open FDs</span><span class="value" id="fds">—</span></div>
-        <div class="stat"><span class="label">Threads</span><span class="value" id="threads">—</span></div>
-      </section>
-      <section class="card wide">
-        <h2>Limits &amp; ops</h2>
-        <div class="ops-grid">
-          <div class="stat"><span class="label">Max connections</span><span class="value" id="maxConn">—</span></div>
-          <div class="stat"><span class="label">Max request size</span><span class="value" id="maxReq">—</span></div>
-          <div class="stat"><span class="label">Keep-alive timeout</span><span class="value" id="keepAlive">—</span></div>
-          <div class="stat"><span class="label">Reloads</span><span class="value" id="reload">—</span></div>
-          <div class="stat"><span class="label">GC minimize</span><span class="value" id="gcMin">—</span></div>
-          <div class="stat"><span class="label">Handler errors</span><span class="value" id="handlerErr">—</span></div>
-        </div>
-      </section>
-    </div>
-    <div class="footer">
-      Auto-refresh 5s · <a href="metrics.json">JSON</a> ·
-      <a href="https://github.com/beangle/micdn">Beangle Micdn</a>
-    </div>
-  </div>
-  <script>
-    function fmt(n) {
-      if (n == null || n < 0) return "—";
-      return Number(n).toLocaleString();
-    }
-    function fmtKb(kb) {
-      if (kb == null || kb < 0) return "—";
-      if (kb >= 1024) return (kb / 1024).toFixed(1) + " MB";
-      return kb + " kB";
-    }
-    function fmtBytes(b) {
-      if (b == null || b < 0) return "—";
-      if (b >= 1048576) return (b / 1048576).toFixed(1) + " MB";
-      if (b >= 1024) return (b / 1024).toFixed(1) + " kB";
-      return b + " B";
-    }
-    function fmtDuration(sec) {
-      if (!sec || sec < 0) return "—";
-      var d = Math.floor(sec / 86400);
-      var h = Math.floor((sec % 86400) / 3600);
-      var m = Math.floor((sec % 3600) / 60);
-      var s = sec % 60;
-      if (d) return d + "d " + h + "h " + m + "m";
-      if (h) return h + "h " + m + "m " + s + "s";
-      if (m) return m + "m " + s + "s";
-      return s + "s";
-    }
-    function set(id, text) {
-      document.getElementById(id).textContent = text;
-    }
-    function apply(m) {
-      var req = m.requests || {};
-      var tcp = m.tcp || {};
-      var mem = m.memory || {};
-      var lim = m.limits || {};
-      var proc = m.process || {};
-      var rel = m.reload || {};
-      var gc = m.gcMinimize || {};
-      set("reqActive", fmt(req.active));
-      set("reqActiveMax", fmt(req.activeMax));
-      set("reqTotal", fmt(req.total));
-      set("tcpEst", fmt(tcp.established));
-      set("tcpEstMax", fmt(tcp.establishedMax));
-      var rate = m.uptimeSeconds > 0 ? (req.total / m.uptimeSeconds).toFixed(2) : "0";
-      set("reqRate", rate);
-      var peak = req.activeMax || 1;
-      document.getElementById("reqBar").style.width =
-        Math.min(100, (req.active / peak) * 100).toFixed(1) + "%";
-      set("rss", fmtKb(mem.rssKb));
-      set("hwm", fmtKb(mem.hwmKb));
-      set("gcUsed", fmtBytes(mem.gcUsed));
-      set("gcFree", fmtBytes(mem.gcFree));
-      set("pid", fmt(m.pid));
-      set("uptime", fmtDuration(m.uptimeSeconds));
-      set("port", m.listenPort || "—");
-      set("fds", fmt(proc.openFds));
-      set("threads", fmt(proc.threads));
-      set("maxConn", lim.maxConnections < 0 ? "unlimited" : fmt(lim.maxConnections));
-      set("maxReq", fmtBytes(lim.maxRequestSize));
-      set("keepAlive", lim.keepAliveTimeoutSec != null ? lim.keepAliveTimeoutSec + "s" : "—");
-      set("reload", fmt(rel.total) + (rel.failed ? " (" + rel.failed + " failed)" : ""));
-      set("gcMin", fmt(gc.total));
-      set("handlerErr", fmt(m.handlerErrors));
-      set("updated", new Date().toLocaleTimeString());
-      document.getElementById("err").style.display = "none";
-    }
-    async function refresh() {
-      try {
-        var r = await fetch("metrics.json", { cache: "no-store" });
-        if (!r.ok) throw new Error(r.status + " " + r.statusText);
-        apply(await r.json());
-      } catch (e) {
-        var el = document.getElementById("err");
-        el.textContent = "Failed to load metrics.json: " + e.message;
-        el.style.display = "block";
-      }
-    }
-    refresh();
-    setInterval(refresh, 5000);
-  </script>
-</body>
-</html>`;
+  }
+
+  private void onTimer() @trusted {
+    auto active = requestsActive();
+    auto rss = readProcessMemoryKb().rssKb;
+    if (!shouldIdleMinimize(active, rss))
+      return;
+
+    auto before = rss;
+    runGcMinimize();
+    recordGcMinimize();
+    auto after = readProcessMemoryKb().rssKb;
+    logInfo("GC idle minimize: RSS %s kB -> %s kB (active<=%s, min %s kB)", before, after,
+        gcMaxActiveRequests, gcMinRssKb);
+  }
 }
 
 /** 统计本进程在 `port` 上的 TCP ESTABLISHED 连接数（scrape 时读 `/proc`）。 */
@@ -426,6 +327,15 @@ private long countEstablishedInProcFile(string path, ushort port) {
       n++;
   }
   return n;
+}
+
+private ulong parseStatusKb(string line) {
+  return parseStatusCount(line);
+}
+
+private long parseStatusCount(string line) {
+  auto parts = line[(line.indexOf(':') + 1) .. $].strip.split(" ");
+  return parts.length ? parts[0].to!long : 0;
 }
 
 private void bumpMax(ref shared long peak, long value) @trusted nothrow {

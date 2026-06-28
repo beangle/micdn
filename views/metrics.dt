@@ -1,0 +1,295 @@
+doctype 5
+html(lang="zh")
+  head
+    meta(charset="utf-8")
+    meta(name="viewport", content="width=device-width, initial-scale=1")
+    title Micdn Metrics
+    style.
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+        background: #f5f5f0;
+        color: #2c2c2c;
+        min-height: 100vh;
+        padding: 1.5rem 1rem 2.5rem;
+      }
+      .wrap { max-width: 960px; margin: 0 auto; }
+      header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1.25rem;
+      }
+      h1 { margin: 0; font-size: 1.35rem; font-weight: 600; }
+      .meta { font-size: 0.8rem; color: #888; }
+      .meta span { margin-left: 0.75rem; }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 0.85rem;
+      }
+      .card {
+        background: #fff;
+        border-radius: 10px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        padding: 1rem 1.1rem;
+      }
+      .card.wide { grid-column: 1 / -1; }
+      .card h2 {
+        margin: 0 0 0.75rem;
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #888;
+      }
+      .stat {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        padding: 0.28rem 0;
+        font-size: 0.9rem;
+      }
+      .stat .label { color: #666; }
+      .stat .value {
+        font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+        font-weight: 500;
+      }
+      .stat .value.warn { color: #c64600; }
+      .ops-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 0.55rem;
+      }
+      .ops-grid .stat {
+        width: 100%;
+        margin: 0;
+        padding: 0.45rem 0.65rem;
+        background: #fafaf8;
+        border: 1px solid #ececea;
+        border-radius: 6px;
+        gap: 0.75rem;
+      }
+      .ops-grid .stat .label { flex: 1 1 auto; min-width: 0; }
+      .ops-grid .stat .value {
+        flex: 0 0 auto;
+        text-align: right;
+        white-space: nowrap;
+      }
+      .bar-wrap { margin-top: 0.35rem; }
+      .bar {
+        height: 6px;
+        background: #eee;
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .bar > i {
+        display: block;
+        height: 100%;
+        background: linear-gradient(90deg, #3584e4, #1c71d8);
+        border-radius: 3px;
+        width: 0%;
+        transition: width 0.3s ease;
+      }
+      .footer {
+        margin-top: 1.5rem;
+        text-align: center;
+        font-size: 0.75rem;
+        color: #999;
+      }
+      .footer a { color: #999; text-decoration: none; }
+      .footer a:hover { color: #666; }
+      .err {
+        display: none;
+        margin-bottom: 1rem;
+        padding: 0.75rem 1rem;
+        background: #fdecea;
+        color: #c01c28;
+        border-radius: 8px;
+        font-size: 0.85rem;
+      }
+      @media (prefers-color-scheme: dark) {
+        body { background: #1a1a1a; color: #e4e4e4; }
+        .meta, .card h2 { color: #909090; }
+        .card { background: #2d2d2d; box-shadow: 0 1px 3px rgba(0,0,0,0.35); }
+        .stat .label { color: #b0b0b0; }
+        .stat .value.warn { color: #ff7800; }
+        .ops-grid .stat {
+          background: #252525;
+          border-color: #404040;
+        }
+        .bar { background: #404040; }
+        .err { background: #3d1f1f; color: #ff6b6b; }
+        .footer, .footer a { color: #6b6b6b; }
+        .footer a:hover { color: #909090; }
+      }
+  body
+    .wrap
+      header
+        h1 Micdn Metrics
+        .meta
+          span#version= pageData.appVersion
+          span#updated —
+      .err#err
+      .grid
+        section.card
+          h2 Load
+          .stat
+            span.label Total requests
+            span.value#reqTotal —
+          .stat
+            span.label Active requests
+            span.value#reqActive —
+          .stat
+            span.label Peak active
+            span.value#reqActiveMax —
+          .bar-wrap
+            .bar
+              i#reqBar
+          .stat
+            span.label TCP established
+            span.value#tcpEst —
+          .stat
+            span.label Peak TCP
+            span.value#tcpEstMax —
+          .stat
+            span.label Req/s (avg)
+            span.value#reqRate —
+        section.card
+          h2 Memory
+          .stat
+            span.label RSS
+            span.value#rss —
+          .stat
+            span.label HWM
+            span.value#hwm —
+          .stat
+            span.label GC used
+            span.value#gcUsed —
+          .stat
+            span.label GC free
+            span.value#gcFree —
+        section.card
+          h2 Process
+          .stat
+            span.label PID
+            span.value#pid —
+          .stat
+            span.label Uptime
+            span.value#uptime —
+          .stat
+            span.label Listen port
+            span.value#port —
+          .stat
+            span.label Open FDs
+            span.value#fds —
+          .stat
+            span.label Threads
+            span.value#threads —
+        section.card.wide
+          h2 Limits &amp; ops
+          .ops-grid
+            .stat
+              span.label Max connections
+              span.value#maxConn —
+            .stat
+              span.label Max request size
+              span.value#maxReq —
+            .stat
+              span.label Keep-alive timeout
+              span.value#keepAlive —
+            .stat
+              span.label Reloads
+              span.value#reload —
+            .stat
+              span.label GC minimize
+              span.value#gcMin —
+            .stat
+              span.label Handler errors
+              span.value#handlerErr —
+      .footer
+        | Auto-refresh 5s ·
+        a(href="metrics.json") JSON
+        |  ·
+        a(href="https://github.com/beangle/micdn") Beangle Micdn
+    script.
+      function fmt(n) {
+        if (n == null || n < 0) return "—";
+        return Number(n).toLocaleString();
+      }
+      function fmtKb(kb) {
+        if (kb == null || kb < 0) return "—";
+        if (kb >= 1024) return (kb / 1024).toFixed(1) + " MB";
+        return kb + " kB";
+      }
+      function fmtBytes(b) {
+        if (b == null || b < 0) return "—";
+        if (b >= 1048576) return (b / 1048576).toFixed(1) + " MB";
+        if (b >= 1024) return (b / 1024).toFixed(1) + " kB";
+        return b + " B";
+      }
+      function fmtDuration(sec) {
+        if (!sec || sec < 0) return "—";
+        var d = Math.floor(sec / 86400);
+        var h = Math.floor((sec % 86400) / 3600);
+        var m = Math.floor((sec % 3600) / 60);
+        var s = sec % 60;
+        if (d) return d + "d " + h + "h " + m + "m";
+        if (h) return h + "h " + m + "m " + s + "s";
+        if (m) return m + "m " + s + "s";
+        return s + "s";
+      }
+      function set(id, text) {
+        document.getElementById(id).textContent = text;
+      }
+      function apply(m) {
+        var req = m.requests || {};
+        var tcp = m.tcp || {};
+        var mem = m.memory || {};
+        var lim = m.limits || {};
+        var proc = m.process || {};
+        var rel = m.reload || {};
+        var gc = m.gcMinimize || {};
+        set("reqActive", fmt(req.active));
+        set("reqActiveMax", fmt(req.activeMax));
+        set("reqTotal", fmt(req.total));
+        set("tcpEst", fmt(tcp.established));
+        set("tcpEstMax", fmt(tcp.establishedMax));
+        var rate = m.uptimeSeconds > 0 ? (req.total / m.uptimeSeconds).toFixed(2) : "0";
+        set("reqRate", rate);
+        var peak = req.activeMax || 1;
+        document.getElementById("reqBar").style.width =
+          Math.min(100, (req.active / peak) * 100).toFixed(1) + "%";
+        set("rss", fmtKb(mem.rssKb));
+        set("hwm", fmtKb(mem.hwmKb));
+        set("gcUsed", fmtBytes(mem.gcUsed));
+        set("gcFree", fmtBytes(mem.gcFree));
+        set("pid", fmt(m.pid));
+        set("uptime", fmtDuration(m.uptimeSeconds));
+        set("port", m.listenPort || "—");
+        set("fds", fmt(proc.openFds));
+        set("threads", fmt(proc.threads));
+        set("maxConn", lim.maxConnections < 0 ? "unlimited" : fmt(lim.maxConnections));
+        set("maxReq", fmtBytes(lim.maxRequestSize));
+        set("keepAlive", lim.keepAliveTimeoutSec != null ? lim.keepAliveTimeoutSec + "s" : "—");
+        set("reload", fmt(rel.total) + (rel.failed ? " (" + rel.failed + " failed)" : ""));
+        set("gcMin", fmt(gc.total));
+        set("handlerErr", fmt(m.handlerErrors));
+        set("updated", new Date().toLocaleTimeString());
+        document.getElementById("err").style.display = "none";
+      }
+      async function refresh() {
+        try {
+          var r = await fetch("metrics.json", { cache: "no-store" });
+          if (!r.ok) throw new Error(r.status + " " + r.statusText);
+          apply(await r.json());
+        } catch (e) {
+          var el = document.getElementById("err");
+          el.textContent = "Failed to load metrics.json: " + e.message;
+          el.style.display = "block";
+        }
+      }
+      refresh();
+      setInterval(refresh, 5000);

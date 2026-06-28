@@ -19,12 +19,18 @@ module micdn.admin.web;
 
 import vibe.http.router;
 import vibe.http.server;
+import vibe.web.web;
 
 import micdn.admin.access : requireLocalhostPeer;
-import micdn.admin.metrics : metricsJson, metricsPageHtml, snapshotMetrics;
+import micdn.admin.metrics : metricsJson, snapshotMetrics;
 import micdn.config;
 import micdn.model;
 import micdn.web;
+
+struct MetricsPageData {
+  string appVersion;
+}
+
 struct ReloadResult {
   bool ok;
   string error;
@@ -69,9 +75,8 @@ class AdminService {
       res.writeBody(metricsJson(snapshotMetrics()));
     } else if (path == "/metrics") {
       requireLocalhostPeer(req);
-      res.statusCode = HTTPStatus.ok;
-      res.headers["Content-Type"] = "text/html; charset=utf-8";
-      res.writeBody(metricsPageHtml(appVersion));
+      auto pageData = MetricsPageData(appVersion);
+      render!("metrics.dt", pageData)(res);
     } else {
       throw new HTTPStatusException(HTTPStatus.notFound);
     }

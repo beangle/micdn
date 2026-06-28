@@ -67,7 +67,6 @@ micdn -f /etc/micdn/micdn.xml resolve
 |------|-----|
 | 检查间隔 | 15 分钟 |
 | 触发条件 | RSS ≥ **20 MB** 且 `requestsActive` ≤ **200** |
-| 冷却 | 两次 minimize 至少间隔 15 分钟 |
 | 动作 | `GC.collect()` + `GC.minimize()`（Linux 上含 `malloc_trim`） |
 
 不在每个 HTTP 请求上读 `/proc` 或数连接；reload 成功后更新 metrics 的 `listenPort`（供 `tcp.established` 展示）。
@@ -105,7 +104,7 @@ micdn -f /etc/micdn/micdn.xml resolve
 
 - `test/micdn/resolve_test.d`、`test/micdn/config_test.d`
 - `test/micdn/web/file_test.d`（sendFiles 小文件内存路径）
-- `test/micdn/admin/*`（metrics、memstats、idle_gc、access）
+- `test/micdn/admin/*`（metrics、access）
 
 ---
 

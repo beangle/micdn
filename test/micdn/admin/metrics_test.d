@@ -9,6 +9,7 @@
 module test.micdn.admin.metrics_test;
 
 import core.atomic;
+import core.sys.posix.unistd : getpid;
 
 import std.string;
 
@@ -54,11 +55,58 @@ unittest {
   assert(s.listenPort == 65535);
 }
 
-@("admin metrics page html loads json")
+@("admin metrics page template")
 unittest {
-  auto html = metricsPageHtml("0.2.5");
-  assert(html.indexOf("metrics.json") >= 0);
-  assert(html.indexOf("0.2.5") >= 0);
-  assert(html.indexOf("Auto-refresh") >= 0);
-  assert(html.indexOf("r2xx") < 0);
+  import std.file : readText;
+
+  auto tpl = readText("views/metrics.dt");
+  assert(tpl.indexOf("metrics.json") >= 0);
+  assert(tpl.indexOf("pageData.appVersion") >= 0);
+  assert(tpl.indexOf("Auto-refresh") >= 0);
+}
+
+@("admin metrics reads own process rss")
+unittest {
+  auto pm = readProcessMemoryKb();
+  assert(pm.rssKb > 0);
+  assert(pm.hwmKb >= pm.rssKb);
+}
+
+@("admin metrics mem snapshot shape")
+unittest {
+  auto s = snapshotMem();
+  assert(s.process.rssKb > 0);
+  assert(s.gc.usedBytes >= 0);
+}
+
+@("admin metrics count open fds ignores dot entries")
+unittest {
+  assert(isProcFdEntryName("0"));
+  assert(isProcFdEntryName("712"));
+  assert(!isProcFdEntryName("."));
+  assert(!isProcFdEntryName(".."));
+  assert(!isProcFdEntryName(""));
+  version (linux) {
+    assert(countOpenFds(getpid()) >= 3);
+  }
+}
+
+@("admin metrics gc minimize after alloc")
+unittest {
+  ubyte[] hold = new ubyte[1024 * 1024];
+  hold[0] = 1;
+  auto before = snapshotMem();
+  hold = null;
+  auto r = runGcMinimize();
+  assert(r.after.gc.usedBytes <= before.gc.usedBytes);
+  assert(r.after.process.rssKb > 0);
+}
+
+@("admin metrics idle gc should minimize when rss high and active requests low")
+unittest {
+  assert(shouldIdleMinimize(0, 21 * 1024));
+  assert(shouldIdleMinimize(200, 20 * 1024));
+
+  assert(!shouldIdleMinimize(201, 21 * 1024));
+  assert(!shouldIdleMinimize(0, 19 * 1024));
 }
