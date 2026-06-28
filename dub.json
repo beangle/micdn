@@ -1,6 +1,6 @@
 {
   "name": "beangle-micdn",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "A minimal CDN.",
   "authors": ["chaostone"],
   "license": "GPLv3",
@@ -11,10 +11,10 @@
   },
   "dependencies": {
     "dxml": "~>0.4.5",
-    "vibe-inet": "~>1.2.0",
-    "vibe-d:web": "~>0.10.2",
-    "vibe-http": "~>1.3.2",
-    "vibe-stream:tls": "~>1.3.0"
+    "vibe-inet": "~>1.3.0",
+    "vibe-d:web": "~>0.10.3",
+    "vibe-http": "~>1.5.0",
+    "vibe-stream:tls": "~>1.4.0"
   },
   "configurations": [
     {

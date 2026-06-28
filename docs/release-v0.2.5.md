@@ -7,7 +7,7 @@
 
 ## 概要
 
-v0.2.5 在 v0.2.4 基础上增加 **部署前解析 CLI（`resolve`）**、**静态资源 sendFiles 内存路径修复**，以及 **localhost 只读运维指标与 idle 内存收缩**：便于上线前安装 artifact、长期运行后观察 RSS/负载，并在低负载时把 D GC 堆归还 OS。
+v0.2.5 在 v0.2.4 基础上增加 **部署前校验 CLI**、**静态资源 sendFiles 内存路径修复**，以及 **localhost 只读运维指标与 idle 内存收缩**：便于上线前检查配置与 artifact、长期运行后观察 RSS/负载，并在低负载时把 D GC 堆归还 OS。
 
 **无 `micdn.xml` 配置格式 Breaking Change**（与 v0.2.4 兼容）。
 
@@ -17,7 +17,7 @@ v0.2.5 在 v0.2.4 基础上增加 **部署前解析 CLI（`resolve`）**、**静
 
 | 类别 | 改进 |
 |------|------|
-| **CLI** | `micdn -f CONFIG resolve` 解析配置并安装 www/static（下载 jar/npm、解压 zip/tgz，校验挂载目录） |
+| **CLI** | `micdn -f CONFIG validate` 校验 XML/属性、listen、根目录可写、本地 GAV/dir/zip/jar/npm |
 | **修复** | `sendFiles` 小文件合并走内存读出，避免 `FileStream` 泄漏告警 |
 | **可观测** | `/admin/metrics.json` + `/admin/metrics` HTML 仪表盘（仅 localhost） |
 | **内存** | 内置 idle `GC.minimize`（15 分钟周期，RSS ≥ 20MB 且在途请求 ≤ 200） |
@@ -26,15 +26,15 @@ v0.2.5 在 v0.2.4 基础上增加 **部署前解析 CLI（`resolve`）**、**静
 
 ## 新功能
 
-### CLI：`resolve`
+### CLI：`validate`
 
 ```bash
-micdn -f /etc/micdn/micdn.xml resolve
+micdn -f /etc/micdn/micdn.xml validate
 ```
 
 - 解析配置与 `listen`，检查各服务数据根目录可写
-- 下载缺失 jar/npm、解压 zip/tgz，mount 全部 www/static，校验 zip/npm **inner `dir`** 与挂载目录；**不启动 HTTP**
-- 成功：`resolve ok: …`，退出码 **0**；配置解析失败退出码 **2**；部署失败退出码 **1**
+- 校验 www/static 所需 **本地** artifact（GAV、dir、zip、jar、npm）是否已 mount，**不下载、不解压、不启动 HTTP**
+- 成功：`validate ok: …`，退出码 **0**；失败：stderr + 退出码 **2**（与启动失败一致，便于 systemd）
 
 说明见 [maintenance.md](./maintenance.md)。
 
@@ -67,6 +67,7 @@ micdn -f /etc/micdn/micdn.xml resolve
 |------|-----|
 | 检查间隔 | 15 分钟 |
 | 触发条件 | RSS ≥ **20 MB** 且 `requestsActive` ≤ **200** |
+| 冷却 | 两次 minimize 至少间隔 15 分钟 |
 | 动作 | `GC.collect()` + `GC.minimize()`（Linux 上含 `malloc_trim`） |
 
 不在每个 HTTP 请求上读 `/proc` 或数连接；reload 成功后更新 metrics 的 `listenPort`（供 `tcp.established` 展示）。
@@ -84,9 +85,9 @@ micdn -f /etc/micdn/micdn.xml resolve
 ## 升级注意
 
 1. 安装 v0.2.5 后 `systemctl restart micdn`（或等价方式）
-2. 升级后建议执行一次 resolve（会自动下载/挂载缺失 artifact）：
+2. 升级后建议执行一次 validate（需已 mount 的本地 artifact）：
    ```bash
-   micdn -f /etc/micdn/micdn.xml resolve
+   micdn -f /etc/micdn/micdn.xml validate
    ```
 3. 本机查看指标：
    ```bash
@@ -102,13 +103,13 @@ micdn -f /etc/micdn/micdn.xml resolve
 
 新增/扩充：
 
-- `test/micdn/resolve_test.d`、`test/micdn/config_test.d`
+- `test/micdn/validate_test.d`、`test/micdn/config_test.d`
 - `test/micdn/web/file_test.d`（sendFiles 小文件内存路径）
-- `test/micdn/admin/*`（metrics、access）
+- `test/micdn/admin/*`（metrics、memstats、idle_gc、access）
 
 ---
 
 ## 完整提交列表
 
-- `Add resolve CLI and document deployment checks.`
+- `Add validate CLI and document deployment checks.`
 - v0.2.5：admin metrics、idle GC、`sendFiles` 修复、版本号与发布说明
