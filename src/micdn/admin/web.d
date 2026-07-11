@@ -35,6 +35,7 @@ struct ReloadResult {
   bool ok;
   string error;
   ushort listenPort;
+  MicdnConfig config;
 }
 
 /// 管理服务，挂载于 /admin 下，提供配置查看、reload 等接口。

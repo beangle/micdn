@@ -202,6 +202,35 @@ unittest {
   assert((cast(ZipProvider) config.www.docs[2].provider).dir == "dist");
 }
 
+@("www doc parses auto-deploy on zip")
+unittest {
+  auto xml = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn>
+  <maven/><npm/>
+  <www base="~/tmp/www">
+    <doc name="zipdoc" zip="~/docs/pkg.zip" inner="dist" auto-deploy="true" />
+  </www>
+</micdn>`;
+  auto config = parse("~/tmp", xml);
+  assert(config.www.docs.length == 1);
+  assert(config.www.docs[0].autoDeploy);
+  assert(cast(ZipProvider) config.www.docs[0].provider !is null);
+}
+
+@("www doc rejects auto-deploy without zip")
+unittest {
+  import std.exception;
+
+  auto xml = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn>
+  <maven/><npm/>
+  <www base="~/tmp/www">
+    <doc name="manual" dir="~/m" auto-deploy="true" />
+  </www>
+</micdn>`;
+  assertThrown!Exception(parse("~/tmp", xml));
+}
+
 @("www doc rejects multiple source attributes")
 unittest {
   import std.exception;

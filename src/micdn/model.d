@@ -466,8 +466,10 @@ class WwwDocConfig {
   const BundleProvider provider;
   /// SPA 等场景：$uri / $uri/ 均未命中时，回退到 doc 根下该相对路径（如 `index.html`）。
   const string tryFile;
+  /// zip doc 是否在运行期监听源 zip 变更并自动 deploy（仅 zip provider 有效；Linux）。
+  const bool autoDeploy;
 
-  this(string name, BundleProvider provider, string tryFile = "") {
+  this(string name, BundleProvider provider, string tryFile = "", bool autoDeploy = false) {
     assert(isValidDocName(name),
         "www doc name must not start with '/' and must not contain '.' or '..' segments (e.g. manual or a/b)");
     assert(provider !is null, "www doc provider must not be null");
@@ -476,6 +478,7 @@ class WwwDocConfig {
     this.name = name;
     this.provider = provider;
     this.tryFile = tryFile;
+    this.autoDeploy = autoDeploy;
   }
 
   /// HTTP 访问路径（`/` ~ `name`）。

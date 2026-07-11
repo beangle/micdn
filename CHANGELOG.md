@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- CLI：`mount` 子命令更名为 `deploy`；相关函数与 manifest 字段 `deployedAt` 同步更名
+- CLI：`deploy` / `resolve` 固定输出到控制台（info），不读 `micdn.xml` 的 `log-file` / `log-level`
+- WWW：zip doc 支持 `auto-deploy="true"`，Linux 下 HTTP 服务运行期监听源 zip 变更并自动 deploy
+
 ## v0.2.5 (2026-06-28)
 
 - CLI：`micdn -f CONFIG resolve` 解析并安装全部 www/static（下载 jar/npm、解压 zip/tgz、校验 inner dir 与挂载目录）；不启动 HTTP

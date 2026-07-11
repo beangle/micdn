@@ -210,8 +210,8 @@ journalctl -u micdn -b -n 30
 
 ```bash
 sudo -u micdn micdn -f /etc/micdn/micdn.xml resolve
-sudo -u micdn micdn -f /etc/micdn/micdn.xml mount www
-sudo -u micdn micdn -f /etc/micdn/micdn.xml mount static
+sudo -u micdn micdn -f /etc/micdn/micdn.xml deploy www
+sudo -u micdn micdn -f /etc/micdn/micdn.xml deploy static
 ```
 
 `resolve` 见 **[maintenance.md](./maintenance.md)**。

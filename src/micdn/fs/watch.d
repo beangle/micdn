@@ -140,6 +140,10 @@ version (Linux) {
   public auto watch(string base, int mask) {
     return Watch(inotify_init1(IN_NONBLOCK), [base], mask);
   }
+
+  public auto watchRoots(string[] bases, int mask) {
+    return Watch(inotify_init1(IN_NONBLOCK), bases, mask);
+  }
 } else {
   import std.exception;
   import micdn.fs.inotify;

@@ -55,6 +55,7 @@ import micdn.www.web;
 import micdn.config;
 import micdn.logging;
 import micdn.resolve;
+import micdn.www.autodeploy;
 
 /// 仅启动阶段失败时使用（systemd `RestartPreventExitStatus=2`）；正常运行后进程退出/崩溃用其它码，仍由 systemd 拉起。
 enum ExitStartupError = 2;
@@ -106,7 +107,7 @@ class ReloadableDispatcher : HTTPServerRequestHandler {
       auto router = buildRouter(config, _settings, _onReload);
       _currentRouter = router;
       recordReload(true);
-      return ReloadResult(true, null, listenPair[1]);
+      return ReloadResult(true, null, listenPair[1], config);
     } catch (Exception e) {
       logError("Reload failed: %s", e.msg);
       recordReload(false);
@@ -192,9 +193,9 @@ version (unittest) {
       showHelpInfo();
       return 0;
     }
-    if (args.canFind("mount")) {
+    if (args.canFind("deploy")) {
       try {
-        return runMount(args);
+        return runDeploy(args);
       } catch (Exception e) {
         return reportStartupError(e.msg);
       }
@@ -214,12 +215,15 @@ version (unittest) {
     string configFile;
     ReloadableDispatcher dispatcher;
     IdleGcMinimizer idleGc;
+    WwwAutoDeployer wwwAutoDeploy;
     HTTPListener listener;
 
     ReloadResult reloadAndSync() {
       auto r = dispatcher.tryReload();
-      if (r.ok)
+      if (r.ok) {
         setListenPort(r.listenPort);
+        wwwAutoDeploy.restart(r.config);
+      }
       return r;
     }
 
@@ -254,12 +258,15 @@ version (unittest) {
       dispatcher.setRouter(buildRouter(config, settings, &reloadAndSync));
 
       listener = listenHTTP(settings, dispatcher);
+      wwwAutoDeploy.start(config);
     } catch (Exception e) {
       return reportStartupError(e.msg);
     }
 
-    scope (exit)
+    scope (exit) {
+      wwwAutoDeploy.stop();
       listener.stopListening();
+    }
 
     version (Posix) {
       startSighupReloadThread(&reloadAndSync);
@@ -336,26 +343,26 @@ private Tuple!(string, ushort) parseListen(string listen) {
   return tuple(host, port);
 }
 
-/// 离线安装 www/static 资源（不启动 HTTP 服务）。
-int runMount(string[] args) {
+/// 离线部署 www/static 资源（不启动 HTTP 服务；日志固定输出到控制台 info）。
+int runDeploy(string[] args) {
   if (!args.canFind("-f"))
-    throw new Exception("-f is required for mount");
+    throw new Exception("-f is required for deploy");
 
-  auto target = mountTargetArg(args);
-  auto name = mountNameArg(args);
-  auto force = mountForceArg(args);
+  auto target = deployTargetArg(args);
+  auto name = deployNameArg(args);
+  auto force = deployForceArg(args);
   auto configPath = resolveConfigFile("micdn.xml");
   auto config = parseFile(expandTilde(configPath));
-  applyMicdnLogging(config.logFile, config.logLevel);
+  applyMicdnCliLogging();
 
   if (target == "www")
-    return runMountWww(config, name, force);
+    return runDeployWww(config, name, force);
   if (target == "static")
-    return runMountStatic(config, name, force);
-  throw new Exception("mount target must be www or static");
+    return runDeployStatic(config, name, force);
+  throw new Exception("deploy target must be www or static");
 }
 
-/// 解析并安装全部服务：parseFile（XML/属性）后下载缺失 artifact、mount www/static 并校验；不启动 HTTP。
+/// 解析并安装全部服务：parseFile（XML/属性）后下载缺失 artifact、deploy www/static 并校验；不启动 HTTP。
 int runResolve(string[] args) {
   if (!args.canFind("-f"))
     throw new Exception("-f is required for resolve");
@@ -367,7 +374,7 @@ int runResolve(string[] args) {
 
   fetchRemoteIfNeeded(expanded);
   auto config = parseFile(expanded);
-  applyMicdnLogging(config.logFile, config.logLevel);
+  applyMicdnCliLogging();
   parseListen(config.listen);
 
   if (!resolveMicdn(config))
@@ -377,9 +384,9 @@ int runResolve(string[] args) {
   return 0;
 }
 
-private bool mountForceArg(string[] args) {
+private bool deployForceArg(string[] args) {
   foreach (i, a; args) {
-    if (a != "mount" || i + 1 >= args.length)
+    if (a != "deploy" || i + 1 >= args.length)
       continue;
     foreach (j; i + 1 .. args.length) {
       if (args[j] == "--force")
@@ -389,26 +396,26 @@ private bool mountForceArg(string[] args) {
   return false;
 }
 
-private string mountTargetArg(string[] args) {
+private string deployTargetArg(string[] args) {
   foreach (i, a; args) {
-    if (a == "mount") {
+    if (a == "deploy") {
       if (i + 1 >= args.length || args[i + 1].startsWith("-"))
-        throw new Exception("usage: micdn -f CONFIG mount www|static [name]");
+        throw new Exception("usage: micdn -f CONFIG deploy www|static [name]");
       return args[i + 1];
     }
   }
-  throw new Exception("usage: micdn -f CONFIG mount www|static [name]");
+  throw new Exception("usage: micdn -f CONFIG deploy www|static [name]");
 }
 
-private string mountNameArg(string[] args) {
+private string deployNameArg(string[] args) {
   foreach (i, a; args) {
-    if (a == "mount" && i + 2 < args.length && !args[i + 2].startsWith("-"))
+    if (a == "deploy" && i + 2 < args.length && !args[i + 2].startsWith("-"))
       return args[i + 2];
   }
   return null;
 }
 
-private int runMountWww(MicdnConfig config, string docName, bool force) {
+private int runDeployWww(MicdnConfig config, string docName, bool force) {
   if (config.www is null)
     throw new Exception("no <www> section in config");
 
@@ -417,10 +424,10 @@ private int runMountWww(MicdnConfig config, string docName, bool force) {
   if (docName.length == 0) {
     bool ok = true;
     foreach (doc; config.www.docs) {
-      if (!WwwRepo.mountDoc(config, doc, force))
+      if (!WwwRepo.deployDoc(config, doc, force))
         ok = false;
       else
-        logInfo("mount www ok: %s -> %s", doc.name,
+        logInfo("deploy www ok: %s -> %s", doc.name,
             resolveRepositoryPath(config.www.base, doc.endpoint()));
     }
     return ok ? 0 : 1;
@@ -428,14 +435,14 @@ private int runMountWww(MicdnConfig config, string docName, bool force) {
 
   auto doc = findWwwDoc(config.www, docName);
 
-  if (!WwwRepo.mountDoc(config, doc, force))
-    throw new Exception("mount www failed for " ~ doc.name);
+  if (!WwwRepo.deployDoc(config, doc, force))
+    throw new Exception("deploy www failed for " ~ doc.name);
 
-  logInfo("mount www ok: %s -> %s", doc.name, resolveRepositoryPath(config.www.base, doc.endpoint()));
+  logInfo("deploy www ok: %s -> %s", doc.name, resolveRepositoryPath(config.www.base, doc.endpoint()));
   return 0;
 }
 
-private int runMountStatic(MicdnConfig config, string bundleName, bool force) {
+private int runDeployStatic(MicdnConfig config, string bundleName, bool force) {
   if (config.asset is null)
     throw new Exception("no <static> section in config");
 
@@ -444,10 +451,10 @@ private int runMountStatic(MicdnConfig config, string bundleName, bool force) {
   if (bundleName.length == 0) {
     bool ok = true;
     foreach (bundle; config.asset.bundles) {
-      if (!AssetRepo.mountBundle(config, bundle, force))
+      if (!AssetRepo.deployBundle(config, bundle, force))
         ok = false;
       else
-        logInfo("mount static ok: %s -> %s", bundle.name, config.asset.base ~ "/" ~ bundle.name);
+        logInfo("deploy static ok: %s -> %s", bundle.name, config.asset.base ~ "/" ~ bundle.name);
     }
     return ok ? 0 : 1;
   }
@@ -455,10 +462,10 @@ private int runMountStatic(MicdnConfig config, string bundleName, bool force) {
   if (bundleName !in config.asset.bundles)
     throw new Exception("no <bundle name=\"" ~ bundleName ~ "\"> in config");
 
-  if (!AssetRepo.mountBundle(config, config.asset.bundles[bundleName], force))
-    throw new Exception("mount static failed for " ~ bundleName);
+  if (!AssetRepo.deployBundle(config, config.asset.bundles[bundleName], force))
+    throw new Exception("deploy static failed for " ~ bundleName);
 
-  logInfo("mount static ok: %s -> %s", bundleName, config.asset.base ~ "/" ~ bundleName);
+  logInfo("deploy static ok: %s -> %s", bundleName, config.asset.base ~ "/" ~ bundleName);
   return 0;
 }
 
@@ -481,10 +488,10 @@ Usage: micdn -f FILE|DIR|URL [command]
 
 Commands:
   (default)              启动 HTTP 服务
-  resolve                解析配置并安装 www/static（下载 jar/npm、解压 zip/tgz，校验挂载目录）；不启动 HTTP
-  mount www [NAME]       离线安装 <www> doc（NAME 如 manual 或 a/b；省略则全部）
-  mount static [BUNDLE]  离线安装 <static> bundle（省略则全部）
-                         --force  删除已有挂载目录后重新安装（忽略 manifest.json）
+  resolve                解析配置并部署 www/static（下载 jar/npm、解压 zip/tgz，校验部署目录）；不启动 HTTP；日志输出到控制台
+  deploy www [NAME]      离线部署 <www> doc（NAME 如 manual 或 a/b；省略则全部）；日志输出到控制台
+  deploy static [BUNDLE] 离线部署 <static> bundle（省略则全部）
+                         --force  删除已有部署目录后重新安装（忽略 manifest.json）
 
 Help Options:
   --help      Show this help message and exit
@@ -493,10 +500,10 @@ Help Options:
 Examples:
   micdn -f micdn.xml
   micdn -f micdn.xml resolve
-  micdn -f micdn.xml mount www manual
-  micdn -f micdn.xml mount static bootstrap
-  micdn -f micdn.xml mount www manual --force
-  micdn -f micdn.xml mount www
+  micdn -f micdn.xml deploy www manual
+  micdn -f micdn.xml deploy static bootstrap
+  micdn -f micdn.xml deploy www manual --force
+  micdn -f micdn.xml deploy www
 `;
   writeln(strip(helpRaw));
 }

@@ -216,9 +216,9 @@ bool doExtractTgz(string tgzFile, string baseDir) {
   return result.status == 0;
 }
 
-enum mountManifestFileName = "manifest.json";
+enum deployManifestFileName = "manifest.json";
 
-private struct MountManifest {
+private struct DeployManifest {
   uint fileCount;
   string inner;
   string artifact;
@@ -235,7 +235,7 @@ private string normalizeInnerForManifest(string innerDir) {
   return s;
 }
 
-private bool readMountManifest(string path, ref MountManifest manifest) {
+private bool readDeployManifest(string path, ref DeployManifest manifest) {
   import std.json : JSONType, parseJSON;
   import std.datetime : SysTime;
 
@@ -268,7 +268,7 @@ private bool readMountManifest(string path, ref MountManifest manifest) {
   }
 }
 
-private void writeMountManifest(string base, string sourceFile, string innerDir, string artifact,
+private void writeDeployManifest(string base, string sourceFile, string innerDir, string artifact,
     uint fileCount) {
   import std.datetime : Clock;
   import std.json : JSONValue, toJSON;
@@ -278,7 +278,7 @@ private void writeMountManifest(string base, string sourceFile, string innerDir,
   auto size = getSize(sourceFile);
 
   JSONValue root = JSONValue.emptyObject;
-  root["mountedAt"] = JSONValue(Clock.currTime().toISOExtString());
+  root["deployedAt"] = JSONValue(Clock.currTime().toISOExtString());
   if (artifact.length > 0)
     root["artifact"] = JSONValue(artifact);
 
@@ -289,7 +289,7 @@ private void writeMountManifest(string base, string sourceFile, string innerDir,
   source["fileCount"] = JSONValue(fileCount);
   root["source"] = source;
 
-  auto manifestPath = buildPath(base, mountManifestFileName);
+  auto manifestPath = buildPath(base, deployManifestFileName);
   auto tmpPath = buildPath(base, ".manifest.json.tmp");
   std.file.write(tmpPath, toJSON(root));
   if (exists(manifestPath))
@@ -297,10 +297,10 @@ private void writeMountManifest(string base, string sourceFile, string innerDir,
   rename(tmpPath, manifestPath);
 }
 
-private bool canSkipMountManifest(string sourceFile, string base, string innerDir, string artifact) {
-  MountManifest manifest;
-  auto manifestPath = buildPath(base, mountManifestFileName);
-  if (!readMountManifest(manifestPath, manifest))
+private bool canSkipDeployManifest(string sourceFile, string base, string innerDir, string artifact) {
+  DeployManifest manifest;
+  auto manifestPath = buildPath(base, deployManifestFileName);
+  if (!readDeployManifest(manifestPath, manifest))
     return false;
   if (normalizeInnerForManifest(innerDir) != manifest.inner)
     return false;
@@ -315,13 +315,13 @@ private bool canSkipMountManifest(string sourceFile, string base, string innerDi
   return true;
 }
 
-private string mountArtifactLabel(string sourceFile, string artifact) {
+private string deployArtifactLabel(string sourceFile, string artifact) {
   if (artifact.length > 0)
     return artifact;
   return baseName(sourceFile);
 }
 
-private string mountSkipLabel(string sourceFile, string artifact, ref MountManifest manifest) {
+private string deploySkipLabel(string sourceFile, string artifact, ref DeployManifest manifest) {
   if (artifact.length > 0)
     return artifact;
   if (manifest.artifact.length > 0)
@@ -348,19 +348,19 @@ bool extractTgzToDocBase(string tgzFile, string docBase, string innerDir = null,
   if (!exists(tgzFile))
     return false;
 
-  if (!force && canSkipMountManifest(tgzFile, docBase, innerDir, artifact)) {
-    MountManifest manifest;
-    readMountManifest(buildPath(docBase, mountManifestFileName), manifest);
-    logInfo("Caching %s...", mountSkipLabel(tgzFile, artifact, manifest));
+  if (!force && canSkipDeployManifest(tgzFile, docBase, innerDir, artifact)) {
+    DeployManifest manifest;
+    readDeployManifest(buildPath(docBase, deployManifestFileName), manifest);
+    logInfo("Caching %s...", deploySkipLabel(tgzFile, artifact, manifest));
     return true;
   }
 
-  logInfo("Mounting %s", mountArtifactLabel(tgzFile, artifact));
-  clearMountDir(docBase);
+  logInfo("Deploying %s", deployArtifactLabel(tgzFile, artifact));
+  clearDeployDir(docBase);
 
   if (!extractTgzToDocBaseImpl(tgzFile, docBase, innerDir))
     return false;
-  writeMountManifest(docBase, tgzFile, innerDir, artifact, 1);
+  writeDeployManifest(docBase, tgzFile, innerDir, artifact, 1);
   return true;
 }
 
@@ -430,19 +430,19 @@ private string innerDirPrefix(string innerDir) {
 */
 uint refreshUnzip(string zipfile, string base, string innerDir = null, string artifact = null,
     bool force = false) {
-  if (!force && canSkipMountManifest(zipfile, base, innerDir, artifact)) {
-    MountManifest manifest;
-    readMountManifest(buildPath(base, mountManifestFileName), manifest);
-    logInfo("Caching %s...", mountSkipLabel(zipfile, artifact, manifest));
+  if (!force && canSkipDeployManifest(zipfile, base, innerDir, artifact)) {
+    DeployManifest manifest;
+    readDeployManifest(buildPath(base, deployManifestFileName), manifest);
+    logInfo("Caching %s...", deploySkipLabel(zipfile, artifact, manifest));
     return manifest.fileCount;
   }
 
-  logInfo("Mounting %s", mountArtifactLabel(zipfile, artifact));
-  clearMountDir(base);
+  logInfo("Deploying %s", deployArtifactLabel(zipfile, artifact));
+  clearDeployDir(base);
 
   auto count = refreshUnzipImpl(zipfile, base, innerDir);
   if (count > 0)
-    writeMountManifest(base, zipfile, innerDir, artifact, count);
+    writeDeployManifest(base, zipfile, innerDir, artifact, count);
   return count;
 }
 
@@ -469,7 +469,7 @@ private uint refreshUnzipImpl(string zipfile, string base, string innerDir = nul
         }
         if (targetName.length == 0)
           continue;
-        if (targetName == mountManifestFileName) {
+        if (targetName == deployManifestFileName) {
           continue;
         }
         if (!isSafeZipEntryTargetName(targetName)) {
@@ -497,8 +497,8 @@ private uint refreshUnzipImpl(string zipfile, string base, string innerDir = nul
   return count;
 }
 
-/** 删除挂载目录（符号链接仅 remove，目录则递归删除）。供 `mount --force` 使用。 */
-void clearMountDir(string dir) {
+/** 删除部署目录（符号链接仅 remove，目录则递归删除）。供 `deploy --force` 使用。 */
+void clearDeployDir(string dir) {
   if (!exists(dir))
     return;
   logInfo("Removing %s", dir);
@@ -548,7 +548,7 @@ do {
 
 /** 仅将目录本身设为可写（目录 +700，不递归子项、不修改符号链接）。
 
-    static / www 的 `prepareBase` 在 build 与 `mount` 前调用，保证能在 base 下
+    static / www 的 `prepareBase` 在 build 与 `deploy` 前调用，保证能在 base 下
     新建 bundle / doc 子目录；子项权限沿用现有文件或解压结果。
 */
 void ensureDirWritable(string dir) {
@@ -557,7 +557,7 @@ void ensureDirWritable(string dir) {
 }
 
 /** 确保目录存在，并探测当前进程能否在其中创建文件（挂载前校验用）。 */
-bool verifyMountDirWritable(string dir) {
+bool verifyDeployDirWritable(string dir) {
   if (dir.length == 0)
     return false;
   try {
@@ -575,7 +575,7 @@ bool verifyMountDirWritable(string dir) {
 
 /** 递归将目录及子项设为只读（目录 555，文件 444），符号链接不修改。
 
-    保留供测试或手工维护场景使用；micdn 的 static / www build 与 mount 不再调用。
+    保留供测试或手工维护场景使用；micdn 的 static / www build 与 deploy 不再调用。
     与 `setWritable` 成对，可整树锁定后再整树恢复可写。
 */
 void setReadOnly(string dir) {
@@ -606,7 +606,7 @@ private void doSetReadOnly(string dir) {
 /** 递归将目录及子项设为可写（目录 +700，文件 +200），符号链接不修改。
 
     保留供测试或手工维护场景使用；micdn 的 static / www 改用 `ensureDirWritable`
-    只对 base 目录本身 chmod，避免 mount 时对大目录树递归 chmod。
+    只对 base 目录本身 chmod，避免 deploy 时对大目录树递归 chmod。
     与 `setReadOnly` 成对。
 */
 void setWritable(string dir) {

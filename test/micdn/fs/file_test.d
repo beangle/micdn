@@ -90,7 +90,7 @@ unittest {
 @("refreshUnzip skips unchanged zip via manifest")
 unittest {
   import std.file : exists, mkdirRecurse, rmdirRecurse, write;
-  import std.json : parseJSON;
+  import std.json : JSONType, parseJSON;
 
   string tmp = buildPath(tempDir(), "micdn-manifest-skip-" ~ randomUUID().toString);
   mkdirRecurse(tmp);
@@ -113,10 +113,12 @@ unittest {
   writeZip(zipPath, cast(ubyte[]) "hello");
 
   assert(refreshUnzip(zipPath, base, null, "test:app") == 1);
-  auto manifestPath = buildPath(base, mountManifestFileName);
+  auto manifestPath = buildPath(base, deployManifestFileName);
   assert(exists(manifestPath));
   auto manifest = parseJSON(readText(manifestPath));
   assert(manifest["artifact"].str == "test:app");
+  assert(manifest["deployedAt"].type == JSONType.string);
+  assert(!("mountedAt" in manifest));
   assert(manifest["source"]["fileCount"].integer == 1);
   assert(!("path" in manifest["source"]));
 
@@ -128,7 +130,7 @@ unittest {
   assert(manifest["artifact"].str == "test:other");
 }
 
-@("refreshUnzip force remounts despite unchanged manifest")
+@("refreshUnzip force redeploys despite unchanged manifest")
 unittest {
   import std.file : exists, mkdirRecurse, rmdirRecurse, write;
 
@@ -253,7 +255,7 @@ unittest {
 
   auto docBase = work ~ "/out";
   assert(extractTgzToDocBase(tgz, docBase, "package/lib", "wujie@2.1.0"));
-  auto manifestPath = buildPath(docBase, mountManifestFileName);
+  auto manifestPath = buildPath(docBase, deployManifestFileName);
   assert(exists(manifestPath));
   auto manifest = parseJSON(readText(manifestPath));
   assert(manifest["artifact"].str == "wujie@2.1.0");
@@ -267,14 +269,14 @@ unittest {
   assert(readText(buildPath(docBase, "index.js")) == "ok");
 }
 
-@("verifyMountDirWritable accepts writable directory")
+@("verifyDeployDirWritable accepts writable directory")
 unittest {
   string tmp = buildPath(tempDir(), "micdn-writable-" ~ randomUUID().toString);
   scope (exit) {
     if (exists(tmp))
       rmdirRecurse(tmp);
   }
-  assert(verifyMountDirWritable(tmp));
+  assert(verifyDeployDirWritable(tmp));
 }
 
 @("isSafePathSegments rejects traversal segments")

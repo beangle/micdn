@@ -60,7 +60,7 @@ unittest {
   assert(repo.get("/manual/index.html") !is null);
 }
 
-@("mountDoc links dir and leaves tree writable")
+@("deployDoc links dir and leaves tree writable")
 unittest {
   auto home = buildPath(tempDir, "micdn-www-mount");
   scope (exit)
@@ -77,7 +77,7 @@ unittest {
   </www>
 </micdn>`;
   auto config = parse(home, xml);
-  assert(WwwRepo.mountDoc(config, config.www.docs[0]));
+  assert(WwwRepo.deployDoc(config, config.www.docs[0]));
   auto repo = new WwwRepo(config.www.base);
   assert(repo.get("/manual/index.html") !is null);
   auto attrs = getAttributes(repo.get("/manual/index.html"));
@@ -183,7 +183,7 @@ unittest {
   assert(repo.get("/app/route/foo").endsWith("index.html"));
 }
 
-@("mountDoc warns when try-file missing after mount")
+@("deployDoc warns when try-file missing after mount")
 unittest {
   auto home = buildPath(tempDir, "micdn-www-tryfile-mount-warn");
   scope (exit)
@@ -200,7 +200,7 @@ unittest {
   </www>
 </micdn>`;
   auto config = parse(home, xml);
-  assert(WwwRepo.mountDoc(config, config.www.docs[0]));
+  assert(WwwRepo.deployDoc(config, config.www.docs[0]));
   auto repo = new WwwRepo(config.www.base, config.www.docs);
   assert(repo.get("/spa/deep/link").endsWith("index.html"));
 }

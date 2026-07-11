@@ -163,3 +163,8 @@ void applyMicdnLogging(string logFile, string logLevelStr) {
   }
   registerLogger(lg);
 }
+
+/** deploy / resolve 等一次性 CLI：固定输出到控制台、级别 info，不读 micdn.xml 的 log-file / log-level。 */
+void applyMicdnCliLogging() {
+  applyMicdnLogging("console", "info");
+}

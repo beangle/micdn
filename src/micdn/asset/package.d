@@ -141,7 +141,7 @@ class AssetRepo {
     bool[string] dynaBundles;
     logInfo("Building static resources at %s", base);
     foreach (c; config.asset.bundles) {
-      mountBundle(config, c);
+      deployBundle(config, c);
       foreach (p; c.providers) {
         if (DirProvider dp = cast(DirProvider) p) {
           auto bundleBase = base ~ "/" ~ c.name;
@@ -153,17 +153,17 @@ class AssetRepo {
     return new AssetRepo(base, dynaBundles.rehash());
   }
 
-  /** 将单个 static `<bundle>` 安装到 `asset.base` 下。供 `build` 与 `micdn … mount static` 共用。
+  /** 将单个 static `<bundle>` 安装到 `asset.base` 下。供 `build` 与 `micdn … deploy static` 共用。
     成功返回 true，失败打日志并返回 false。
   */
-  static bool mountBundle(MicdnConfig config, const AssetBundle bundle, bool force = false) {
+  static bool deployBundle(MicdnConfig config, const AssetBundle bundle, bool force = false) {
     try {
       auto base = config.asset.base;
       auto bundlePath = "/" ~ bundle.name;
       auto bundleBase = base ~ "/" ~ bundle.name;
       mkdirRecurse(base);
-      if (!verifyMountDirWritable(base)) {
-        logError("Mount static %s failed: %s is not writable", bundle.name, base);
+      if (!verifyDeployDirWritable(base)) {
+        logError("Deploy static %s failed: %s is not writable", bundle.name, base);
         return false;
       }
 
@@ -171,11 +171,11 @@ class AssetRepo {
       string[] allowedVersionDirs = [];
       foreach (p; bundle.providers) {
         if (DirProvider dp = cast(DirProvider) p) {
-          if (!mountBundleDir(dp, bundleBase))
+          if (!deployBundleDir(dp, bundleBase))
             ok = false;
         } else if (GavJarProvider gap = cast(GavJarProvider) p) {
           allowedVersionDirs ~= gap.getVersion();
-          if (!mountBundleJar(config, bundlePath, gap, force))
+          if (!deployBundleJar(config, bundlePath, gap, force))
             ok = false;
         } else if (NpmProvider np = cast(NpmProvider) p) {
           string scopePart, namePart, versionPart;
@@ -185,7 +185,7 @@ class AssetRepo {
             ok = false;
           } else {
             allowedVersionDirs ~= versionPart;
-            if (!mountBundleNpm(config, bundlePath, np, scopePart, namePart, versionPart, force))
+            if (!deployBundleNpm(config, bundlePath, np, scopePart, namePart, versionPart, force))
               ok = false;
           }
         } else {
@@ -198,12 +198,12 @@ class AssetRepo {
         cleanStaleVersionDirs(bundleBase, allowedVersionDirs);
       return ok;
     } catch (Exception e) {
-      logError("Mount static %s failed: %s", bundle.name, e.msg);
+      logError("Deploy static %s failed: %s", bundle.name, e.msg);
       return false;
     }
   }
 
-  private static bool mountBundleDir(const DirProvider dp, string bundleBase) {
+  private static bool deployBundleDir(const DirProvider dp, string bundleBase) {
     if (!exists(dp.location)) {
       logWarn("Cannot link " ~ dp.location ~ " to " ~ bundleBase);
       return false;
@@ -215,19 +215,19 @@ class AssetRepo {
     return true;
   }
 
-  private static bool mountBundleJar(MicdnConfig config, const string bundlePath, const GavJarProvider gap,
+  private static bool deployBundleJar(MicdnConfig config, const string bundlePath, const GavJarProvider gap,
       bool force) {
     auto base = config.asset.base;
     auto maven = config.maven;
     string localJar = maven.localFile(gap.gav);
     string innerDir = gap.dir ~ bundlePath ~ "/" ~ gap.getVersion();
     auto docBase = base ~ bundlePath ~ "/" ~ gap.getVersion();
-    if (!verifyMountDirWritable(docBase)) {
-      logError("Mount static %s failed: %s is not writable", gap.gav, docBase);
+    if (!verifyDeployDirWritable(docBase)) {
+      logError("Deploy static %s failed: %s is not writable", gap.gav, docBase);
       return false;
     }
     if (exists(localJar))
-      return mountJar(localJar, docBase, innerDir, gap.gav, force);
+      return deployJar(localJar, docBase, innerDir, gap.gav, force);
     if (localJar.endsWith("SNAPSHOT.jar")) {
       logWarn("Cannot resolve %s, ignore it.", gap.gav);
       return false;
@@ -239,13 +239,13 @@ class AssetRepo {
       import micdn.web.file;
 
       if (curlDownload(remote, localJar))
-        return mountJar(localJar, docBase, innerDir, gap.gav, force);
+        return deployJar(localJar, docBase, innerDir, gap.gav, force);
     }
     logWarn("Cannot resolve %s", gap.gav);
     return false;
   }
 
-  private static bool mountBundleNpm(MicdnConfig config, const string bundlePath, const NpmProvider np,
+  private static bool deployBundleNpm(MicdnConfig config, const string bundlePath, const NpmProvider np,
       string scopePart, string namePart, string versionPart, bool force) {
     auto base = config.asset.base;
     auto npmRepo = NpmRepo.build(config);
@@ -255,8 +255,8 @@ class AssetRepo {
     }
     auto tgzPath = npmRepo.localTarball(scopePart, namePart, versionPart);
     auto docBase = base ~ bundlePath ~ "/" ~ versionPart;
-    if (!verifyMountDirWritable(docBase)) {
-      logError("Mount static %s failed: %s is not writable", np.packageSpec, docBase);
+    if (!verifyDeployDirWritable(docBase)) {
+      logError("Deploy static %s failed: %s is not writable", np.packageSpec, docBase);
       return false;
     }
     if (!extractTgzToDocBase(tgzPath, docBase, "package/" ~ np.dir, np.packageSpec, force)) {
@@ -284,7 +284,7 @@ class AssetRepo {
     }
   }
 
-  private static bool mountJar(string zipfile, string docBase, string dir, string artifact, bool force) {
+  private static bool deployJar(string zipfile, string docBase, string dir, string artifact, bool force) {
     if (refreshUnzip(zipfile, docBase, dir, artifact, force) == 0) {
       logWarn("Cannot find %s in %s", dir, zipfile);
       return false;

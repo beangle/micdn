@@ -92,22 +92,30 @@ sudo -u micdn micdn -f /etc/micdn/micdn.xml resolve
 | 阶段 | 内容 | 失败时 |
 |------|------|--------|
 | **1. 配置** | `parseFile`：XSD、endpoint 冲突、doc/bundle 属性、try-file 路径等 | stderr `micdn: …`，退出码 **2** |
-| **2. 部署** | `listen` 格式；maven/npm/static/www/blob **根目录可写**；下载缺失 jar/npm、解压 zip/tgz、mount www/static；校验 zip/npm **inner `dir`** 与挂载目录 | 日志 `Resolve … failed: …`，退出码 **1** |
+| **2. 部署** | `listen` 格式；maven/npm/static/www/blob **根目录可写**；下载缺失 jar/npm、解压 zip/tgz、deploy www/static；校验 zip/npm **inner `dir`** 与部署目录 | 日志 `Resolve … failed: …`，退出码 **1** |
 
 还会检查：GAV 格式（`group:artifact:version`）、`<dir location>` 是否存在、本地 zip 是否合法、npm spec 是否合法。**`try-file` 缺失仅 WARN**，不导致失败。
 
 成功时输出 `resolve ok: …`，退出码 **0**。
 
-与 **`mount`** 的分工：`resolve` 一次性处理配置中的全部 www doc 与 static bundle（等同 `mount www` + `mount static`，但不支持 `--force`）；`mount www|static [NAME]` 可单独重装指定项并加 `--force`。
+与 **`deploy`** 的分工：`resolve` 一次性处理配置中的全部 www doc 与 static bundle（等同 `deploy www` + `deploy static`，但不支持 `--force`）；`deploy www|static [NAME]` 可单独重装指定项并加 `--force`。二者日志固定输出到**控制台**（info），不读 `micdn.xml` 的 `log-file` / `log-level`。
 
 ---
 
-## 离线安装静态资源（`mount`）
+## 离线部署静态资源（`deploy`）
 
 ```bash
-sudo -u micdn micdn -f /etc/micdn/micdn.xml mount www
-sudo -u micdn micdn -f /etc/micdn/micdn.xml mount static
-sudo -u micdn micdn -f /etc/micdn/micdn.xml mount www manual --force   # 强制重装
+sudo -u micdn micdn -f /etc/micdn/micdn.xml deploy www
+sudo -u micdn micdn -f /etc/micdn/micdn.xml deploy static
+sudo -u micdn micdn -f /etc/micdn/micdn.xml deploy www manual --force   # 强制重装
+```
+
+### zip doc 自动 deploy（`auto-deploy="true"`，Linux）
+
+对 `<doc zip="..." auto-deploy="true">`，HTTP 服务运行期会 inotify 监听 zip 所在目录；源 zip 写入完成或替换后自动 deploy（manifest 未变则跳过解压）。仅 Linux；非 Linux 启动时打 WARN 并忽略。
+
+```xml
+<doc name="manual" zip="/var/lib/micdn/releases/manual.zip" inner="dist" auto-deploy="true" />
 ```
 
 ---

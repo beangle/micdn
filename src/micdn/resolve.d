@@ -7,7 +7,7 @@
  */
 
 module micdn.resolve;
-/// `micdn resolve`：解析配置、下载缺失 artifact、挂载 www/static 并校验部署结果。
+/// `micdn resolve`：解析配置、下载缺失 artifact、部署 www/static 并校验部署结果。
 
 import std.file;
 import std.path : buildPath;
@@ -21,7 +21,7 @@ import micdn.npm;
 import micdn.web;
 import micdn.www;
 
-/** 解析并安装部署前提：数据根可写，www/static 下载（如需）并 mount，校验挂载目录。
+/** 解析并安装部署前提：数据根可写，www/static 下载（如需）并 deploy，校验部署目录。
 
     XML 结构与属性合法性由 `parseFile` / `MicdnConfig` 构造完成（第一阶段）。
 */
@@ -54,7 +54,7 @@ private bool checkServiceRoots(MicdnConfig config) {
   bool ok = true;
 
   bool checkRoot(string label, string dir) {
-    if (verifyMountDirWritable(dir))
+    if (verifyDeployDirWritable(dir))
       return true;
     logError("Resolve failed: %s base not writable: %s", label, dir);
     return false;
@@ -77,11 +77,11 @@ private bool resolveWwwDoc(MicdnConfig config, const WwwDocConfig doc) {
   auto ctx = "www doc " ~ doc.name;
   if (!validateProviderSpec(config, ctx, doc.provider))
     return false;
-  if (!WwwRepo.mountDoc(config, doc, false)) {
-    logError("Resolve %s failed: mount", ctx);
+  if (!WwwRepo.deployDoc(config, doc, false)) {
+    logError("Resolve %s failed: deploy", ctx);
     return false;
   }
-  if (!verifyWwwDocMounted(config, doc))
+  if (!verifyWwwDocDeployed(config, doc))
     return false;
   warnMissingTryFile(config, doc);
   return true;
@@ -93,11 +93,11 @@ private bool resolveStaticBundle(MicdnConfig config, const AssetBundle bundle) {
     if (!validateProviderSpec(config, ctx, p))
       return false;
   }
-  if (!AssetRepo.mountBundle(config, bundle, false)) {
-    logError("Resolve static bundle %s failed: mount", bundle.name);
+  if (!AssetRepo.deployBundle(config, bundle, false)) {
+    logError("Resolve static bundle %s failed: deploy", bundle.name);
     return false;
   }
-  return verifyStaticBundleMounted(config, bundle);
+  return verifyStaticBundleDeployed(config, bundle);
 }
 
 private bool validateProviderSpec(MicdnConfig config, string context, const(BundleProvider) provider) {
@@ -139,7 +139,7 @@ private bool validateProviderSpec(MicdnConfig config, string context, const(Bund
   return false;
 }
 
-private bool verifyWwwDocMounted(MicdnConfig config, const WwwDocConfig doc) {
+private bool verifyWwwDocDeployed(MicdnConfig config, const WwwDocConfig doc) {
   auto ctx = "www doc " ~ doc.name;
   auto docDir = resolveRepositoryPath(config.www.base, doc.endpoint());
   if (docDir is null) {
@@ -154,19 +154,19 @@ private bool verifyWwwDocMounted(MicdnConfig config, const WwwDocConfig doc) {
     return true;
   }
   if (ZipProvider zp = cast(ZipProvider) doc.provider) {
-    if (!verifyMountedDocBase(ctx, docDir, zp.dir))
+    if (!verifyDeployedDocBase(ctx, docDir, zp.dir))
       return false;
     return true;
   }
   if (NpmProvider np = cast(NpmProvider) doc.provider) {
-    if (!verifyMountedDocBase(ctx, docDir, np.dir))
+    if (!verifyDeployedDocBase(ctx, docDir, np.dir))
       return false;
     return true;
   }
   return false;
 }
 
-private bool verifyStaticBundleMounted(MicdnConfig config, const AssetBundle bundle) {
+private bool verifyStaticBundleDeployed(MicdnConfig config, const AssetBundle bundle) {
   auto base = config.asset.base;
   auto bundlePath = "/" ~ bundle.name;
   bool ok = true;
@@ -180,27 +180,27 @@ private bool verifyStaticBundleMounted(MicdnConfig config, const AssetBundle bun
       }
     } else if (GavJarProvider gap = cast(GavJarProvider) p) {
       auto docBase = base ~ bundlePath ~ "/" ~ gap.getVersion();
-      if (!verifyMountedDocBase(ctx, docBase, gap.dir))
+      if (!verifyDeployedDocBase(ctx, docBase, gap.dir))
         ok = false;
     } else if (NpmProvider np = cast(NpmProvider) p) {
       string scopePart, namePart, versionPart;
       parsePackageSpec(np.packageSpec, scopePart, namePart, versionPart);
       auto docBase = base ~ bundlePath ~ "/" ~ versionPart;
-      if (!verifyMountedDocBase(ctx, docBase, np.dir))
+      if (!verifyDeployedDocBase(ctx, docBase, np.dir))
         ok = false;
     }
   }
   return ok;
 }
 
-/** 挂载完成后确认 docBase 存在且非空；npm/zip 的 `dir` 在 mount 阶段已校验，此处再确认产物目录。 */
-private bool verifyMountedDocBase(string context, string docBase, string innerDir) {
+/** 部署完成后确认 docBase 存在且非空；npm/zip 的 `dir` 在 deploy 阶段已校验，此处再确认产物目录。 */
+private bool verifyDeployedDocBase(string context, string docBase, string innerDir) {
   if (docBase is null || !exists(docBase) || !isDir(docBase)) {
-    logError("Resolve %s failed: mount dir missing: %s", context, docBase);
+    logError("Resolve %s failed: deploy dir missing: %s", context, docBase);
     return false;
   }
   if (dirEntryCount(docBase) == 0) {
-    logError("Resolve %s failed: mount dir empty: %s", context, docBase);
+    logError("Resolve %s failed: deploy dir empty: %s", context, docBase);
     return false;
   }
   if (innerDir.length > 0)
