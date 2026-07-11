@@ -27,7 +27,7 @@ html(lang="zh")
       .meta span { margin-left: 0.75rem; }
       .grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 0.85rem;
       }
       .card {
@@ -35,6 +35,7 @@ html(lang="zh")
         border-radius: 10px;
         box-shadow: 0 1px 3px rgba(0,0,0,0.08);
         padding: 1rem 1.1rem;
+        min-width: 0;
       }
       .card.wide { grid-column: 1 / -1; }
       .card h2 {
@@ -60,7 +61,7 @@ html(lang="zh")
       .stat .value.warn { color: #c64600; }
       .ops-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 0.55rem;
       }
       .ops-grid .stat {
@@ -109,6 +110,18 @@ html(lang="zh")
         color: #c01c28;
         border-radius: 8px;
         font-size: 0.85rem;
+      }
+      @media (max-width: 720px) {
+        .grid,
+        .ops-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+      @media (max-width: 480px) {
+        .grid,
+        .ops-grid {
+          grid-template-columns: 1fr;
+        }
       }
       @media (prefers-color-scheme: dark) {
         body { background: #1a1a1a; color: #e4e4e4; }
@@ -166,11 +179,17 @@ html(lang="zh")
             span.label HWM
             span.value#hwm —
           .stat
-            span.label GC used
+            span.label(title="D 对象仍占用的 GC 堆") GC used
             span.value#gcUsed —
           .stat
-            span.label GC free
+            span.label(title="GC 已映射、尚未分配给对象且未还给 OS 的空闲堆") GC free
             span.value#gcFree —
+          .stat
+            span.label(title="druntime 单块 GC pool 上限（rt_options / --DRT-gcopt）") GC max pool
+            span.value#gcMaxPool —
+          .stat
+            span.label(title="自启动以来 druntime full GC 次数（分配触发的自动 collect）") GC collections
+            span.value#gcCollections —
         section.card
           h2 Process
           .stat
@@ -203,9 +222,6 @@ html(lang="zh")
             .stat
               span.label Reloads
               span.value#reload —
-            .stat
-              span.label GC minimize
-              span.value#gcMin —
             .stat
               span.label Handler errors
               span.value#handlerErr —
@@ -251,7 +267,6 @@ html(lang="zh")
         var lim = m.limits || {};
         var proc = m.process || {};
         var rel = m.reload || {};
-        var gc = m.gcMinimize || {};
         set("reqActive", fmt(req.active));
         set("reqActiveMax", fmt(req.activeMax));
         set("reqTotal", fmt(req.total));
@@ -266,6 +281,8 @@ html(lang="zh")
         set("hwm", fmtKb(mem.hwmKb));
         set("gcUsed", fmtBytes(mem.gcUsed));
         set("gcFree", fmtBytes(mem.gcFree));
+        set("gcMaxPool", fmtBytes(mem.gcMaxPoolSize));
+        set("gcCollections", fmt(mem.gcCollections));
         set("pid", fmt(m.pid));
         set("uptime", fmtDuration(m.uptimeSeconds));
         set("port", m.listenPort || "—");
@@ -275,7 +292,6 @@ html(lang="zh")
         set("maxReq", fmtBytes(lim.maxRequestSize));
         set("keepAlive", lim.keepAliveTimeoutSec != null ? lim.keepAliveTimeoutSec + "s" : "—");
         set("reload", fmt(rel.total) + (rel.failed ? " (" + rel.failed + " failed)" : ""));
-        set("gcMin", fmt(gc.total));
         set("handlerErr", fmt(m.handlerErrors));
         set("updated", new Date().toLocaleTimeString());
         document.getElementById("err").style.display = "none";

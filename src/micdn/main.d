@@ -55,6 +55,7 @@ import micdn.www.web;
 import micdn.config;
 import micdn.logging;
 import micdn.resolve;
+import micdn.runtime;
 import micdn.www.autodeploy;
 
 /// 仅启动阶段失败时使用（systemd `RestartPreventExitStatus=2`）；正常运行后进程退出/崩溃用其它码，仍由 systemd 拉起。
@@ -214,8 +215,7 @@ version (unittest) {
     }
     string configFile;
     ReloadableDispatcher dispatcher;
-    IdleGcMinimizer idleGc;
-    WwwAutoDeployer wwwAutoDeploy;
+    auto wwwAutoDeploy = new WwwAutoDeployer();
     HTTPListener listener;
 
     ReloadResult reloadAndSync() {
@@ -228,6 +228,7 @@ version (unittest) {
     }
 
     try {
+      applyRuntimeProfile();
       configFile = resolveConfigFile("micdn.xml");
 
       if (!exists(expandTilde(configFile)))
@@ -247,10 +248,8 @@ version (unittest) {
       settings.serverString = null;
 
       markProcessStarted();
-      idleGc = new IdleGcMinimizer();
       setListenPort(port);
       applyLimits(settings, config);
-      idleGc.start();
 
       dispatcher = new ReloadableDispatcher(absolutePath(expandTilde(configFile)), "", settings,
           &reloadAndSync);

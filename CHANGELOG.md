@@ -5,6 +5,7 @@
 - CLI：`mount` 子命令更名为 `deploy`；相关函数与 manifest 字段 `deployedAt` 同步更名
 - CLI：`deploy` / `resolve` 固定输出到控制台（info），不读 `micdn.xml` 的 `log-file` / `log-level`
 - WWW：zip doc 支持 `auto-deploy="true"`，Linux 下 HTTP 服务运行期监听源 zip 变更并自动 deploy
+- 内存：内置 `maxPoolSize=8M`、`heapSizeFactor=1.2`；移除 idle 定时 `GC.minimize`；metrics 显示 `gcCollections`
 
 ## v0.2.5 (2026-06-28)
 

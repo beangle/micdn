@@ -43,6 +43,9 @@ unittest {
   assert(json.indexOf(`"tcp":{"established":`) >= 0);
   assert(json.indexOf(`"responses"`) < 0);
   assert(json.indexOf(`"memory":{"rssKb":`) >= 0);
+  assert(json.indexOf(`"gcMaxPoolSize":`) >= 0);
+  assert(json.indexOf(`"gcCollections":`) >= 0);
+  assert(json.indexOf(`"gcMinimize"`) < 0);
   assert(json.indexOf(`"maxRequestSize":`) >= 0);
   assert(json.indexOf(`"openFds":`) >= 0);
 }
@@ -91,22 +94,9 @@ unittest {
   }
 }
 
-@("admin metrics gc minimize after alloc")
+@("admin metrics gc collections increase after collect")
 unittest {
-  ubyte[] hold = new ubyte[1024 * 1024];
-  hold[0] = 1;
-  auto before = snapshotMem();
-  hold = null;
-  auto r = runGcMinimize();
-  assert(r.after.gc.usedBytes <= before.gc.usedBytes);
-  assert(r.after.process.rssKb > 0);
-}
-
-@("admin metrics idle gc should minimize when rss high and active requests low")
-unittest {
-  assert(shouldIdleMinimize(0, 51 * 1024));
-  assert(shouldIdleMinimize(200, 50 * 1024));
-
-  assert(!shouldIdleMinimize(201, 51 * 1024));
-  assert(!shouldIdleMinimize(0, 49 * 1024));
+  auto before = readGcHeapStats().collections;
+  runGcMinimize();
+  assert(readGcHeapStats().collections > before);
 }

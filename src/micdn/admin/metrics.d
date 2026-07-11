@@ -7,7 +7,7 @@
  */
 
 module micdn.admin.metrics;
-/// 进程内指标：原子计数、RSS/GC 快照、TCP 统计、idle `GC.minimize`；HTML 见 `views/metrics.dt`。
+/// 进程内指标：原子计数、RSS/GC 快照、TCP 统计；HTML 见 `views/metrics.dt`。
 
 import core.atomic;
 import core.memory : GC;
@@ -22,9 +22,6 @@ import std.file : read;
 import std.format : format;
 import std.path : baseName;
 import std.string : split, strip, toLower, indexOf, splitLines, startsWith;
-
-import vibe.core.core : Timer, setTimer;
-import vibe.core.log;
 
 /// 从 `/proc/self/status` 读取的进程级内存（kB）；含代码、栈、libc、D 堆等全部 resident 页。
 struct ProcessMemoryKb {
@@ -44,6 +41,10 @@ struct GcHeapStats {
   size_t usedBytes;
   /// GC 已映射但尚未分配给对象、也未还给 OS 的空闲堆字节（`GC.stats.freeSize`）；JSON `gcFree`。
   size_t freeBytes;
+  /// druntime GC 单块 pool 上限（`core.gc.config.config.maxPoolSize`）；JSON `gcMaxPoolSize`。
+  size_t maxPoolSizeBytes;
+  /// 自进程启动以来 druntime full GC 次数（`GC.profileStats.numCollections`）；JSON `gcCollections`。
+  size_t collections;
   ulong allocatedInCurrentThread;
 }
 
@@ -78,9 +79,18 @@ ProcessMemoryKb readProcessMemoryKb() {
   return ret;
 }
 
+size_t readGcMaxPoolSizeBytes() {
+  import core.gc.config;
+
+  config.initialize();
+  return config.maxPoolSize;
+}
+
 GcHeapStats readGcHeapStats() {
   auto st = GC.stats;
-  return GcHeapStats(st.usedSize, st.freeSize, st.allocatedInCurrentThread);
+  auto collections = GC.profileStats().numCollections;
+  return GcHeapStats(st.usedSize, st.freeSize, readGcMaxPoolSizeBytes(), collections,
+      st.allocatedInCurrentThread);
 }
 
 MemSnapshot snapshotMem() {
@@ -146,7 +156,6 @@ shared long g_tcpEstablishedMax;
 shared long g_handlerErrors;
 shared long g_reloadTotal;
 shared long g_reloadFailed;
-shared long g_gcMinimizeTotal;
 shared long g_startMonoTicks;
 shared ulong g_maxRequestSize;
 shared long g_keepAliveTimeoutSec;
@@ -185,10 +194,6 @@ void recordReload(bool ok) @safe nothrow {
     atomicFetchAdd!(MemoryOrder.raw)(g_reloadFailed, 1);
 }
 
-void recordGcMinimize() @safe nothrow {
-  atomicFetchAdd!(MemoryOrder.raw)(g_gcMinimizeTotal, 1);
-}
-
 long requestsActive() @safe nothrow {
   return atomicLoad!(MemoryOrder.raw)(g_requestsActive);
 }
@@ -216,7 +221,6 @@ struct MetricsSnapshot {
   long handlerErrors;
   long reloadTotal;
   long reloadFailed;
-  long gcMinimizeTotal;
   MemSnapshot mem;
   ProcessExtras process;
 }
@@ -235,68 +239,21 @@ MetricsSnapshot snapshotMetrics() {
       atomicLoad!(MemoryOrder.raw)(g_requestsActiveMax), tcp,
       atomicLoad!(MemoryOrder.raw)(g_tcpEstablishedMax),
       atomicLoad!(MemoryOrder.raw)(g_handlerErrors), atomicLoad!(MemoryOrder.raw)(g_reloadTotal),
-      atomicLoad!(MemoryOrder.raw)(g_reloadFailed), atomicLoad!(MemoryOrder.raw)(g_gcMinimizeTotal),
-      snapshotMem(), readProcessExtras());
+      atomicLoad!(MemoryOrder.raw)(g_reloadFailed), snapshotMem(), readProcessExtras());
 }
 
 string metricsJson(MetricsSnapshot s) {
-  // memory.rssKb/hwmKb ← ProcessMemoryKb；memory.gcUsed/gcFree ← GcHeapStats.usedBytes/freeBytes
+  // memory.rssKb/hwmKb ← ProcessMemoryKb；memory.gcUsed/gcFree/gcMaxPoolSize ← GcHeapStats
   return format(
-      `{"uptimeSeconds":%s,"pid":%s,"listenPort":%s,"limits":{"maxConnections":%s,"maxRequestSize":%s,"keepAliveTimeoutSec":%s},"requests":{"total":%s,"active":%s,"activeMax":%s},"tcp":{"established":%s,"establishedMax":%s},"handlerErrors":%s,"reload":{"total":%s,"failed":%s},"gcMinimize":{"total":%s},"memory":{"rssKb":%s,"hwmKb":%s,"gcUsed":%s,"gcFree":%s,"gcAllocatedInThread":%s},"process":{"openFds":%s,"threads":%s}}`,
+      `{"uptimeSeconds":%s,"pid":%s,"listenPort":%s,"limits":{"maxConnections":%s,"maxRequestSize":%s,"keepAliveTimeoutSec":%s},"requests":{"total":%s,"active":%s,"activeMax":%s},"tcp":{"established":%s,"establishedMax":%s},"handlerErrors":%s,"reload":{"total":%s,"failed":%s},"memory":{"rssKb":%s,"hwmKb":%s,"gcUsed":%s,"gcFree":%s,"gcMaxPoolSize":%s,"gcCollections":%s,"gcAllocatedInThread":%s},"process":{"openFds":%s,"threads":%s}}`,
       s.uptimeSeconds, s.pid, s.listenPort, s.limits.maxConnections, s.limits.maxRequestSize,
       s.limits.keepAliveTimeoutSec, s.requestsTotal, s.requestsActive, s.requestsActiveMax,
       s.tcpEstablished, s.tcpEstablishedMax, s.handlerErrors, s.reloadTotal,
-      s.reloadFailed, s.gcMinimizeTotal, s.mem.process.rssKb, s.mem.process.hwmKb, s.mem.gc.usedBytes,
-      s.mem.gc.freeBytes, s.mem.gc.allocatedInCurrentThread, s.process.openFds, s.process.threads);
+      s.reloadFailed, s.mem.process.rssKb, s.mem.process.hwmKb, s.mem.gc.usedBytes,
+      s.mem.gc.freeBytes, s.mem.gc.maxPoolSizeBytes, s.mem.gc.collections, s.mem.gc.allocatedInCurrentThread,
+      s.process.openFds, s.process.threads);
 }
 
-
-/// 内置 idle GC 策略（不可通过 micdn.xml 修改）。
-private immutable Duration gcCheckInterval = 15.minutes;
-private immutable ulong gcMinRssKb = 50 * 1024;
-private immutable long gcMaxActiveRequests = 200;
-
-/** 是否应触发 idle 收缩（纯逻辑，便于单测）。 */
-bool shouldIdleMinimize(long activeRequests, ulong rssKb) {
-  if (activeRequests > gcMaxActiveRequests)
-    return false;
-  if (rssKb < gcMinRssKb)
-    return false;
-  return true;
-}
-
-/// 周期性检查并在负载较低时调用 `runGcMinimize()`。
-final class IdleGcMinimizer {
-  private Timer _timer;
-  private bool _timerActive;
-
-  void start() {
-    stopTimer();
-    _timer = setTimer(gcCheckInterval, &onTimer, true);
-    _timerActive = true;
-  }
-
-  void stopTimer() {
-    if (_timerActive) {
-      _timer.stop();
-      _timerActive = false;
-    }
-  }
-
-  private void onTimer() @trusted {
-    auto active = requestsActive();
-    auto rss = readProcessMemoryKb().rssKb;
-    if (!shouldIdleMinimize(active, rss))
-      return;
-
-    auto before = rss;
-    runGcMinimize();
-    recordGcMinimize();
-    auto after = readProcessMemoryKb().rssKb;
-    logInfo("GC idle minimize: RSS %s kB -> %s kB (active<=%s, min %s kB)", before, after,
-        gcMaxActiveRequests, gcMinRssKb);
-  }
-}
 
 /** 统计本进程在 `port` 上的 TCP ESTABLISHED 连接数（scrape 时读 `/proc`）。 */
 private long countEstablishedConnections(ushort port) {
