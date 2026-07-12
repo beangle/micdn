@@ -81,7 +81,7 @@ rpm/deb 包的 **`Requires` / `Depends` 目前仅声明 `curl`**；若你在动�
 
 ### 安装系统软件包
 
-脚本会先执行 **`dub build --build=release-nobounds --compiler=ldc2`**，再调用 **rpmbuild** 等，建议安装：
+脚本会先 **`dub clean`**、删除 **`target/`**，再 **`dub build --build=release-nobounds --compiler=ldc2`**，然后打 RPM；每次运行均为全量重建（逻辑见 **`scripts/build_common.sh`**）。
 
 ```bash
 sudo dnf install ldc dub gcc zlib-devel openssl-devel \
@@ -98,18 +98,12 @@ cd /path/to/micdn
 ./scripts/build_rpm.sh
 ```
 
-已存在同名 RPM 时会跳过；强制重建：
-
-```bash
-./scripts/build_rpm.sh -f
-```
-
 ### 仅生成源码 SRPM（`build_srpm.sh`）
 
-宿主机需 **`gzip`、`rpmbuild`、`tar`**（脚本内不执行本地 `dub build`，但 **SRPM 内 `%build` 会在重编时执行 dub**）：
+宿主机需 **`gzip`、`rpmbuild`、`tar`**、**`ldc`、`dub`**（脚本会先本地 clean build 校验，再打 SRPM；**SRPM 内 `%build` 在重编时同样 clean build**）：
 
 ```bash
-sudo dnf install gzip rpm-build tar
+sudo dnf install gzip rpm-build tar ldc dub
 ./scripts/build_srpm.sh
 ```
 
@@ -132,7 +126,7 @@ cd /path/to/micdn
 ./scripts/build_deb.sh
 ```
 
-强制重建：`./scripts/build_deb.sh -f`。
+可选：第一个参数为 deb **修订号**（默认 `1`），例如 `./scripts/build_deb.sh 2`。
 
 ### 安装生成的 deb
 

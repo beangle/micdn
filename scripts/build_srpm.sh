@@ -7,6 +7,8 @@ export MICDN_HOME="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$MICDN_HOME"
 
 set -e -o pipefail
+# shellcheck source=build_common.sh
+source "$SCRIPT_DIR/build_common.sh"
 
 ferror() {
   echo "==========================================================" >&2
@@ -37,9 +39,12 @@ fcheck() {
 fcheck gzip
 fcheck rpmbuild
 fcheck tar
+fcheck dub
 if [ "$E" -eq 1 ]; then
   ferror "Missing commands on your system:" "$LIST"
 fi
+
+micdn_prepare_release_build
 
 MAINTAINER="duantihua <duantihua@163.com>"
 VERSION_RAW=$(awk -F'"' '/"version"/{print $4; exit}' "$MICDN_HOME/dub.json")
@@ -51,14 +56,8 @@ sys_release_version
 DESTDIR="$MICDN_HOME/target"
 RPMDIR="$DESTDIR/rpmbuild-src"
 SRPMFILE="micdn-${VERSION_RPM}-${REVISION}.src.rpm"
-FORCE=0
-[[ "$1" == "-f" ]] && FORCE=1
 
-if [[ -f "$DESTDIR/$SRPMFILE" && "$FORCE" != "1" ]]; then
-  echo "$SRPMFILE - already exist (use -f to rebuild)"
-  exit 0
-fi
-
+rm -f "$DESTDIR/$SRPMFILE"
 rm -rf "$RPMDIR"
 mkdir -p "$RPMDIR"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 
@@ -127,6 +126,9 @@ Main designer: Duan TiHua
 %build
 export DUB_HOME="\${DUB_HOME:-\$HOME/.dub}"
 dub fetch
+dub clean || true
+rm -rf target
+mkdir -p target
 dub build --build=release-nobounds --compiler=ldc2
 
 %install

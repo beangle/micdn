@@ -4,6 +4,9 @@ export MICDN_HOME="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$MICDN_HOME"
 
 set -e -o pipefail
+# shellcheck source=build_common.sh
+source "$SCRIPT_DIR/build_common.sh"
+
 # error function
 ferror(){
   echo "==========================================================" >&2
@@ -23,8 +26,6 @@ sys_release_version(){
 }
 
 
-dub build --build=release-nobounds --compiler=ldc2
-
 # needed commands function
 E=0
 fcheck(){
@@ -37,9 +38,12 @@ fcheck gzip
 fcheck rpmbuild
 fcheck fakeroot
 fcheck strip
+fcheck dub
 if [ $E -eq 1 ]; then
     ferror "Missing commands on Your system:" "$LIST"
 fi
+
+micdn_prepare_release_build
 
   # assign variables
   MAINTAINER="duantihua <duantihua@163.com>"
@@ -60,16 +64,14 @@ fi
   RPMFILE="micdn-"$VERSION"-"$REVISION"."$ARCH".rpm"
   RPMDIR=$DESTDIR"/rpmbuild"
 
-  # check if destination rpm file already exist
-  if [ -f $DESTDIR"/"$RPMFILE ] && `rpm -qip $DESTDIR"/"$RPMFILE &>/dev/null` && test "$1" != "-f" ;then
-    echo -e "$RPMFILE - already exist"
-  else
-    rm -f $DESTDIR"/"$RPMFILE
-    rm -rf  $DESTDIR"/"$CDNDIR
-    # create temp dir
-    mkdir -p $DESTDIR"/"$CDNDIR
-    # switch to temp dir
-    pushd $DESTDIR"/"$CDNDIR > /dev/null
+  rm -f "$DESTDIR/$RPMFILE"
+  rm -rf "$DESTDIR/$CDNDIR"
+  rm -rf "$RPMDIR"
+  rm -f "$DESTDIR/micdn.spec"
+  # create temp dir
+  mkdir -p $DESTDIR"/"$CDNDIR
+  # switch to temp dir
+  pushd $DESTDIR"/"$CDNDIR > /dev/null
     mkdir -p usr/bin usr/share/micdn usr/lib/systemd/system
     cp -f $MICDN_HOME/target/micdn usr/bin/micdn
     strip --strip-unneeded usr/bin/micdn
@@ -192,4 +194,4 @@ fi
     rm -Rf $DESTDIR"/"$CDNDIR
     rm -Rf $DESTDIR/micdn.spec
 
-  fi
+echo "Built: $DESTDIR/$RPMFILE"

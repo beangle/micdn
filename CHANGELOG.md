@@ -1,7 +1,5 @@
 # Changelog
 
-## Unreleased
-
 ## v0.2.6 (2026-07-12)
 
 - CLI：`mount` 子命令更名为 `deploy`；manifest 字段 `deployedAt`（新写入；旧 `manifest.json` 快路径仍兼容）
@@ -10,6 +8,7 @@
 - 部署：源 zip/tgz 已更新但进程不可读时保留已有解压目录，避免 auto-deploy 失败导致 404
 - 内存：内置 `maxPoolSize=8M`、`heapSizeFactor=1.2`；移除 v0.2.5 的 idle 定时 `GC.minimize`；metrics 显示 `gcCollections`、`gcMaxPoolSize`
 - 运维：`scripts/stress_http.sh`（ApacheBench 压测脚本）
+- 打包：`build_rpm.sh` / `build_deb.sh` / `build_srpm.sh` 默认 `dub clean` 并清空 `target/` 后全量构建（`build_common.sh`）；移除 `-f` 跳过逻辑
 
 完整说明见 docs/release-v0.2.6.md
 

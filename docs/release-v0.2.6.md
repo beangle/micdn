@@ -7,7 +7,7 @@
 
 ## 概要
 
-v0.2.6 在 v0.2.5 基础上：**CLI `mount` 更名为 `deploy`**、新增 **www zip 自动 deploy（Linux inotify）**、调整 **GC 池策略并简化 metrics 内存指标**，并修复 auto-deploy 在源文件不可读时误删已部署内容的问题。
+v0.2.6 在 v0.2.5 基础上：**CLI `mount` 更名为 `deploy`**、新增 **www zip 自动 deploy（Linux inotify）**、调整 **GC 池策略并简化 metrics 内存指标**，修复 auto-deploy 在源文件不可读时误删已部署内容的问题，并统一 **RPM/DEB/SRPM 打包为默认全量 clean build**。
 
 **`micdn.xml` 配置格式无 Breaking Change**（与 v0.2.5 兼容）。运维脚本若仍调用 `micdn … mount`，需改为 `deploy`。
 
@@ -22,6 +22,7 @@ v0.2.6 在 v0.2.5 基础上：**CLI `mount` 更名为 `deploy`**、新增 **www 
 | **可靠** | 源 zip/tgz 已更新但进程不可读时**保留**已有解压目录，避免 404 |
 | **内存** | 内置 `maxPoolSize=8M`、`heapSizeFactor=1.2`；移除 idle `GC.minimize` |
 | **可观测** | metrics 增加 `gcCollections`、`gcMaxPoolSize`；移除 `gcMinimize` 计数 |
+| **打包** | `build_*.sh` 默认 `dub clean` + 清空 `target/` 全量构建；移除 `-f` 跳过 |
 
 ---
 
@@ -101,6 +102,16 @@ HTML 仪表盘顶栏与 Limits 区改为三列对齐布局。
 
 - 新增 **`scripts/stress_http.sh`**：基于 ApacheBench 的 HTTP 压测（`-c` 并发、`-n` 总请求）
 
+### 打包脚本（RPM / deb / SRPM）
+
+共用 **`scripts/build_common.sh`**：每次执行
+
+1. `dub clean`
+2. 删除并重建 **`target/`**
+3. `dub build --build=release-nobounds --compiler=ldc2`
+
+再生成安装包。已移除「同名 `.rpm` / `.deb` / `.src.rpm` 已存在则跳过」及 **`-f` 强制**参数；重复预发布直接重跑脚本即可。SRPM 内 `%build` 同样 clean build。详见 [build_linux.md](./build_linux.md)。
+
 ---
 
 ## 依赖
@@ -130,6 +141,7 @@ HTML 仪表盘顶栏与 Limits 区改为三列对齐布局。
    ```bash
    curl -s http://127.0.0.1:8080/admin/metrics.json | jq '.memory'
    ```
+6. 构建安装包：在仓库根目录执行 `./scripts/build_rpm.sh` 或 `./scripts/build_deb.sh`（每次全量 clean build，无需 `-f`）
 
 ---
 

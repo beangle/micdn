@@ -5,6 +5,9 @@ export MICDN_HOME="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$MICDN_HOME"
 
 set -e -o pipefail
+# shellcheck source=build_common.sh
+source "$SCRIPT_DIR/build_common.sh"
+
 ferror(){
   echo "==========================================================" >&2
   echo $1 >&2
@@ -12,8 +15,6 @@ ferror(){
   echo "==========================================================" >&2
   exit 1
 }
-
-dub build --build=release-nobounds --compiler=ldc2
 
 E=0
 fcheck(){
@@ -25,23 +26,21 @@ fcheck(){
 fcheck dpkg-deb
 fcheck fakeroot
 fcheck strip
+fcheck dub
 if [ $E -eq 1 ]; then
   ferror "Missing commands on your system:" "$LIST"
 fi
 
+micdn_prepare_release_build
+
 MAINTAINER="duantihua <duantihua@163.com>"
 VERSION=`awk -F'"' '/"version"/{print $4; exit}' $MICDN_HOME/dub.json`
 REVISION="1"
-[[ "$1" == -f ]] && FORCE=1 || { [[ "$1" != "" ]] && REVISION="$1"; }
+[[ -n "$1" ]] && REVISION="$1"
 DESTDIR="$MICDN_HOME/target"
 ARCH="amd64"
 DEBFILE="micdn_${VERSION}-${REVISION}_${ARCH}.deb"
 PKGDIR="$DESTDIR/micdn_${VERSION}-${REVISION}_${ARCH}"
-
-if [ -f "$DESTDIR/$DEBFILE" ] && [ "$FORCE" != "1" ]; then
-  echo "$DEBFILE - already exist"
-  exit 0
-fi
 
 rm -f "$DESTDIR/$DEBFILE"
 rm -rf "$PKGDIR"
