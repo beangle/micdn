@@ -87,6 +87,45 @@ unittest {
   assert(readText(buildPath(base, "x.txt")) == "BBBBB");
 }
 
+@("refreshUnzip keeps existing deploy when updated source is unreadable")
+unittest {
+  version (Posix) {
+    import core.sys.posix.sys.stat : chmod, mode_t, S_IRUSR, S_IWUSR;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, write;
+    import std.string : toStringz;
+
+    string tmp = buildPath(tempDir(), "micdn-unreadable-src-" ~ randomUUID().toString);
+    mkdirRecurse(tmp);
+    scope (exit) {
+      if (exists(tmp))
+        rmdirRecurse(tmp);
+    }
+
+    void writeZip(string path, ubyte[] content) {
+      auto m = new ArchiveMember();
+      m.name = "x.txt";
+      m.expandedData(content);
+      ZipArchive z = new ZipArchive();
+      z.addMember(m);
+      write(path, z.build());
+    }
+
+    string zipPath = buildPath(tmp, "app.zip");
+    string base = buildPath(tmp, "out");
+
+    writeZip(zipPath, cast(ubyte[]) "AAAAA");
+    assert(refreshUnzip(zipPath, base, null) == 1);
+    assert(readText(buildPath(base, "x.txt")) == "AAAAA");
+
+    writeZip(zipPath, cast(ubyte[]) "BBBBB");
+    chmod(zipPath.toStringz, cast(mode_t) 0);
+    scope (exit) chmod(zipPath.toStringz, S_IRUSR | S_IWUSR);
+
+    assert(refreshUnzip(zipPath, base, null) == 0);
+    assert(readText(buildPath(base, "x.txt")) == "AAAAA");
+  }
+}
+
 @("refreshUnzip skips unchanged zip via manifest")
 unittest {
   import std.file : exists, mkdirRecurse, rmdirRecurse, write;

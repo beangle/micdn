@@ -329,6 +329,16 @@ private string deploySkipLabel(string sourceFile, string artifact, ref DeployMan
   return baseName(sourceFile);
 }
 
+/** 部署源是否可读（权限不足时 stat 仍可能成功，解压前需单独校验）。 */
+private bool canReadDeploySource(string sourceFile) {
+  import core.sys.posix.unistd : access, R_OK;
+  import std.string : toStringz;
+
+  if (!exists(sourceFile))
+    return false;
+  return access(toStringz(sourceFile), R_OK) == 0;
+}
+
 /** 将 tgz（npm 包）解压到 docBase；成功后写入 `{docBase}/manifest.json`，tgz 未变时可跳过解压。
 
     manifest 有效则跳过；否则删除 docBase 后全量解压。
@@ -356,6 +366,10 @@ bool extractTgzToDocBase(string tgzFile, string docBase, string innerDir = null,
   }
 
   logInfo("Deploying %s", deployArtifactLabel(tgzFile, artifact));
+  if (!canReadDeploySource(tgzFile)) {
+    logWarn("Deploy source is not readable, keeping existing deploy: %s", tgzFile);
+    return false;
+  }
   clearDeployDir(docBase);
 
   if (!extractTgzToDocBaseImpl(tgzFile, docBase, innerDir))
@@ -438,6 +452,10 @@ uint refreshUnzip(string zipfile, string base, string innerDir = null, string ar
   }
 
   logInfo("Deploying %s", deployArtifactLabel(zipfile, artifact));
+  if (!canReadDeploySource(zipfile)) {
+    logWarn("Deploy source is not readable, keeping existing deploy: %s", zipfile);
+    return 0;
+  }
   clearDeployDir(base);
 
   auto count = refreshUnzipImpl(zipfile, base, innerDir);
