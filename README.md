@@ -65,7 +65,7 @@ static / www 部署的文本类静态资源（`js`、`css`、`html`、`svg`、`j
 - `Accept-Encoding` 判定为简化实现：面向现代浏览器，仅按子串识别 `gzip`（大小写不敏感），不处理 `q=0` 拒绝与 `*` 通配等完备语义。
 - 压缩由独立后台线程完成（写 `tmp` 后原子 `rename`），不阻塞请求线程；仅当压缩后确实更小才落盘，小于 1KB 或超过 8MB 的文件不压缩（小文件 gzip 固定开销使其不划算，超限文件避免占用队列与内存）。
 - 已压缩格式（图片、字体、`.gz`/`.br` 等）不生成 sidecar；`Range` 请求与逗号合并（`/a/b,c.js`）不返回 gzip。
-- www doc 仅支持 `npm`/`zip`（无 `<dir>` 挂载），全部参与 gzip 预压缩；asset 的 `<dir>` dyna bundle 完全忽略 gzip（不发送也不生成，避免把源目录中用户自带的 `.gz` 文件误当预压缩内容，也避免写入源目录）。
+- www doc 仅支持 `npm`/`zip`（无 `<dir>` 挂载），默认全部参与 gzip 预压缩；可按 doc 设 `auto-gzip="false"` 完全关闭（不发送已有 `.gz` 也不生成）。asset 的 `<dir>` dyna bundle 完全忽略 gzip（不发送也不生成，避免把源目录中用户自带的 `.gz` 文件误当预压缩内容，也避免写入源目录）。
 
 ### 约定与取舍
 

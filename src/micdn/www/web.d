@@ -36,14 +36,14 @@ class WwwService {
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
     auto rs = repo.get(getPath("", req));
-    if (rs is null)
+    if (rs.path is null)
       throw new HTTPStatusException(HTTPStatus.notFound);
 
     void setCORS(scope HTTPServerRequest req, scope HTTPServerResponse res) @safe {
       res.headers["Access-Control-Allow-Origin"] = "*";
     }
 
-    // www 内容全部参与 gzip 预压缩。
-    sendFile(req, res, rs, wwwDocCachePolicy(rs), &setCORS, true);
+    // gzip 预压缩按 doc 的 auto-gzip 开关（默认参与）。
+    sendFile(req, res, rs.path, wwwDocCachePolicy(rs.path), &setCORS, rs.doc.autoGzip);
   }
 }

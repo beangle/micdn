@@ -29,10 +29,10 @@ unittest {
 
   auto dummy = new ZipProvider("/tmp/placeholder.zip", "");
   auto repo = new WwwRepo(tmp, [new WwwDocConfig("manual", dummy)]);
-  assert(repo.get("/manual/a.html") == resolveRepositoryPath(tmp, decodeRepositoryUri("/manual/a.html")));
-  assert(repo.get("/manual/missing.html") is null);
-  assert(repo.get("/other/x") is null);
-  assert(repo.get("/manual/../etc/passwd") is null);
+  assert(repo.get("/manual/a.html").path == resolveRepositoryPath(tmp, decodeRepositoryUri("/manual/a.html")));
+  assert(repo.get("/manual/missing.html").path is null);
+  assert(repo.get("/other/x").path is null);
+  assert(repo.get("/manual/../etc/passwd").path is null);
 }
 
 @("WwwRepo does not serve files outside any doc")
@@ -46,8 +46,8 @@ unittest {
   write(buildPath(tmp, "loose.txt"), "loose");
 
   auto repo = new WwwRepo(tmp);
-  assert(repo.get("/manual/a.html") is null);
-  assert(repo.get("/loose.txt") is null);
+  assert(repo.get("/manual/a.html").path is null);
+  assert(repo.get("/loose.txt").path is null);
 }
 
 @("WwwDocTree finds longest doc prefix and falls back on broken chain")
@@ -113,8 +113,8 @@ unittest {
   write(buildPath(tmp, "secret.txt"), "secret");
 
   auto repo = new WwwRepo(tmp);
-  assert(repo.get(decodeRepositoryUri("/%2e%2e%2fsecret.txt")) is null);
-  assert(repo.get(decodeRepositoryUri("/%5cWindows%5cwin.ini")) is null);
+  assert(repo.get(decodeRepositoryUri("/%2e%2e%2fsecret.txt")).path is null);
+  assert(repo.get(decodeRepositoryUri("/%5cWindows%5cwin.ini")).path is null);
 }
 
 @("WwwRepo try-file skips fallback for missing static assets")
@@ -132,12 +132,12 @@ unittest {
   auto doc = new WwwDocConfig("app", dummy, "index.html");
   auto repo = new WwwRepo(tmp, [doc]);
 
-  assert(repo.get("/app/route/foo") !is null);
-  assert(repo.get("/app/route/foo").endsWith("index.html"));
-  assert(repo.get("/app/assets/ok.js") !is null);
-  assert(repo.get("/app/assets/missing.js") is null);
-  assert(repo.get("/app/missing.css") is null);
-  assert(repo.get("/app/missing.woff2") is null);
+  assert(repo.get("/app/route/foo").path !is null);
+  assert(repo.get("/app/route/foo").path.endsWith("index.html"));
+  assert(repo.get("/app/assets/ok.js").path !is null);
+  assert(repo.get("/app/assets/missing.js").path is null);
+  assert(repo.get("/app/missing.css").path is null);
+  assert(repo.get("/app/missing.woff2").path is null);
 }
 
 @("WwwRepo try-file falls back for spa deep link")
@@ -155,11 +155,11 @@ unittest {
   auto doc = new WwwDocConfig("m/edu/learning", dummy, "index.html");
   auto repo = new WwwRepo(tmp, [doc]);
 
-  assert(repo.get("/m/edu/learning/app.js") !is null);
-  assert(repo.get("/m/edu/learning/app.js").endsWith("app.js"));
-  assert(repo.get("/m/edu/learning/route/foo") !is null);
-  assert(repo.get("/m/edu/learning/route/foo").endsWith("index.html"));
-  assert(repo.get("/other/route") is null);
+  assert(repo.get("/m/edu/learning/app.js").path !is null);
+  assert(repo.get("/m/edu/learning/app.js").path.endsWith("app.js"));
+  assert(repo.get("/m/edu/learning/route/foo").path !is null);
+  assert(repo.get("/m/edu/learning/route/foo").path.endsWith("index.html"));
+  assert(repo.get("/other/route").path is null);
 }
 
 @("WwwRepo try-file falls back for m/edu/teaching deep link")
@@ -186,9 +186,9 @@ unittest {
   auto config = parse(home, xml);
   auto repo = WwwRepo.build(config);
 
-  assert(repo.get("/m/edu/teaching") !is null);
-  assert(repo.get("/m/edu/teaching/a/bc") !is null);
-  assert(repo.get("/m/edu/teaching/a/bc").endsWith("index.html"));
+  assert(repo.get("/m/edu/teaching").path !is null);
+  assert(repo.get("/m/edu/teaching/a/bc").path !is null);
+  assert(repo.get("/m/edu/teaching/a/bc").path.endsWith("index.html"));
 }
 
 @("WwwRepo try-file returns path without runtime exists check")
@@ -203,7 +203,7 @@ unittest {
   auto doc = new WwwDocConfig("app", dummy, "index.html");
   auto repo = new WwwRepo(tmp, [doc]);
 
-  assert(repo.get("/app/route/foo").endsWith("index.html"));
+  assert(repo.get("/app/route/foo").path.endsWith("index.html"));
 }
 
 @("deployDoc warns when try-file missing after mount")
@@ -231,7 +231,7 @@ unittest {
   assert(cast(ZipProvider) config.www.docs[0].provider !is null);
   assert(WwwRepo.deployDoc(config, config.www.docs[0]));
   auto repo = new WwwRepo(config.www.base, config.www.docs);
-  assert(repo.get("/spa/deep/link").endsWith("index.html"));
+  assert(repo.get("/spa/deep/link").path.endsWith("index.html"));
 }
 
 @("WwwRepo try-file uses longest doc prefix")
@@ -252,6 +252,47 @@ unittest {
   ];
   auto repo = new WwwRepo(tmp, docs);
 
-  assert(repo.get("/a/b/x").endsWith(buildPath("a", "b", "index.html")));
-  assert(repo.get("/a/x").endsWith(buildPath("a", "index.html")));
+  assert(repo.get("/a/b/x").path.endsWith(buildPath("a", "b", "index.html")));
+  assert(repo.get("/a/x").path.endsWith(buildPath("a", "index.html")));
+}
+
+@("WwwRepo get carries matched doc with auto-gzip flag")
+unittest {
+  auto tmp = buildPath(tempDir, "micdn-www-autogzip");
+  scope (exit)
+    if (exists(tmp))
+      rmdirRecurse(tmp);
+  mkdirRecurse(buildPath(tmp, "app"));
+  write(buildPath(tmp, "app", "index.html"), "spa");
+  mkdirRecurse(buildPath(tmp, "plain"));
+  write(buildPath(tmp, "plain", "index.html"), "plain");
+
+  auto dummy = new ZipProvider("/tmp/placeholder.zip", "");
+  auto repo = new WwwRepo(tmp, [
+    new WwwDocConfig("app", dummy, "index.html", false, false),
+    new WwwDocConfig("plain", dummy),
+  ]);
+  auto hit = repo.get("/app/route");
+  assert(hit.path.endsWith("index.html"));
+  assert(hit.doc.autoGzip == false);
+  assert(repo.get("/plain/").doc.autoGzip == true);
+  assert(repo.get("/missing").path is null);
+}
+
+@("WwwRepo get keeps matched doc on missing file")
+unittest {
+  auto tmp = buildPath(tempDir, "micdn-www-missdoc");
+  scope (exit)
+    if (exists(tmp))
+      rmdirRecurse(tmp);
+  mkdirRecurse(buildPath(tmp, "app"));
+
+  auto dummy = new ZipProvider("/tmp/placeholder.zip", "");
+  auto doc = new WwwDocConfig("app", dummy);
+  auto repo = new WwwRepo(tmp, [doc]);
+
+  auto miss = repo.get("/app/route/x");
+  assert(miss.path is null);
+  assert(miss.doc is doc);
+  assert(repo.get("/other/x").doc is null);
 }

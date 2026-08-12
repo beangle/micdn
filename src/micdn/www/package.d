@@ -91,6 +91,12 @@ class WwwDocTree {
   }
 }
 
+/// `WwwRepo.get` 命中结果：最终文件路径与所属 doc；未命中时 `path` 为 null（已匹配 doc 则 `doc` 非 null，便于 doc 粒度兜底）。
+struct WwwFile {
+  string path;
+  const(WwwDocConfig) doc;
+}
+
 /// `www.base` 下的统一仓库：磁盘布局与 URL 一致（`/manual/foo` → `{base}/manual/foo`）。
 /// 仅服务已挂载 `<doc>` 下的路径；未挂 doc 的物理文件不对外提供。
 class WwwRepo {
@@ -116,33 +122,34 @@ class WwwRepo {
   }
 
   /** 按 HTTP 路径解析本地文件（须为 `getPath` 已解码路径；规范化并限制在 `base` 下）。
-    先按 doc 树匹配：无 doc 直接返回 null（不读盘）。命中后顺序：$uri → $uri/（目录 index.html）→ 所属 doc 的 `try-file`（带静态扩展名且未命中则不回退）。
+    先按 doc 树匹配：无 doc 返回 `WwwFile.init`（不读盘）。命中后顺序：$uri → $uri/（目录 index.html）→ 所属 doc 的 `try-file`（带静态扩展名且未命中则不回退）。
+    返回语义：命中时 `path` 非空；doc 匹配但文件缺失时 `path` 为 null 且 `doc` 保留（便于 doc 粒度兜底，如自定义 404）；无 doc 匹配时 `doc` 为 null。
   */
-  string get(string uri) const {
+  WwwFile get(string uri) const {
     auto location = resolveRepositoryPath(base, uri);
     if (location is null)
-      return null;
+      return WwwFile.init;
 
     auto doc = docTree.find(relativeSegments(base, location));
     if (doc is null)
-      return null;
+      return WwwFile.init;
 
     if (exists(location)) {
       if (std.file.isDir(location)) {
         auto indexPath = buildPath(location, "index.html");
         if (exists(indexPath))
-          return indexPath;
+          return WwwFile(indexPath, doc);
       } else {
-        return location;
+        return WwwFile(location, doc);
       }
     }
 
     if (doc.tryFile.length > 0) {
       if (isStaticAsset(uri))
-        return null;
-      return resolveRepositoryPath(base, doc.endpoint() ~ "/" ~ doc.tryFile);
+        return WwwFile(null, doc);
+      return WwwFile(resolveRepositoryPath(base, doc.endpoint() ~ "/" ~ doc.tryFile), doc);
     }
-    return null;
+    return WwwFile(null, doc);
   }
 
   /** 剥离 baseAbs 前缀并切段（路径已由 `resolveRepositoryPath` 归一，跳过空段）。 */

@@ -468,8 +468,11 @@ class WwwDocConfig {
   const string tryFile;
   /// zip doc 是否在运行期监听源 zip 变更并自动 deploy（仅 zip provider 有效；Linux）。
   const bool autoDeploy;
+  /// 是否参与 gzip 预压缩（默认 true；false 时完全忽略：不发送已有 .gz 也不生成）。
+  const bool autoGzip;
 
-  this(string name, BundleProvider provider, string tryFile = "", bool autoDeploy = false) {
+  this(string name, BundleProvider provider, string tryFile = "", bool autoDeploy = false,
+      bool autoGzip = true) {
     assert(isValidDocName(name),
         "www doc name must not start with '/' and must not contain '.' or '..' segments (e.g. manual or a/b)");
     assert(provider !is null, "www doc provider must not be null");
@@ -479,6 +482,7 @@ class WwwDocConfig {
     this.provider = provider;
     this.tryFile = tryFile;
     this.autoDeploy = autoDeploy;
+    this.autoGzip = autoGzip;
   }
 
   /// HTTP 访问路径（`/` ~ `name`）。

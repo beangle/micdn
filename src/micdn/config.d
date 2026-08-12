@@ -385,9 +385,10 @@ WwwConfig parseWww(T)(string home, ref DOMEntity!T micdnDom) {
       throw new Exception("www <doc name=\"" ~ name ~ "\"> try-file must not contain '.' or '..' path segments");
     string zip = docAttrs.get("zip", "").strip();
     bool autoDeploy = parseBoolXmlAttr(docAttrs.get("auto-deploy", ""), false);
+    bool autoGzip = parseBoolXmlAttr(docAttrs.get("auto-gzip", ""), true);
     if (autoDeploy && zip.length == 0)
       throw new Exception("www <doc name=\"" ~ name ~ "\"> auto-deploy requires zip attribute");
-    docs ~= new WwwDocConfig(name, parseWwwDocProvider(home, docAttrs, name), tryFile, autoDeploy);
+    docs ~= new WwwDocConfig(name, parseWwwDocProvider(home, docAttrs, name), tryFile, autoDeploy, autoGzip);
   }
   return new WwwConfig(base, docs);
 }
@@ -423,6 +424,10 @@ private string formatWwwDocAutoDeploy(const WwwDocConfig doc) {
   return doc.autoDeploy ? ` auto-deploy="true"` : "";
 }
 
+private string formatWwwDocAutoGzip(const WwwDocConfig doc) {
+  return doc.autoGzip ? "" : ` auto-gzip="false"`;
+}
+
 private string formatWwwDocTryFile(const WwwDocConfig doc) {
   return doc.tryFile.length ? ` try-file="` ~ escapeXmlAttr(doc.tryFile) ~ `"` : "";
 }
@@ -433,22 +438,23 @@ private string formatWwwDocXml(const WwwDocConfig doc) {
   string n = escapeXmlAttr(doc.name);
   string tf = formatWwwDocTryFile(doc);
   string ad = formatWwwDocAutoDeploy(doc);
+  string ag = formatWwwDocAutoGzip(doc);
 
   if (NpmProvider np = cast(NpmProvider) doc.provider) {
     if (np.dir == "dist")
-      return format(`<doc name="%s" npm="%s"%s%s />`, n, escapeXmlAttr(np.packageSpec), tf, ad);
-    return format(`<doc name="%s" npm="%s" inner="%s"%s%s />`, n, escapeXmlAttr(np.packageSpec),
-        escapeXmlAttr(np.dir), tf, ad);
+      return format(`<doc name="%s" npm="%s"%s%s%s />`, n, escapeXmlAttr(np.packageSpec), tf, ad, ag);
+    return format(`<doc name="%s" npm="%s" inner="%s"%s%s%s />`, n, escapeXmlAttr(np.packageSpec),
+        escapeXmlAttr(np.dir), tf, ad, ag);
   }
   if (DirProvider dp = cast(DirProvider) doc.provider)
-    return format(`<doc name="%s" dir="%s"%s%s />`, n, escapeXmlAttr(dp.location), tf, ad);
+    return format(`<doc name="%s" dir="%s"%s%s%s />`, n, escapeXmlAttr(dp.location), tf, ad, ag);
   if (ZipProvider zp = cast(ZipProvider) doc.provider) {
     if (zp.dir.length == 0)
-      return format(`<doc name="%s" zip="%s"%s%s />`, n, escapeXmlAttr(zp.file), tf, ad);
-    return format(`<doc name="%s" zip="%s" inner="%s"%s%s />`, n, escapeXmlAttr(zp.file),
-        escapeXmlAttr(zp.dir), tf, ad);
+      return format(`<doc name="%s" zip="%s"%s%s%s />`, n, escapeXmlAttr(zp.file), tf, ad, ag);
+    return format(`<doc name="%s" zip="%s" inner="%s"%s%s%s />`, n, escapeXmlAttr(zp.file),
+        escapeXmlAttr(zp.dir), tf, ad, ag);
   }
-  return format(`<doc name="%s"%s%s />`, n, tf, ad);
+  return format(`<doc name="%s"%s%s%s />`, n, tf, ad, ag);
 }
 
 /// 将字节数格式化为与 `parseSize` 可逆的 `maxSize` 属性（优先 `…M` / `…G`）。

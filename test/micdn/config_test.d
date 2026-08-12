@@ -16,6 +16,7 @@
 
 module micdn.config_test;
 
+import std.algorithm : canFind;
 import std.exception;
 import std.file;
 import std.path;
@@ -242,6 +243,30 @@ unittest {
   assert(config.www.docs.length == 1);
   assert(config.www.docs[0].autoDeploy);
   assert(cast(ZipProvider) config.www.docs[0].provider !is null);
+}
+
+@("www doc parses and round-trips auto-gzip")
+unittest {
+  auto xml = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn>
+  <maven/><npm/>
+  <www base="~/tmp/www">
+    <doc name="on" zip="~/a.zip" />
+    <doc name="off" zip="~/b.zip" auto-gzip="false" />
+  </www>
+</micdn>`;
+  auto config = parse("~/tmp", xml);
+  assert(config.www.docs.length == 2);
+  assert(config.www.docs[0].autoGzip == true);
+  assert(config.www.docs[1].autoGzip == false);
+
+  auto xml2 = config.toXml();
+  assert(xml2.canFind(`auto-gzip="false"`));
+  assert(!xml2.canFind(`auto-gzip="true"`));
+
+  auto config2 = parse("~/tmp", xml2);
+  assert(config2.www.docs[0].autoGzip == true);
+  assert(config2.www.docs[1].autoGzip == false);
 }
 
 @("www doc rejects auto-deploy without zip")
