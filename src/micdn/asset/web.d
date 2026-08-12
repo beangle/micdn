@@ -18,7 +18,6 @@ module micdn.asset.web;
 /// 静态资源服务入口，挂载资源上下文并提供 HTTP 访问。
 
 import std.exception;
-import std.file;
 import std.stdio;
 import std.string;
 
@@ -52,8 +51,13 @@ class AssetService {
     if (null == rs) {
       throw new HTTPStatusException(HTTPStatus.notFound);
     } else {
-      // dir
-      if (isDir(rs[0])) {
+      // 单次异步 stat 判定目录分支，并把 FileInfo 传给 sendFile 复用（AssetRepo.get 已确认存在）。
+      FileInfo fi;
+      try
+        fi = getFileInfo(rs[0]);
+      catch (Exception)
+        throw new HTTPStatusException(HTTPStatus.notFound);
+      if (fi.isDirectory) {
         if (req.method == HTTPMethod.HEAD) {
           throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
         }
@@ -72,7 +76,7 @@ class AssetService {
         auto dyna = repo.isDynaBundle(uri);
         auto policy = assetBundleCachePolicy(dyna);
         if (rs.length == 1) {
-          sendFile(req, res, rs[0], policy, &setCORS, !dyna);
+          sendFile(req, res, rs[0], fi, policy, &setCORS, !dyna);
         } else {
           sendFiles(req, res, rs, policy, &setCORS);
         }

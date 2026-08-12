@@ -143,10 +143,13 @@ ulong[2] parseRange(string range, ulong maxSize) @safe {
 /** 发送单个文件；`policy` 必选，见 `micdn.web.cache`。
     `favorGzip` 为 gzip 总开关：false 时完全忽略预压缩（不发送也不生成）；
     true 时客户端接受 gzip 且存在 `path.gz` 则发送 gz，尚无则入队后台压缩（请求线程只读）。
+    `fi` 必填且紧随 `path`：调用方须预先对 `path` stat 并确认文件存在且为普通文件后传入
+    （本函数不再自检）。stat 与读盘之间存在 TOCTOU 窗口，文件被删除/替换时按读盘失败既有逻辑兜底。
 */
 void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
-    string path, immutable(CachePolicy) policy, SendFileHook preWrite = null, bool favorGzip = false) {
-  sendFileImpl(req, res, NativePath(path), policy, preWrite, favorGzip);
+    string path, ref const(FileInfo) fi, immutable(CachePolicy) policy,
+    SendFileHook preWrite = null, bool favorGzip = false) {
+  sendFileImpl(req, res, NativePath(path), fi, policy, preWrite, favorGzip);
 }
 
 /** 按顺序拼接多个文件；`policy` 必选。 */
@@ -157,19 +160,9 @@ void sendFiles(scope HTTPServerRequest req, scope HTTPServerResponse res,
 }
 
 private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse res, NativePath path,
-    immutable(CachePolicy) policy, SendFileHook preWrite, bool favorGzip) {
+    ref const(FileInfo) fi, immutable(CachePolicy) policy, SendFileHook preWrite, bool favorGzip) {
   auto pathstr = path.toNativeString();
-  if (!existsFile(pathstr))
-    throw new HTTPStatusException(HTTPStatus.notFound);
-
-  FileInfo dirent;
-  try
-    dirent = getFileInfo(pathstr);
-  catch (Exception) {
-    throw new HTTPStatusException(HTTPStatus.internalServerError,
-        "Failed to get information for the file due to a file system error.");
-  }
-
+  FileInfo dirent = fi;
   if (dirent.isDirectory) {
     throw new HTTPStatusException(HTTPStatus.notFound);
   }
@@ -183,8 +176,8 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
   bool gzipEligible = isGzipEligible(pathstr);
   if (favorGzip && acceptsGzip(req) && gzipEligible) {
     auto gzPath = pathstr ~ ".gz";
-    auto hasGz = existsFile(gzPath);
-    if (prange is null && hasGz) {
+    // 无 Range 时探测 sidecar：getFileInfo 一次合并"存在性 + 信息"（不存在/不可读统一按无 sidecar 处理）。
+    if (prange is null) {
       try {
         dirent = getFileInfo(gzPath);
         contentPath = NativePath(gzPath);
@@ -192,7 +185,8 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
       } catch (Exception) {
       }
     }
-    if (!hasGz && isGzipEligibleFile(pathstr))
+    // 未发送 gz 时按源文件判断入队资格（扩展名白名单已由外层 gzipEligible 校验；Range 请求同样入队，保持原语义）。
+    if (!gzip && !dirent.isSymlink && isGzipSized(dirent.size))
       enqueueGzip(pathstr);
   }
 

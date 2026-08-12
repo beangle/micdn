@@ -23,6 +23,7 @@ import std.file;
 import std.path : absolutePath, baseName, buildPath, dirName, expandTilde;
 import std.string;
 
+import vibe.core.file;
 import vibe.core.log;
 
 import micdn.fs.file;
@@ -91,10 +92,12 @@ class WwwDocTree {
   }
 }
 
-/// `WwwRepo.get` 命中结果：最终文件路径与所属 doc；未命中时 `path` 为 null（已匹配 doc 则 `doc` 非 null，便于 doc 粒度兜底）。
+/// `WwwRepo.get` 命中结果：最终文件路径、所属 doc 与命中文件的 `FileInfo`
+/// （供 `sendFile` 复用，避免二次 stat）；未命中时 `path` 为 null（已匹配 doc 则 `doc` 非 null，便于 doc 粒度兜底）。
 struct WwwFile {
   string path;
   const(WwwDocConfig) doc;
+  FileInfo info;
 }
 
 /// `www.base` 下的统一仓库：磁盘布局与 URL 一致（`/manual/foo` → `{base}/manual/foo`）。
@@ -116,14 +119,30 @@ class WwwRepo {
   static WwwRepo build(MicdnConfig config) {
     auto wwwBase = config.www.base;
     prepareBase(wwwBase);
-    foreach (doc; config.www.docs)
+    const(WwwDocConfig)[] docs;
+    docs.reserve(config.www.docs.length);
+    foreach (doc; config.www.docs) {
       deployDoc(config, doc);
-    return new WwwRepo(wwwBase, config.www.docs);
+      docs ~= servingDoc(wwwBase, doc);
+    }
+    return new WwwRepo(wwwBase, docs);
+  }
+
+  /** deploy 后校验 try-file 是否已落盘：缺失（`deployDoc` 已警告）则返回去除 try-file 的配置，
+      运行期 `$uri`/`$uri/` 未命中时直接 404，不再回退到缺失的 try-file。 */
+  private static const(WwwDocConfig) servingDoc(string wwwBase, const(WwwDocConfig) doc) {
+    if (doc.tryFile.length == 0)
+      return doc;
+    auto path = resolveRepositoryPath(wwwBase, doc.endpoint() ~ "/" ~ doc.tryFile);
+    if (path !is null && exists(path) && !std.file.isDir(path))
+      return doc;
+    return doc.withoutTryFile();
   }
 
   /** 按 HTTP 路径解析本地文件（须为 `getPath` 已解码路径；规范化并限制在 `base` 下）。
     先按 doc 树匹配：无 doc 返回 `WwwFile.init`（不读盘）。命中后顺序：$uri → $uri/（目录 index.html）→ 所属 doc 的 `try-file`（带静态扩展名且未命中则不回退）。
-    返回语义：命中时 `path` 非空；doc 匹配但文件缺失时 `path` 为 null 且 `doc` 保留（便于 doc 粒度兜底，如自定义 404）；无 doc 匹配时 `doc` 为 null。
+    返回语义：命中时 `path` 非空且 `info` 为命中文件的 stat 结果（供 `sendFile` 复用，避免二次 stat）；
+    doc 匹配但文件缺失时 `path` 为 null 且 `doc` 保留（便于 doc 粒度兜底，如自定义 404）；无 doc 匹配时 `doc` 为 null。
   */
   WwwFile get(string uri) const {
     auto location = resolveRepositoryPath(base, uri);
@@ -134,20 +153,41 @@ class WwwRepo {
     if (doc is null)
       return WwwFile.init;
 
-    if (exists(location)) {
-      if (std.file.isDir(location)) {
+    // 单次异步 stat 区分文件/目录/缺失（不阻塞事件循环）；stat 与读盘之间文件可能变化，
+    // 由 sendFile 的读盘失败兜底。目录折叠 index.html 与 try-file 回退各自再 stat 一次。
+    try {
+      auto fi = getFileInfo(location);
+      if (fi.isDirectory) {
         auto indexPath = buildPath(location, "index.html");
-        if (exists(indexPath))
-          return WwwFile(indexPath, doc);
-      } else {
-        return WwwFile(location, doc);
+        try {
+          auto indexFi = getFileInfo(indexPath);
+          if (indexFi.isFile)
+            return WwwFile(indexPath, doc, indexFi);
+        } catch (Exception) {
+        }
+        return WwwFile(null, doc);
       }
+      if (fi.isFile)
+        return WwwFile(location, doc, fi);
+      // 特殊文件（fifo/socket 等）不对外服务
+      return WwwFile(null, doc);
+    } catch (Exception) {
+      // location 缺失 → 按 doc 的 try-file 回退
     }
 
     if (doc.tryFile.length > 0) {
       if (isStaticAsset(uri))
         return WwwFile(null, doc);
-      return WwwFile(resolveRepositoryPath(base, doc.endpoint() ~ "/" ~ doc.tryFile), doc);
+      auto tryPath = resolveRepositoryPath(base, doc.endpoint() ~ "/" ~ doc.tryFile);
+      if (tryPath !is null) {
+        try {
+          auto tryFi = getFileInfo(tryPath);
+          if (tryFi.isFile)
+            return WwwFile(tryPath, doc, tryFi);
+        } catch (Exception) {
+        }
+      }
+      return WwwFile(null, doc);
     }
     return WwwFile(null, doc);
   }

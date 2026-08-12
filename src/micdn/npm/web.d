@@ -11,7 +11,6 @@ module micdn.npm.web;
 
 import std.algorithm;
 import std.exception;
-import std.file;
 import std.string;
 
 import vibe.core.core;
@@ -48,30 +47,38 @@ class NpmService {
       if (parsed[0]!is null && parsed[1]!is null && parsed[2]!is null) {
         if (repo.fetch(parsed[0], parsed[1], parsed[2])) {
           auto local = repo.localTarball(parsed[0], parsed[1], parsed[2]);
-          sendFile(req, res, local, npmArtifactCachePolicy());
+          FileInfo tfi;
+          try
+            tfi = getFileInfo(local);
+          catch (Exception)
+            throw new HTTPStatusException(HTTPStatus.notFound);
+          sendFile(req, res, local, tfi, npmArtifactCachePolicy(), null, false);
           return;
         }
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
     }
 
-    if (exists(path)) {
-      if (isDir(path)) {
-        if (req.method == HTTPMethod.HEAD) {
-          throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
-        }
-        if (uri.endsWith("/")) {
-          auto listData = genListContents(path, endpoint, uri);
-          render!("index.dt", listData)(res);
-        } else {
-          auto pub = endpoint ~ uri;
-          res.redirect(req.requestURI.replace(pub, pub ~ "/"));
-        }
+    FileInfo fi;
+    try
+      fi = getFileInfo(path);
+    catch (Exception)
+      // 本地缺失（含 tgz 未命中缓存）直接 404，不做目录列表。
+      throw new HTTPStatusException(HTTPStatus.notFound);
+
+    if (fi.isDirectory) {
+      if (req.method == HTTPMethod.HEAD) {
+        throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
+      }
+      if (uri.endsWith("/")) {
+        auto listData = genListContents(path, endpoint, uri);
+        render!("index.dt", listData)(res);
       } else {
-        sendFile(req, res, path, npmArtifactCachePolicy());
+        auto pub = endpoint ~ uri;
+        res.redirect(req.requestURI.replace(pub, pub ~ "/"));
       }
     } else {
-      throw new HTTPStatusException(HTTPStatus.notFound);
+      sendFile(req, res, path, fi, npmArtifactCachePolicy(), null, false);
     }
   }
 }

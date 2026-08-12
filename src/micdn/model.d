@@ -489,6 +489,12 @@ class WwwDocConfig {
   string endpoint() const @safe pure nothrow {
     return "/" ~ name;
   }
+
+  /** 返回去除 try-file 的新配置：deploy 后 try-file 缺失时用于构造运行期 doc，
+      使 `$uri`/`$uri/` 未命中时直接 404，不再回退探测缺失文件。 */
+  const(WwwDocConfig) withoutTryFile() const {
+    return new WwwDocConfig(name, cast(BundleProvider) provider, "", autoDeploy, autoGzip);
+  }
 }
 
 /** Blob 上传结果元数据（值类型；上传响应由 `toJson` 序列化）。

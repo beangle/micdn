@@ -27,7 +27,7 @@ import core.thread : Thread;
 import core.time : msecs;
 
 import vibe.http.common : HTTPMethod, HTTPStatus;
-import vibe.http.server : createTestHTTPServerRequest, createTestHTTPServerResponse, TestHTTPResponseMode;
+import vibe.http.server : HTTPStatusException, createTestHTTPServerRequest, createTestHTTPServerResponse, TestHTTPResponseMode;
 import vibe.core.file : getFileInfo;
 import vibe.inet.message : InetHeaderMap, toRFC822DateTimeString;
 import vibe.inet.url : URL;
@@ -112,7 +112,8 @@ unittest {
   // plain 模式走真实 HTTP1 写出路径：可验证 Content-Length 保留与无二次压缩
   // （bodyOnly 模式预置 bodyWriter，会绕过 vibe 的 Content-Encoding 处理分支）。
   auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.plain);
-  sendFile(req, res, f, publicMaxAge1yImmutable, null, true);
+  auto fi = getFileInfo(f);
+  sendFile(req, res, f, fi, publicMaxAge1yImmutable, null, true);
 
   assert(res.headers["Content-Encoding"] == "gzip", "Content-Encoding should be gzip");
   assert(res.headers["Vary"] == "Accept-Encoding");
@@ -142,7 +143,8 @@ unittest {
   auto output = createMemoryOutputStream();
   auto req = createTestHTTPServerRequest(URL("http://localhost/a.js"), HTTPMethod.GET, InetHeaderMap.init, null);
   auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
-  sendFile(req, res, f, publicMaxAge1yImmutable, null, true);
+  auto fi = getFileInfo(f);
+  sendFile(req, res, f, fi, publicMaxAge1yImmutable, null, true);
 
   assert(!("Content-Encoding" in res.headers), "no Content-Encoding without Accept-Encoding");
   assert(res.headers["Vary"] == "Accept-Encoding", "identity response of gzip-eligible content must declare Vary");
@@ -163,7 +165,8 @@ unittest {
   auto output = createMemoryOutputStream();
   auto req = createTestHTTPServerRequest(URL("http://localhost/a.png"), HTTPMethod.GET, headers, null);
   auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
-  sendFile(req, res, f, publicMaxAge1yImmutable, null, true);
+  auto fi = getFileInfo(f);
+  sendFile(req, res, f, fi, publicMaxAge1yImmutable, null, true);
 
   assert(!("Content-Encoding" in res.headers));
   assert(!("Vary" in res.headers), "incompressible content must not declare Vary");
@@ -177,14 +180,15 @@ unittest {
 
   auto f = buildPath(dir, "a.js");
   write(f, gzipTestContent());
-  auto mt = toRFC822DateTimeString(getFileInfo(f).timeModified);
+  auto fi = getFileInfo(f);
+  auto mt = toRFC822DateTimeString(fi.timeModified);
 
   InetHeaderMap headers;
   headers["If-Modified-Since"] = mt;
   auto output = createMemoryOutputStream();
   auto req = createTestHTTPServerRequest(URL("http://localhost/a.js"), HTTPMethod.GET, headers, null);
   auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
-  sendFile(req, res, f, publicMaxAge1yImmutable, null, true);
+  sendFile(req, res, f, fi, publicMaxAge1yImmutable, null, true);
 
   assert(res.statusCode == HTTPStatus.notModified);
   assert(res.headers["Vary"] == "Accept-Encoding", "304 must declare Vary like the 200 it validates");
@@ -208,7 +212,8 @@ unittest {
   auto output = createMemoryOutputStream();
   auto req = createTestHTTPServerRequest(URL("http://localhost/a.js"), HTTPMethod.GET, headers, null);
   auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
-  sendFile(req, res, f, publicMaxAge1yImmutable, null, true);
+  auto fi = getFileInfo(f);
+  sendFile(req, res, f, fi, publicMaxAge1yImmutable, null, true);
 
   assert(res.statusCode == HTTPStatus.partialContent);
   assert(!("Content-Encoding" in res.headers), "Range responses must serve original file");
@@ -261,7 +266,8 @@ unittest {
   auto output = createMemoryOutputStream();
   auto req = createTestHTTPServerRequest(URL("http://localhost/a.js"), HTTPMethod.GET, headers, null);
   auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
-  sendFile(req, res, f, publicMaxAge1yImmutable, null, true);
+  auto fi = getFileInfo(f);
+  sendFile(req, res, f, fi, publicMaxAge1yImmutable, null, true);
 
   assert(!("Content-Encoding" in res.headers), "first request serves original while sidecar is generated");
   assert(cast(string) output.data == content);
@@ -294,7 +300,8 @@ unittest {
   auto output = createMemoryOutputStream();
   auto req = createTestHTTPServerRequest(URL("http://localhost/a.js"), HTTPMethod.GET, headers, null);
   auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
-  sendFile(req, res, f, publicMaxAge1yImmutable, null, false);
+  auto fi = getFileInfo(f);
+  sendFile(req, res, f, fi, publicMaxAge1yImmutable, null, false);
 
   Thread.sleep(200.msecs);
   assert(!exists(f ~ ".gz"), "favorGzip=false must not enqueue sidecar generation");
@@ -320,7 +327,8 @@ unittest {
   auto output = createMemoryOutputStream();
   auto req = createTestHTTPServerRequest(URL("http://localhost/a.js"), HTTPMethod.GET, headers, null);
   auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
-  sendFile(req, res, f, publicMaxAge1yImmutable, null, false);
+  auto fi = getFileInfo(f);
+  sendFile(req, res, f, fi, publicMaxAge1yImmutable, null, false);
 
   assert(!("Content-Encoding" in res.headers), "favorGzip=false must serve original even with sidecar");
   assert(cast(string) output.data == content);
@@ -342,7 +350,8 @@ unittest {
   auto output = createMemoryOutputStream();
   auto req = createTestHTTPServerRequest(URL("http://localhost/a.js"), HTTPMethod.GET, InetHeaderMap.init, null);
   auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
-  sendFile(req, res, f, publicMaxAge1yImmutable, null, true);
+  auto fi = getFileInfo(f);
+  sendFile(req, res, f, fi, publicMaxAge1yImmutable, null, true);
 
   Thread.sleep(200.msecs);
   assert(!exists(f ~ ".gz"), "without Accept-Encoding nothing should be enqueued");
@@ -366,8 +375,41 @@ unittest {
   auto output = createMemoryOutputStream();
   auto req = createTestHTTPServerRequest(URL("http://localhost/big.js"), HTTPMethod.GET, headers, null);
   auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
-  sendFile(req, res, f, publicMaxAge1yImmutable, null, true);
+  auto fi = getFileInfo(f);
+  sendFile(req, res, f, fi, publicMaxAge1yImmutable, null, true);
 
   Thread.sleep(200.msecs);
   assert(!exists(f ~ ".gz"), "oversized files must not be enqueued");
+}
+
+@("sendFile serves from caller-provided FileInfo")
+unittest {
+  auto dir = buildPath(tempDir(), "micdn-sendfile-fi-" ~ randomUUID().toString);
+  mkdirRecurse(dir);
+  scope (exit) rmdirRecurse(dir);
+
+  auto f = buildPath(dir, "a.js");
+  write(f, "var a = 1;");
+  auto fi = getFileInfo(f);
+
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://localhost/a.js"), HTTPMethod.GET, InetHeaderMap.init, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  sendFile(req, res, f, fi, publicMaxAge1yImmutable, null, false);
+
+  assert(cast(string) output.data == "var a = 1;");
+  assert(res.headers["Content-Length"] == "10");
+}
+
+@("sendFile rejects caller-provided directory FileInfo")
+unittest {
+  auto dir = buildPath(tempDir(), "micdn-sendfile-fidir-" ~ randomUUID().toString);
+  mkdirRecurse(dir);
+  scope (exit) rmdirRecurse(dir);
+
+  auto fi = getFileInfo(dir);
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://localhost/"), HTTPMethod.GET, InetHeaderMap.init, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  assertThrown!HTTPStatusException(sendFile(req, res, dir, fi, publicMaxAge1yImmutable, null, false));
 }

@@ -29,8 +29,13 @@ unittest {
 
   auto dummy = new ZipProvider("/tmp/placeholder.zip", "");
   auto repo = new WwwRepo(tmp, [new WwwDocConfig("manual", dummy)]);
-  assert(repo.get("/manual/a.html").path == resolveRepositoryPath(tmp, decodeRepositoryUri("/manual/a.html")));
-  assert(repo.get("/manual/missing.html").path is null);
+  auto hit = repo.get("/manual/a.html");
+  assert(hit.path == resolveRepositoryPath(tmp, decodeRepositoryUri("/manual/a.html")));
+  assert(hit.info.isFile, "hit must carry the resolved file info");
+  assert(hit.info.size == cast(ulong) "<html></html>".length);
+  auto miss = repo.get("/manual/missing.html");
+  assert(miss.path is null);
+  assert(!miss.info.isFile, "miss must not carry file info");
   assert(repo.get("/other/x").path is null);
   assert(repo.get("/manual/../etc/passwd").path is null);
 }
@@ -191,7 +196,7 @@ unittest {
   assert(repo.get("/m/edu/teaching/a/bc").path.endsWith("index.html"));
 }
 
-@("WwwRepo try-file returns path without runtime exists check")
+@("WwwRepo try-file missing yields null path with doc kept")
 unittest {
   auto tmp = buildPath(tempDir, "micdn-www-tryfile-missing");
   scope (exit)
@@ -203,7 +208,9 @@ unittest {
   auto doc = new WwwDocConfig("app", dummy, "index.html");
   auto repo = new WwwRepo(tmp, [doc]);
 
-  assert(repo.get("/app/route/foo").path.endsWith("index.html"));
+  auto miss = repo.get("/app/route/foo");
+  assert(miss.path is null, "missing try-file must not fall back to a stale path");
+  assert(miss.doc is doc);
 }
 
 @("deployDoc warns when try-file missing after mount")
@@ -230,8 +237,41 @@ unittest {
   auto config = parse(home, xml);
   assert(cast(ZipProvider) config.www.docs[0].provider !is null);
   assert(WwwRepo.deployDoc(config, config.www.docs[0]));
+  // 直接构造（未走 build 归一化）：try-file 缺失时请求期同样不回退
   auto repo = new WwwRepo(config.www.base, config.www.docs);
-  assert(repo.get("/spa/deep/link").path.endsWith("index.html"));
+  auto miss = repo.get("/spa/deep/link");
+  assert(miss.path is null, "missing try-file must not be served as fallback");
+  assert(miss.doc !is null);
+}
+
+@("WwwRepo.build drops try-file missing after mount")
+unittest {
+  auto home = buildPath(tempDir, "micdn-www-tryfile-build-drop");
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  auto zipPath = buildPath(home, "spa.zip");
+  mkdirRecurse(dirName(zipPath));
+  auto m = new ArchiveMember();
+  m.name = "app.js";
+  m.expandedData(cast(ubyte[]) "js");
+  auto z = new ZipArchive();
+  z.addMember(m);
+  write(zipPath, z.build());
+
+  auto xml = `<?xml version="1.0"?><micdn>
+  <maven/><npm/>
+  <www base="` ~ home ~ `/www">
+    <doc name="spa" zip="` ~ zipPath ~ `" try-file="index.html" />
+  </www>
+</micdn>`;
+  auto config = parse(home, xml);
+  auto repo = WwwRepo.build(config);
+  assert(repo.docs.length == 1);
+  assert(repo.docs[0].tryFile == "", "build must drop try-file that failed to deploy");
+  auto miss = repo.get("/spa/deep/link");
+  assert(miss.path is null);
+  assert(miss.doc is repo.docs[0]);
 }
 
 @("WwwRepo try-file uses longest doc prefix")
@@ -275,7 +315,9 @@ unittest {
   auto hit = repo.get("/app/route");
   assert(hit.path.endsWith("index.html"));
   assert(hit.doc.autoGzip == false);
-  assert(repo.get("/plain/").doc.autoGzip == true);
+  auto plain = repo.get("/plain/");
+  assert(plain.doc.autoGzip == true);
+  assert(plain.info.isFile, "directory index must carry index.html info");
   assert(repo.get("/missing").path is null);
 }
 

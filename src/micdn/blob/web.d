@@ -256,17 +256,23 @@ package bool refererSameSiteAsRequest(HTTPServerRequest req) @trusted {
 void sendObject(BlobRepo repo, const Bucket bucket, string objectPath,
     HTTPServerRequest req, HTTPServerResponse res) {
   auto physicalPath = repo.toPhysicalPath(bucket, objectPath);
+  // 发送前确认对象已落盘并预取 FileInfo 传给 sendFile，避免内部二次 stat；缺失直接 404。
+  FileInfo fi;
+  try
+    fi = getFileInfo(physicalPath);
+  catch (Exception)
+    throw new HTTPStatusException(HTTPStatus.notFound);
   if (isImage(objectPath)) {
-    sendFile(req, res, physicalPath, blobObjectCachePolicy());
+    sendFile(req, res, physicalPath, fi, blobObjectCachePolicy(), null, false);
   } else {
     auto realname = repo.getRealname(bucket, objectPath);
     if (realname.length > 0) {
       void setContextDisposition(scope HTTPServerRequest req, scope HTTPServerResponse res) @safe {
         res.headers["Content-Disposition"] = encodeAttachmentName(realname);
       }
-      sendFile(req, res, physicalPath, blobObjectCachePolicy(), &setContextDisposition);
+      sendFile(req, res, physicalPath, fi, blobObjectCachePolicy(), &setContextDisposition, false);
     } else {
-      sendFile(req, res, physicalPath, blobObjectCachePolicy());
+      sendFile(req, res, physicalPath, fi, blobObjectCachePolicy(), null, false);
     }
   }
 }

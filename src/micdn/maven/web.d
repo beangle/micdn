@@ -18,7 +18,6 @@ module micdn.maven.web;
 /// Maven 代理 HTTP 服务入口，转发并缓存上游 Maven 仓库。
 
 import std.exception;
-import std.file;
 import std.path;
 import std.stdio;
 import std.string;
@@ -59,22 +58,11 @@ class MavenService {
     if (file is null)
       throw new HTTPStatusException(HTTPStatus.notFound);
 
-    if (exists(file)) {
-      if (isDir(file)) {
-        if (req.method == HTTPMethod.HEAD) {
-          throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
-        }
-        if (uri.endsWith("/")) {
-          auto listData = genListContents(file, endpoint, uri);
-          render!("index.dt", listData)(res);
-        } else {
-          auto pub = endpoint ~ uri;
-          res.redirect(req.requestURI.replace(pub, pub ~ "/"));
-        }
-      } else {
-        sendFile(req, res, file, mavenArtifactCachePolicy(uri));
-      }
-    } else {
+    FileInfo fi;
+    try
+      fi = getFileInfo(file);
+    catch (Exception) {
+      // 本地缺失：`.diff` 与目录型 URL 直接 404；文件型尝试从上游拉取后发送。
       if (uri.endsWith(".diff")) {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
@@ -83,10 +71,31 @@ class MavenService {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
       if (repo.fetch(uri)) {
-        sendFile(req, res, file, mavenArtifactCachePolicy(uri));
+        FileInfo ffi;
+        try
+          ffi = getFileInfo(file);
+        catch (Exception)
+          throw new HTTPStatusException(HTTPStatus.notFound);
+        sendFile(req, res, file, ffi, mavenArtifactCachePolicy(uri), null, false);
       } else {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
+      return;
+    }
+
+    if (fi.isDirectory) {
+      if (req.method == HTTPMethod.HEAD) {
+        throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
+      }
+      if (uri.endsWith("/")) {
+        auto listData = genListContents(file, endpoint, uri);
+        render!("index.dt", listData)(res);
+      } else {
+        auto pub = endpoint ~ uri;
+        res.redirect(req.requestURI.replace(pub, pub ~ "/"));
+      }
+    } else {
+      sendFile(req, res, file, fi, mavenArtifactCachePolicy(uri), null, false);
     }
   }
 }

@@ -43,7 +43,7 @@ class WwwService {
       res.headers["Access-Control-Allow-Origin"] = "*";
     }
 
-    // gzip 预压缩按 doc 的 auto-gzip 开关（默认参与）。
-    sendFile(req, res, rs.path, wwwDocCachePolicy(rs.path), &setCORS, rs.doc.autoGzip);
+    // gzip 预压缩按 doc 的 auto-gzip 开关（默认参与）；FileInfo 由 repo.get 预取复用，避免二次 stat。
+    sendFile(req, res, rs.path, rs.info, wwwDocCachePolicy(rs.path), &setCORS, rs.doc.autoGzip);
   }
 }
