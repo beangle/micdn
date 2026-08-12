@@ -18,6 +18,7 @@
 | 机器负载 | 压测前后 `uptime`（load average） |
 
 2026-08-13 基线：Linux fc44 x86_64 · AMD Ryzen 7 7735HS（8C16T）· 59G · micdn 0.3.0（commit `490a455`）· ab 2.3 · 无后台负载 · 各场景预热 5 次后 3 轮取中位。
+2026-08-13 复测：同机 · micdn 0.3.0（commit `8ddfd47`）· ab 2.3 · 无后台负载（load 0.53/0.40/0.40，CPU scaling 37%）· 同方法（预热 5 次 + 3 轮取中位）。
 
 > 同机多次运行也会有波动（实测预热后 3 轮：最坏路径 16.0k–20.7k RPS，CPU 频率 scaling 与页面缓存冷热所致）。比较时应记录负载与频率，按「预热 + 多轮取中位」执行，不要单次定论。
 
@@ -97,10 +98,10 @@ kill <pid>          # 停止
 
 | 场景 | URL | 命令 | 预期 stat 次数 |
 |------|-----|------|----------------|
-| 最坏路径（目录 → index.html） | `/manual/` | `./scripts/stress_http.sh 'http://127.0.0.1:8899/manual/'` | 5（get 3 同步 + sendFile 2 异步） |
-| 文件命中 | `/manual/app.js` | `./scripts/stress_http.sh 'http://127.0.0.1:8899/manual/app.js'` | 3 |
-| 404 未命中 | `/manual/nope.js` | `ab -r -n 10000 -c 100 'http://127.0.0.1:8899/manual/nope.js'` | 1 |
-| gzip 命中 | `/manual/app.js` | 先预热（见下），再 `ab -k -r -n 10000 -c 100 -H 'Accept-Encoding: gzip' 'http://127.0.0.1:8899/manual/app.js'` | 3（多一次 `existsFile(gz)`） |
+| 最坏路径（目录 → index.html） | `/manual/` | `./scripts/stress_http.sh 'http://127.0.0.1:8899/manual/'` | 2（get 异步：location + index.html；sendFile 0） |
+| 文件命中 | `/manual/app.js` | `./scripts/stress_http.sh 'http://127.0.0.1:8899/manual/app.js'` | 1（get 异步；sendFile 0） |
+| 404 未命中 | `/manual/nope.js` | `ab -r -n 10000 -c 100 'http://127.0.0.1:8899/manual/nope.js'` | 1（get 异步失败） |
+| gzip 命中 | `/manual/app.js` | 先预热（见下），再 `ab -k -r -n 10000 -c 100 -H 'Accept-Encoding: gzip' 'http://127.0.0.1:8899/manual/app.js'` | 2（get 源文件 + sendFile 单次 `getFileInfo(gz)`） |
 
 **gzip 场景必须预热**：sidecar 由后台线程按需生成，首次请求只会入队并返回原版。
 
