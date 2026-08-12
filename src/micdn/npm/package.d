@@ -11,6 +11,7 @@ module micdn.npm;
 
 import std.algorithm;
 import std.conv;
+import std.exception;
 import std.file;
 import std.path;
 import std.string;
@@ -85,11 +86,13 @@ Tuple!(string, string, string) parseTarballUri(string path) {
 }
 
 class NpmRepo {
+  /// 本地缓存根目录（绝对路径）
   const string base;
   const string[] remotes;
 
   this(const string base, const string[] remotes) {
-    this.base = base;
+    enforce(base.length > 0, "repo base must not be empty");
+    this.base = absolutePath(expandTilde(base));
     this.remotes = remotes;
   }
 

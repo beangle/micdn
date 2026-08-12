@@ -82,18 +82,17 @@ string decodeRepositoryUri(string uri) {
 
 /** 将已解码 URI 规范化为仓库内的绝对物理路径（防路径穿越）。
 
-    流程：`base` 转绝对路径 → 与 URI 相对段做 `buildNormalizedPath` → `isPathUnder` 校验。
+    流程：`baseAbs`（须为绝对路径）与 URI 相对段做 `buildNormalizedPath` → `isPathUnder` 校验。
 
     注意：
     - **不**调用 `exists` / `isFile` / `isDir`；路径在磁盘上不存在时仍可返回非 null。
-    - 越界（规范化后逃出 `base`）或 `decodedUri == null` 时返回 null。
+    - 越界（规范化后逃出 `baseAbs`）或 `decodedUri == null` 时返回 null。
 
     调用方在拿到返回值后须自行判断是否存在，并按模块语义处理（404、拉取上游、目录列表等）。
 */
-string resolveRepositoryPath(string base, string decodedUri) {
+string resolveRepositoryPath(string baseAbs, string decodedUri) {
   if (decodedUri is null)
     return null;
-  auto baseAbs = absolutePath(expandTilde(base));
   string relative = decodedUri;
   while (relative.startsWith("/"))
     relative = relative[1 .. $];

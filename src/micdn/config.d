@@ -226,7 +226,7 @@ MavenRepoConfig parseMaven(T)(string home, ref DOMEntity!T micdnDom) {
   auto dom = !mavenEntries.empty ? mavenEntries.front : repoEntries.front;
   auto attrs = getAttrs(dom);
 
-  string base = expandTilde(attrs.get("base", home ~ "/maven")).replace("${micdn.home}", home);
+  string base = absolutePath(expandTilde(attrs.get("base", home ~ "/maven")).replace("${micdn.home}", home));
   string[] remoteRepos = [];
   auto remoteEntries = children(dom, "remote");
   foreach (remoteEntry; remoteEntries) {
@@ -243,7 +243,7 @@ NpmRepoConfig parseNpm(T)(string home, ref DOMEntity!T micdnDom) {
   auto dom = children(micdnDom, "npm").front;
   auto attrs = getAttrs(dom);
 
-  string base = expandTilde(attrs.get("base", home ~ "/npm")).replace("${micdn.home}", home);
+  string base = absolutePath(expandTilde(attrs.get("base", home ~ "/npm")).replace("${micdn.home}", home));
   string[] remoteRepos = [];
   auto remoteEntries = children(dom, "remote");
   foreach (remoteEntry; remoteEntries) {
@@ -261,7 +261,7 @@ AssetConfig parseAsset(T)(string home, ref DOMEntity!T micdnDom) {
   auto attrs = getAttrs(dom);
   string base = attrs.get("base", home ~ "/asset").replace("${micdn.home}", home);
 
-  base = expandTilde(base);
+  base = absolutePath(expandTilde(base));
   AssetBundle[string] bundles;
   auto bundleEntries = children(dom, "bundle");
 
@@ -367,7 +367,7 @@ WwwConfig parseWww(T)(string home, ref DOMEntity!T micdnDom) {
   auto dom = children(micdnDom, "www").front;
   auto attrs = getAttrs(dom);
 
-  string base = expandTilde(attrs.get("base", home ~ "/www")).replace("${micdn.home}", home);
+  string base = absolutePath(expandTilde(attrs.get("base", home ~ "/www")).replace("${micdn.home}", home));
   WwwDocConfig[] docs;
   foreach (c; children(dom, "doc")) {
     auto docAttrs = getAttrs(c);

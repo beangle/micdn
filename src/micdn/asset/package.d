@@ -18,6 +18,7 @@ module micdn.asset;
 /// 静态资源子模块：根据配置构建/刷新本地资源仓库，并按 URI 解析并返回物理路径列表。
 
 import std.algorithm;
+import std.exception;
 import std.file;
 import std.path;
 import std.string;
@@ -31,7 +32,7 @@ import micdn.web;
 
 /// 静态资源仓库实例，持有本地根目录与目录列表开关，提供 URI 解析与文件路径查询。
 class AssetRepo {
-  /// 仓库根目录（本地文件系统路径）。
+  /// 仓库根目录（绝对路径）。
   const string base;
 
   /// 构建阶段对 `<dir>` 成功 `makeSymlink` 的 bundle 名（动态内容、无 URL 版本段），供 `isDynaBundle` 与缓存策略使用（无需运行时读盘）。
@@ -45,7 +46,8 @@ class AssetRepo {
           dynaBundles = dyna bundle 名集合；`null` 表示未登记
   */
   this(string base, bool[string] dynaBundles = null) {
-    this.base = base;
+    enforce(base.length > 0, "repo base must not be empty");
+    this.base = absolutePath(expandTilde(base));
     this.dynaBundles = dynaBundles;
   }
 

@@ -18,8 +18,9 @@ module micdn.www;
 /// WWW 静态内容：构建时按 `<doc>` 挂载到 `www.base` 下同名路径，运行时 `base ~ httpPath` 直接读盘。
 
 import std.algorithm;
+import std.exception;
 import std.file;
-import std.path : baseName, buildPath, dirName;
+import std.path : absolutePath, baseName, buildPath, dirName, expandTilde;
 
 import vibe.core.log;
 
@@ -32,11 +33,13 @@ import micdn.web.ext;
 
 /// `www.base` 下的统一仓库：磁盘布局与 URL 一致（`/manual/foo` → `{base}/manual/foo`）。
 class WwwRepo {
+  /// `www.base` 根目录（绝对路径）
   const string base;
   const WwwDocConfig[] docs;
 
   this(string base, const WwwDocConfig[] docs = null) {
-    this.base = base;
+    enforce(base.length > 0, "repo base must not be empty");
+    this.base = absolutePath(expandTilde(base));
     this.docs = docs;
   }
 

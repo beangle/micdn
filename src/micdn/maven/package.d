@@ -19,6 +19,7 @@ module micdn.maven;
 
 import std.algorithm;
 import std.conv;
+import std.exception;
 import std.file;
 import std.path;
 import std.stdio;
@@ -35,7 +36,7 @@ import micdn.web.file;
 import micdn.xml;
 
 class GavRepo {
-  /**artifact local repo*/
+  /** artifact 本地仓库根目录（绝对路径） */
   const string base;
   /**candinates remote repos*/
   const string[] remotes = [];
@@ -43,7 +44,8 @@ class GavRepo {
   static Sha1Postfix = ".sha1";
 
   this(const(string) base, const(string[]) remotes) {
-    this.base = base;
+    enforce(base.length > 0, "repo base must not be empty");
+    this.base = absolutePath(expandTilde(base));
     this.remotes = remotes;
   }
 
