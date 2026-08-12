@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.3.0 (2026-08-13)
+
+- **Breaking**：www 移除 `<dir>` 挂载；`www.base` 下未挂 `<doc>` 的物理文件不再对外服务（404）；重复 doc name 配置报错
+- 新增：gzip 预压缩 sidecar（请求触发 + 后台线程压缩，`path.gz` 原子落盘；`Accept-Encoding` 简化判定）
+- WWW：doc 匹配改为 `WwwDocTree` 前缀树（O(段数) 查找，断链回退最长 doc 前缀）；`WwwRepo.get` 返回 `WwwFile { path, doc }`
+- WWW：`<doc auto-gzip="false">` 按 doc 关闭 gzip（不发送已有 `.gz` 也不生成）
+- 内部：仓库 base 统一绝对路径语义；gzip 模块并入 `micdn.web`
+
+完整说明见 docs/release-v0.3.0.md
+
 ## v0.2.6 (2026-07-12)
 
 - CLI：`mount` 子命令更名为 `deploy`；manifest 字段 `deployedAt`（新写入；旧 `manifest.json` 快路径仍兼容）

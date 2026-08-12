@@ -2,7 +2,7 @@
 
 轻量 CDN / 静态资源服务：Maven、npm、WebJar/本地静态包、WWW 文档站点与 Blob 存储（含可选 S3 兼容 API）。配置驱动，单进程 HTTP。
 
-**License:** GPLv3 · **Version:** 0.2.6
+**License:** GPLv3 · **Version:** 0.3.0
 
 ## 功能
 
@@ -86,8 +86,8 @@ static / www 部署的文本类静态资源（`js`、`css`、`html`、`svg`、`j
 | [docs/container_build.md](docs/container_build.md) | Podman / OCI 镜像 |
 | [docs/build_aur.md](docs/build_aur.md) | Arch AUR |
 | [docs/maintenance.md](docs/maintenance.md) | systemd、`micdn`/`beangle` 权限、resolve/deploy、auto-deploy |
-| [docs/release-v0.2.6.md](docs/release-v0.2.6.md) | 当前版本说明 |
 | [docs/reverse_proxy.md](docs/reverse_proxy.md) | nginx / varnish 缓存、haproxy 压缩等协作部署 |
+| [docs/release-v0.3.0.md](docs/release-v0.3.0.md) | 当前版本说明 |
 
 打包脚本（每次默认 `dub clean` + 清空 `target/` 后全量构建）：
 
