@@ -87,6 +87,7 @@ static / www 部署的文本类静态资源（`js`、`css`、`html`、`svg`、`j
 | [docs/build_aur.md](docs/build_aur.md) | Arch AUR |
 | [docs/maintenance.md](docs/maintenance.md) | systemd、`micdn`/`beangle` 权限、resolve/deploy、auto-deploy |
 | [docs/reverse_proxy.md](docs/reverse_proxy.md) | nginx / varnish 缓存、haproxy 压缩等协作部署 |
+| [docs/stress_test.md](docs/stress_test.md) | 压测复测指南：环境、样例、场景与结果比较 |
 | [docs/release-v0.3.0.md](docs/release-v0.3.0.md) | 当前版本说明 |
 
 打包脚本（每次默认 `dub clean` + 清空 `target/` 后全量构建）：
