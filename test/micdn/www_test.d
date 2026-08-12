@@ -27,11 +27,79 @@ unittest {
   auto html = buildPath(tmp, "manual", "a.html");
   write(html, "<html></html>");
 
-  auto repo = new WwwRepo(tmp);
+  auto dummy = new ZipProvider("/tmp/placeholder.zip", "");
+  auto repo = new WwwRepo(tmp, [new WwwDocConfig("manual", dummy)]);
   assert(repo.get("/manual/a.html") == resolveRepositoryPath(tmp, decodeRepositoryUri("/manual/a.html")));
   assert(repo.get("/manual/missing.html") is null);
   assert(repo.get("/other/x") is null);
   assert(repo.get("/manual/../etc/passwd") is null);
+}
+
+@("WwwRepo does not serve files outside any doc")
+unittest {
+  auto tmp = buildPath(tempDir, "micdn-www-nodoc");
+  scope (exit)
+    if (exists(tmp))
+      rmdirRecurse(tmp);
+  mkdirRecurse(buildPath(tmp, "manual"));
+  write(buildPath(tmp, "manual", "a.html"), "ok");
+  write(buildPath(tmp, "loose.txt"), "loose");
+
+  auto repo = new WwwRepo(tmp);
+  assert(repo.get("/manual/a.html") is null);
+  assert(repo.get("/loose.txt") is null);
+}
+
+@("WwwDocTree finds longest doc prefix and falls back on broken chain")
+unittest {
+  auto dummy = new ZipProvider("/tmp/placeholder.zip", "");
+  auto docA = new WwwDocConfig("a", dummy);
+  auto docAB = new WwwDocConfig("a/b", dummy);
+  auto docXYZ = new WwwDocConfig("x/y/z", dummy);
+  auto tree = new WwwDocTree([docA, docAB, docXYZ]);
+
+  assert(tree.find(["a"]) is docA);
+  assert(tree.find(["a", "b"]) is docAB);
+  assert(tree.find(["a", "b", "c"]) is docAB);
+  assert(tree.find(["a", "c"]) is docA);
+  assert(tree.find(["x", "y", "z"]) is docXYZ);
+  assert(tree.find(["x", "y"]) is null);
+  assert(tree.find(["x"]) is null);
+  assert(tree.find(["other"]) is null);
+  assert(tree.find([]) is null);
+}
+
+@("WwwDocTree empty tree matches nothing")
+unittest {
+  auto tree = new WwwDocTree(null);
+  assert(tree.find(["a"]) is null);
+  assert(tree.find([]) is null);
+}
+
+@("WwwDocTree falls back to doc above doc-less intermediate node")
+unittest {
+  auto dummy = new ZipProvider("/tmp/placeholder.zip", "");
+  auto docA = new WwwDocConfig("a", dummy);
+  auto docABC = new WwwDocConfig("a/b/c", dummy);
+  auto tree = new WwwDocTree([docA, docABC]);
+
+  assert(tree.find(["a", "b", "x"]) is docA);
+  assert(tree.find(["a", "b"]) is docA);
+  assert(tree.find(["a"]) is docA);
+  assert(tree.find(["a", "b", "c"]) is docABC);
+  assert(tree.find(["a", "b", "c", "d"]) is docABC);
+  assert(tree.find(["x"]) is null);
+}
+
+@("WwwDocTree rejects duplicate doc endpoint")
+unittest {
+  import std.exception;
+
+  auto dummy = new ZipProvider("/tmp/placeholder.zip", "");
+  assertThrown!Exception(new WwwDocTree([
+    new WwwDocConfig("a", dummy),
+    new WwwDocConfig("a", dummy),
+  ]));
 }
 
 @("WwwRepo rejects encoded traversal")

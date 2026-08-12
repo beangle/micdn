@@ -200,6 +200,21 @@ unittest {
   assert((cast(ZipProvider) config.www.docs[1].provider).dir == "dist");
 }
 
+@("www doc rejects duplicate name")
+unittest {
+  import std.exception;
+
+  auto xml = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn>
+  <maven/><npm/>
+  <www base="~/tmp/www">
+    <doc name="manual" zip="~/a.zip" />
+    <doc name="manual/" zip="~/b.zip" />
+  </www>
+</micdn>`;
+  assertThrown!Exception(parse("~/tmp", xml));
+}
+
 @("www doc rejects dir attribute")
 unittest {
   import std.exception;

@@ -369,6 +369,7 @@ WwwConfig parseWww(T)(string home, ref DOMEntity!T micdnDom) {
 
   string base = absolutePath(expandTilde(attrs.get("base", home ~ "/www")).replace("${micdn.home}", home));
   WwwDocConfig[] docs;
+  bool[string] seenNames;
   foreach (c; children(dom, "doc")) {
     auto docAttrs = getAttrs(c);
     string name = normalizeDocName(docAttrs.get("name", ""));
@@ -376,6 +377,9 @@ WwwConfig parseWww(T)(string home, ref DOMEntity!T micdnDom) {
       throw new Exception("www <doc> requires a valid name "
           ~ "(e.g. manual or a/b); must not start with '/', end with '/', or contain '..' segments");
     }
+    if (name in seenNames)
+      throw new Exception("www <doc name=\"" ~ name ~ "\"> duplicated; doc name must be unique");
+    seenNames[name] = true;
     string tryFile = stripLeadingSlash(docAttrs.get("try-file", "").strip());
     if (tryFile.length > 0 && !isSafePathSegments(tryFile))
       throw new Exception("www <doc name=\"" ~ name ~ "\"> try-file must not contain '.' or '..' path segments");

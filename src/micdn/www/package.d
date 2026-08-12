@@ -21,6 +21,7 @@ import std.algorithm;
 import std.exception;
 import std.file;
 import std.path : absolutePath, baseName, buildPath, dirName, expandTilde;
+import std.string;
 
 import vibe.core.log;
 
@@ -31,16 +32,79 @@ import micdn.web.file;
 import micdn.web;
 import micdn.web.ext;
 
+/// 按 doc endpoint 段组织的查找树：URI 段逐级匹配，返回最长前缀命中的 doc。
+/// 不做规范化；调用方须保证传入段已规范化（如由 `resolveRepositoryPath` 归一后剥离 baseAbs 前缀）。
+class WwwDocTree {
+  private static final class Node {
+    WwwDocConfig doc;
+    Node[string] children;
+  }
+
+  private Node root_;
+
+  this(const WwwDocConfig[] docs) {
+    root_ = new Node();
+    foreach (doc; docs)
+      add(doc);
+  }
+
+  /** 将 doc 按 endpoint 段挂到树中（如 `manual/getting-started` → manual → getting-started）；endpoint 重复时抛异常。 */
+  private void add(const(WwwDocConfig) doc) {
+    auto node = root_;
+    foreach (seg; segments(doc.endpoint())) {
+      auto next = seg in node.children;
+      if (next is null) {
+        auto child = new Node();
+        node.children[seg] = child;
+        node = child;
+      } else {
+        node = *next;
+      }
+    }
+    if (node.doc !is null)
+      throw new Exception("duplicate www doc endpoint: " ~ doc.endpoint());
+    node.doc = cast(WwwDocConfig) doc;
+  }
+
+  /** 逐级匹配；断链或遍历结束时返回最后挂 doc 的节点，无匹配返回 null。 */
+  const(WwwDocConfig) find(scope const(string)[] segments) const {
+    return findNode(root_, segments);
+  }
+
+  private static const(WwwDocConfig) findNode(const(Node) node, scope const(string)[] segments) {
+    if (segments.length == 0)
+      return node.doc;
+    auto child = segments[0] in node.children;
+    if (child is null)
+      return node.doc;
+    auto deeper = findNode(*child, segments[1 .. $]);
+    return deeper !is null ? deeper : node.doc;
+  }
+
+  private static string[] segments(string endpoint) {
+    string[] segs;
+    foreach (part; endpoint.split("/")) {
+      if (part.length > 0)
+        segs ~= part;
+    }
+    return segs;
+  }
+}
+
 /// `www.base` 下的统一仓库：磁盘布局与 URL 一致（`/manual/foo` → `{base}/manual/foo`）。
+/// 仅服务已挂载 `<doc>` 下的路径；未挂 doc 的物理文件不对外提供。
 class WwwRepo {
   /// `www.base` 根目录（绝对路径）
   const string base;
   const WwwDocConfig[] docs;
 
+  private WwwDocTree docTree;
+
   this(string base, const WwwDocConfig[] docs = null) {
     enforce(base.length > 0, "repo base must not be empty");
     this.base = absolutePath(expandTilde(base));
     this.docs = docs;
+    docTree = new WwwDocTree(docs);
   }
 
   static WwwRepo build(MicdnConfig config) {
@@ -52,11 +116,18 @@ class WwwRepo {
   }
 
   /** 按 HTTP 路径解析本地文件（须为 `getPath` 已解码路径；规范化并限制在 `base` 下）。
-    顺序：$uri → $uri/（目录 index.html）→ 所属 doc 的 `try-file`（带静态扩展名且未命中则不回退）。
+    先按 doc 树匹配：无 doc 直接返回 null（不读盘）。命中后顺序：$uri → $uri/（目录 index.html）→ 所属 doc 的 `try-file`（带静态扩展名且未命中则不回退）。
   */
   string get(string uri) const {
     auto location = resolveRepositoryPath(base, uri);
-    if (location !is null && exists(location)) {
+    if (location is null)
+      return null;
+
+    auto doc = docTree.find(relativeSegments(base, location));
+    if (doc is null)
+      return null;
+
+    if (exists(location)) {
       if (std.file.isDir(location)) {
         auto indexPath = buildPath(location, "index.html");
         if (exists(indexPath))
@@ -66,8 +137,7 @@ class WwwRepo {
       }
     }
 
-    auto doc = findDoc(uri);
-    if (doc !is null && doc.tryFile.length > 0) {
+    if (doc.tryFile.length > 0) {
       if (isStaticAsset(uri))
         return null;
       return resolveRepositoryPath(base, doc.endpoint() ~ "/" ~ doc.tryFile);
@@ -75,23 +145,14 @@ class WwwRepo {
     return null;
   }
 
-  private const(WwwDocConfig) findDoc(string uri) const {
-    if (docs is null)
-      return null;
-    size_t bestIdx = size_t.max;
-    size_t bestLen = 0;
-    foreach (i, d; docs) {
-      auto ep = d.endpoint();
-      if (uri.length < ep.length || !uri.startsWith(ep))
-        continue;
-      if (uri.length > ep.length && uri[ep.length] != '/')
-        continue;
-      if (ep.length > bestLen) {
-        bestIdx = i;
-        bestLen = ep.length;
-      }
+  /** 剥离 baseAbs 前缀并切段（路径已由 `resolveRepositoryPath` 归一，跳过空段）。 */
+  private static string[] relativeSegments(string baseAbs, string path) {
+    string[] segs;
+    foreach (part; path[baseAbs.length .. $].split("/")) {
+      if (part.length > 0)
+        segs ~= part;
     }
-    return bestIdx == size_t.max ? null : docs[bestIdx];
+    return segs;
   }
 
   /** 将单个 www `<doc>` 部署到 `www.base` 下与 `location` 同构的目录
