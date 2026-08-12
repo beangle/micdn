@@ -190,7 +190,7 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
       } catch (Exception) {
       }
     }
-    if (!hasGz)
+    if (!hasGz && isGzipEligibleFile(pathstr))
       enqueueGzip(pathstr);
   }
 

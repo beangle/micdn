@@ -290,3 +290,27 @@ unittest {
   Thread.sleep(200.msecs);
   assert(!exists(f ~ ".gz"), "without Accept-Encoding nothing should be enqueued");
 }
+
+@("sendFile does not enqueue oversized files")
+unittest {
+  auto dir = buildPath(tempDir(), "micdn-sendfile-gz-" ~ randomUUID().toString);
+  mkdirRecurse(dir);
+  scope (exit) {
+    stopGzipWorker();
+    if (exists(dir))
+      rmdirRecurse(dir);
+  }
+
+  auto f = buildPath(dir, "big.js");
+  write(f, new ubyte[maxGzipFileSize + 1]);
+
+  InetHeaderMap headers;
+  headers["Accept-Encoding"] = "gzip";
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://localhost/big.js"), HTTPMethod.GET, headers, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  sendFile(req, res, f, publicMaxAge1yImmutable, null, true);
+
+  Thread.sleep(200.msecs);
+  assert(!exists(f ~ ".gz"), "oversized files must not be enqueued");
+}

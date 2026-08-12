@@ -34,10 +34,13 @@ import core.sync.condition : Condition;
 import core.sync.mutex : Mutex;
 import core.thread : Thread;
 
+import vibe.core.log;
 import vibe.http.server : HTTPServerRequest;
 
 /// 后台压缩队列容量上限；满则丢弃入队（去重集合保证同一路径只入队一次，丢弃不损失待压路径）。
 enum size_t maxPendingGzip = 8192;
+/// 单个文件小于该大小不压缩（gzip 固定开销约 18 字节，小文本压缩后通常不更小，避免无收益入队）。
+enum size_t minGzipFileSize = 1024;
 /// 单个文件超过该大小不压缩（避免大内存分配），与 `web.file` 内存发送阈值一致。
 enum size_t maxGzipFileSize = 8u * 1024 * 1024;
 /// 压缩级别：后台线程执行，用最高级别。
@@ -66,6 +69,22 @@ shared static this() {
 bool isGzipEligible(string path) @safe pure {
   auto ext = std.path.extension(std.path.baseName(path)).toLower();
   return (ext in gzipExtensions) !is null;
+}
+
+/** 文件大小是否在可压缩范围内（`minGzipFileSize <= size <= maxGzipFileSize`）。 */
+bool isGzipSized(ulong size) @safe pure nothrow {
+  return size >= minGzipFileSize && size <= maxGzipFileSize;
+}
+
+/** 文件整体是否适合入队压缩：非符号链接、扩展名白名单、大小在区间内。
+    存在性/目录检查由调用方前置完成（如 `sendFileImpl` 已检查）；worker 侧的 IO 异常由 `workerMain` 兜底。
+*/
+bool isGzipEligibleFile(string path) @safe {
+  if (isSymlink(path))
+    return false;
+  if (!isGzipEligible(path))
+    return false;
+  return isGzipSized(getSize(path));
 }
 
 /** 请求头 `Accept-Encoding` 是否接受 gzip。
@@ -111,12 +130,9 @@ bool acceptsGzip(scope HTTPServerRequest req) @safe {
     sidecar 已存在时视为成功（幂等，供队列去重后的重复处理使用）。
 */
 bool gzipFile(string path) {
-  if (!exists(path) || isDir(path) || isSymlink(path))
+  if (!exists(path) || isDir(path))
     return false;
-  if (!isGzipEligible(path))
-    return false;
-  auto size = getSize(path);
-  if (size == 0 || size > maxGzipFileSize)
+  if (!isGzipEligibleFile(path))
     return false;
   auto gzPath = path ~ ".gz";
   if (exists(gzPath))
@@ -152,9 +168,10 @@ private __gshared bool[string] queued;
 /** 请求线程调用：将待压缩文件路径入队（去重）；worker 未启动则惰性启动。 */
 void enqueueGzip(string path) {
   queueMutex.lock();
-  scope (exit) queueMutex.unlock();
-  if (workerStopped || (path in queued) !is null || pending.length >= maxPendingGzip)
+  if (workerStopped || (path in queued) !is null || pending.length >= maxPendingGzip) {
+    queueMutex.unlock();
     return;
+  }
   queued[path] = true;
   pending ~= path;
   if (workerThread is null) {
@@ -162,6 +179,7 @@ void enqueueGzip(string path) {
     workerThread.isDaemon = true;
     workerThread.start();
   }
+  queueMutex.unlock();
   queueCond.notify();
 }
 
@@ -179,7 +197,10 @@ private void workerMain() {
     queued.remove(path);
     queueMutex.unlock();
 
-    gzipFile(path);
+    try
+      gzipFile(path);
+    catch (Exception e)
+      logWarn("gzip sidecar failed for %s: %s", path, e.msg);
   }
 }
 
@@ -188,8 +209,8 @@ private void workerMain() {
 void stopGzipWorker() {
   queueMutex.lock();
   workerStopped = true;
-  queueCond.notifyAll();
   queueMutex.unlock();
+  queueCond.notifyAll();
   if (workerThread !is null) {
     workerThread.join();
     workerThread = null;

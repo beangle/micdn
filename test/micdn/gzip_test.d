@@ -55,6 +55,12 @@ unittest {
   assert(!isGzipEligible("/tmp/a.woff2"));
   assert(!isGzipEligible("/tmp/a.gz"));
   assert(!isGzipEligible("/tmp/a"));
+
+  assert(!isGzipSized(0));
+  assert(!isGzipSized(minGzipFileSize - 1));
+  assert(isGzipSized(minGzipFileSize));
+  assert(isGzipSized(maxGzipFileSize));
+  assert(!isGzipSized(maxGzipFileSize + 1));
 }
 
 @("gzip Accept-Encoding parsing")
