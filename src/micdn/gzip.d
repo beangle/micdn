@@ -22,7 +22,6 @@ module micdn.gzip;
 /// - 压缩只发生在后台 worker 线程（单消费者），写 `tmp` 后原子 `rename`，无文件写竞争。
 /// - asset 的 `<dir>` 符号链接挂载完全忽略 gzip（不发送已有 `.gz` 也不生成），由调用方以 `favorGzip=false` 排除。
 
-import std.conv : to;
 import std.exception;
 import std.file;
 import std.path;
@@ -89,39 +88,15 @@ bool isGzipEligibleFile(string path) @safe {
 
 /** 请求头 `Accept-Encoding` 是否接受 gzip。
 
-    支持 `gzip`、`*` 通配与 `q=0` 语义；显式 `gzip;q=0` 优先于 `*` 生效。
+    面向现代浏览器的简化实现：仅按子串识别 `gzip`（大小写不敏感），
+    不处理 `q=0` 拒绝与 `*` 通配等完备语义（这些在现代客户端中几乎不出现）。
     未携带 `Accept-Encoding` 时不视为接受 gzip。
 */
 bool acceptsGzip(scope HTTPServerRequest req) @safe {
   auto ae = "Accept-Encoding" in req.headers;
   if (ae is null)
     return false;
-  bool wildcard;
-  foreach (part; (*ae).split(',')) {
-    auto token = part.strip();
-    if (token.length == 0)
-      continue;
-    auto semi = token.indexOf(';');
-    auto name = (semi < 0 ? token : token[0 .. semi]).strip().toLower();
-    double q = 1.0;
-    if (semi >= 0) {
-      foreach (param; token[semi + 1 .. $].split(';')) {
-        auto eq = param.indexOf('=');
-        if (eq > 0 && param[0 .. eq].strip().toLower() == "q") {
-          try
-            q = param[eq + 1 .. $].strip().to!double;
-          catch (Exception)
-            q = 0.0;
-          break;
-        }
-      }
-    }
-    if (name == "gzip")
-      return q > 0;
-    if (name == "*" && q > 0)
-      wildcard = true;
-  }
-  return wildcard;
+  return (*ae).toLower().indexOf("gzip") >= 0;
 }
 
 /** 将单个文件压缩为 `path.gz`（tmp + rename 原子落盘）。

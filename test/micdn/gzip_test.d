@@ -16,7 +16,6 @@
 
 module test.micdn.gzip_test;
 
-import std.conv : to;
 import std.file;
 import std.path : buildPath;
 import std.uuid : randomUUID;
@@ -63,7 +62,7 @@ unittest {
   assert(!isGzipSized(maxGzipFileSize + 1));
 }
 
-@("gzip Accept-Encoding parsing")
+@("gzip Accept-Encoding parsing (simplified: gzip substring only)")
 unittest {
   bool accepts(string ae) {
     InetHeaderMap headers;
@@ -78,14 +77,14 @@ unittest {
   assert(accepts("gzip ; q=1"));
   assert(accepts("deflate, gzip, br"));
   assert(accepts("gzip;q=1;level=5"));
-  assert(accepts("*"));
+  assert(!accepts("*"), "wildcard is not handled by the simplified check");
   assert(accepts("gzip;q=0.5"));
   assert(accepts("gzip; q=1"));
   assert(!accepts("identity"));
   assert(!accepts("br, zstd"));
   assert(!accepts("deflate;q=1, *;q=0"));
-  assert(!accepts("gzip;q=0"));
-  assert(!accepts("gzip;q=0, *;q=1"));
+  assert(accepts("gzip;q=0"), "q=0 rejection is not handled by the simplified check");
+  assert(accepts("gzip;q=0, *;q=1"));
   assert(!accepts(""));
   assert(!accepts("br"));
 
