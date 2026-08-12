@@ -69,7 +69,7 @@ static / www 部署的文本类静态资源（`js`、`css`、`html`、`svg`、`j
 
 ### 约定与取舍
 
-- 超过 8MB 或小于 1KB 的文件不压缩（`src/micdn/gzip.d` 中 `maxGzipFileSize` / `minGzipFileSize`）。这是一个保护性区间，而非性能优化目标：
+- 超过 8MB 或小于 1KB 的文件不压缩（`src/micdn/web/gzip.d` 中 `maxGzipFileSize` / `minGzipFileSize`）。这是一个保护性区间，而非性能优化目标：
   - 压缩由单 worker 线程顺序执行，超大文件会长时间占用队列，拖慢其后所有 sidecar 的生成；
   - 当前实现为整文件读入 + 整块压缩，峰值内存约为源文件的 2 倍，该上限保证 daemon 内存有界；
   - 图片、字体等大文件本就不在白名单内，超过 8MB 的文本型资源（巨型 JSON、source map）属于非典型场景，为其生成 sidecar 的磁盘放大收益有限；

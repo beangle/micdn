@@ -14,7 +14,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-module micdn.gzip;
+module micdn.web.gzip;
 /// gzip 预压缩 sidecar：请求侧资格判断与后台压缩队列。
 ///
 /// 设计约定：

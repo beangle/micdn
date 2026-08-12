@@ -32,7 +32,7 @@ import vibe.stream.memory : createMemoryOutputStream;
 
 import micdn.web.cache;
 import micdn.web.file;
-import micdn.gzip;
+import micdn.web.gzip;
 import std.exception : assertThrown;
 
 @("web file range encode")

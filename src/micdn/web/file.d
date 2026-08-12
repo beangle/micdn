@@ -38,7 +38,7 @@ import vibe.http.server;
 import vibe.inet.message;
 import vibe.inet.mimetypes;
 
-import micdn.gzip;
+import micdn.web.gzip;
 import micdn.model;
 import micdn.web.cache;
 

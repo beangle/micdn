@@ -14,7 +14,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-module test.micdn.gzip_test;
+module test.micdn.web.gzip_test;
 
 import std.file;
 import std.path : buildPath;
@@ -29,7 +29,7 @@ import vibe.http.server : createTestHTTPServerRequest;
 import vibe.inet.message : InetHeaderMap;
 import vibe.inet.url : URL;
 
-import micdn.gzip;
+import micdn.web.gzip;
 import micdn.fs.file : makeSymlink;
 
 private string tmpBase() {
