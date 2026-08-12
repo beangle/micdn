@@ -457,12 +457,12 @@ class WwwConfig {
   }
 }
 
-/** 单个 WWW doc 配置，对应一个 endpoint 与一个 BundleProvider（由 npm/dir/zip 属性解析）。
+/** 单个 WWW doc 配置，对应一个 endpoint 与一个 BundleProvider（由 npm/zip 属性解析）。
 */
 class WwwDocConfig {
   /// doc 路径名（如 `manual`、`mobile/student`），对应 HTTP `/name`
   const string name;
-  /// 资源提供者（DirProvider、ZipProvider 或 NpmProvider）
+  /// 资源提供者（NpmProvider 或 ZipProvider）
   const BundleProvider provider;
   /// SPA 等场景：$uri / $uri/ 均未命中时，回退到 doc 根下该相对路径（如 `index.html`）。
   const string tryFile;
@@ -517,4 +517,3 @@ struct BlobMeta {
     return toJSON(root);
   }
 }
-

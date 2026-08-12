@@ -204,7 +204,7 @@ journalctl -u micdn -b -n 30
 
 - 首次安装：`/etc/micdn/micdn.xml` 由 `micdn.xml.default` 复制生成。
 - `PKGBUILD` 中 `backup=('etc/micdn/micdn.xml')`：升级时 pacman 会保留用户配置并生成 `.pacsave` / `.pacnew`（若有冲突）。
-- **v0.2.3 起** www `<doc>` 格式变更（`location` + 子元素 → `name` + `npm|dir|zip` 属性，可选 `try-file`）。升级包不会自动改配置，需对照 [release-v0.2.3.md](./release-v0.2.3.md) 手动迁移。
+- **v0.2.3 起** www `<doc>` 格式变更（`location` + 子元素 → `name` + `npm|zip` 属性，可选 `try-file`）。升级包不会自动改配置，需对照 [release-v0.2.3.md](./release-v0.2.3.md) 手动迁移。
 
 ### 离线安装静态资源（0.2.3+）
 

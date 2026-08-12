@@ -18,8 +18,13 @@ module test.micdn.web.file_test;
 
 import std.file;
 import std.path;
+import std.uuid : randomUUID;
+import std.zlib : UnCompress, HeaderFormat;
 
-import vibe.http.common : HTTPMethod;
+import core.thread : Thread;
+import core.time : msecs;
+
+import vibe.http.common : HTTPMethod, HTTPStatus;
 import vibe.http.server : createTestHTTPServerRequest, createTestHTTPServerResponse, TestHTTPResponseMode;
 import vibe.inet.message : InetHeaderMap;
 import vibe.inet.url : URL;
@@ -27,6 +32,7 @@ import vibe.stream.memory : createMemoryOutputStream;
 
 import micdn.web.cache;
 import micdn.web.file;
+import micdn.gzip;
 import std.exception : assertThrown;
 
 @("web file range encode")
@@ -68,4 +74,219 @@ unittest {
   auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
   sendFiles(req, res, [f1, f2], publicMaxAge1yImmutable);
   assert(cast(string) output.data == "console.log(1);\nconsole.log(2);");
+}
+
+private string gzipTestContent() {
+  string content;
+  foreach (i; 0 .. 2000)
+    content ~= "console.log('micdn gzip');\n";
+  return content;
+}
+
+private string decompressAll(ubyte[] data) {
+  auto u = new UnCompress(HeaderFormat.gzip);
+  ubyte[] plain;
+  plain ~= cast(ubyte[]) u.uncompress(data);
+  plain ~= cast(ubyte[]) u.flush();
+  return cast(string) plain;
+}
+
+@("web sendFile serves pre-compressed gzip sidecar")
+unittest {
+  auto dir = buildPath(tempDir(), "micdn-sendfile-gz-" ~ randomUUID().toString);
+  mkdirRecurse(dir);
+  scope (exit) rmdirRecurse(dir);
+
+  auto f = buildPath(dir, "a.js");
+  auto content = gzipTestContent();
+  write(f, content);
+  assert(gzipFile(f));
+
+  InetHeaderMap headers;
+  headers["Accept-Encoding"] = "gzip";
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://localhost/a.js"), HTTPMethod.GET, headers, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  sendFile(req, res, f, publicMaxAge1yImmutable, null, true);
+
+  assert(res.headers["Content-Encoding"] == "gzip", "Content-Encoding should be gzip");
+  assert(res.headers["Vary"] == "Accept-Encoding");
+  assert(output.data.length < content.length, "gzip body should be smaller");
+  assert(decompressAll(output.data) == content, "gzip body should decompress to original");
+}
+
+@("web sendFile serves original when client does not accept gzip")
+unittest {
+  auto dir = buildPath(tempDir(), "micdn-sendfile-gz-" ~ randomUUID().toString);
+  mkdirRecurse(dir);
+  scope (exit) rmdirRecurse(dir);
+
+  auto f = buildPath(dir, "a.js");
+  auto content = gzipTestContent();
+  write(f, content);
+  assert(gzipFile(f));
+
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://localhost/a.js"), HTTPMethod.GET, InetHeaderMap.init, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  sendFile(req, res, f, publicMaxAge1yImmutable, null, true);
+
+  assert(!("Content-Encoding" in res.headers), "no Content-Encoding without Accept-Encoding");
+  assert(cast(string) output.data == content);
+}
+
+@("web sendFile skips gzip for Range requests")
+unittest {
+  auto dir = buildPath(tempDir(), "micdn-sendfile-gz-" ~ randomUUID().toString);
+  mkdirRecurse(dir);
+  scope (exit) rmdirRecurse(dir);
+
+  auto f = buildPath(dir, "a.js");
+  auto content = gzipTestContent();
+  write(f, content);
+  assert(gzipFile(f));
+
+  InetHeaderMap headers;
+  headers["Accept-Encoding"] = "gzip";
+  headers["Range"] = "bytes=0-3";
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://localhost/a.js"), HTTPMethod.GET, headers, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  sendFile(req, res, f, publicMaxAge1yImmutable, null, true);
+
+  assert(res.statusCode == HTTPStatus.partialContent);
+  assert(!("Content-Encoding" in res.headers), "Range responses must serve original file");
+  assert(cast(string) output.data == content[0 .. 4]);
+}
+
+@("web sendFiles does not gzip comma-merged files")
+unittest {
+  auto dir = buildPath(tempDir(), "micdn-sendfiles-gz-" ~ randomUUID().toString);
+  mkdirRecurse(dir);
+  scope (exit) rmdirRecurse(dir);
+
+  auto f1 = buildPath(dir, "a.js");
+  auto f2 = buildPath(dir, "b.js");
+  auto c1 = gzipTestContent();
+  auto c2 = gzipTestContent();
+  write(f1, c1);
+  write(f2, c2);
+  assert(gzipFile(f1));
+  assert(gzipFile(f2));
+
+  InetHeaderMap headers;
+  headers["Accept-Encoding"] = "gzip";
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://localhost/a.js,b.js"), HTTPMethod.GET, headers, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  sendFiles(req, res, [f1, f2], publicMaxAge1yImmutable);
+
+  assert(!("Content-Encoding" in res.headers), "comma-merged responses must not be gzipped");
+  assert(cast(string) output.data == c1 ~ "\n" ~ c2);
+}
+
+@("sendFile with favorGzip enqueues missing sidecar")
+unittest {
+  auto dir = buildPath(tempDir(), "micdn-sendfile-gz-" ~ randomUUID().toString);
+  mkdirRecurse(dir);
+  scope (exit) {
+    stopGzipWorker();
+    if (exists(dir))
+      rmdirRecurse(dir);
+  }
+
+  auto f = buildPath(dir, "a.js");
+  auto content = gzipTestContent();
+  write(f, content);
+
+  InetHeaderMap headers;
+  headers["Accept-Encoding"] = "gzip";
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://localhost/a.js"), HTTPMethod.GET, headers, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  sendFile(req, res, f, publicMaxAge1yImmutable, null, true);
+
+  assert(!("Content-Encoding" in res.headers), "first request serves original while sidecar is generated");
+  assert(cast(string) output.data == content);
+
+  auto gz = f ~ ".gz";
+  foreach (_; 0 .. 200) {
+    if (exists(gz))
+      break;
+    Thread.sleep(50.msecs);
+  }
+  assert(exists(gz), "background worker should create the missing sidecar");
+  assert(decompressAll(cast(ubyte[]) read(gz)) == content, "sidecar should decompress to original");
+}
+
+@("sendFile without favorGzip never creates sidecar")
+unittest {
+  auto dir = buildPath(tempDir(), "micdn-sendfile-gz-" ~ randomUUID().toString);
+  mkdirRecurse(dir);
+  scope (exit) {
+    stopGzipWorker();
+    if (exists(dir))
+      rmdirRecurse(dir);
+  }
+
+  auto f = buildPath(dir, "a.js");
+  write(f, gzipTestContent());
+
+  InetHeaderMap headers;
+  headers["Accept-Encoding"] = "gzip";
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://localhost/a.js"), HTTPMethod.GET, headers, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  sendFile(req, res, f, publicMaxAge1yImmutable, null, false);
+
+  Thread.sleep(200.msecs);
+  assert(!exists(f ~ ".gz"), "favorGzip=false must not enqueue sidecar generation");
+}
+
+@("sendFile without favorGzip ignores existing gzip sidecar")
+unittest {
+  auto dir = buildPath(tempDir(), "micdn-sendfile-gz-" ~ randomUUID().toString);
+  mkdirRecurse(dir);
+  scope (exit) {
+    stopGzipWorker();
+    if (exists(dir))
+      rmdirRecurse(dir);
+  }
+
+  auto f = buildPath(dir, "a.js");
+  auto content = gzipTestContent();
+  write(f, content);
+  assert(gzipFile(f), "sidecar should pre-exist");
+
+  InetHeaderMap headers;
+  headers["Accept-Encoding"] = "gzip";
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://localhost/a.js"), HTTPMethod.GET, headers, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  sendFile(req, res, f, publicMaxAge1yImmutable, null, false);
+
+  assert(!("Content-Encoding" in res.headers), "favorGzip=false must serve original even with sidecar");
+  assert(cast(string) output.data == content);
+}
+
+@("sendFile does not enqueue without Accept-Encoding")
+unittest {
+  auto dir = buildPath(tempDir(), "micdn-sendfile-gz-" ~ randomUUID().toString);
+  mkdirRecurse(dir);
+  scope (exit) {
+    stopGzipWorker();
+    if (exists(dir))
+      rmdirRecurse(dir);
+  }
+
+  auto f = buildPath(dir, "a.js");
+  write(f, gzipTestContent());
+
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://localhost/a.js"), HTTPMethod.GET, InetHeaderMap.init, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  sendFile(req, res, f, publicMaxAge1yImmutable, null, true);
+
+  Thread.sleep(200.msecs);
+  assert(!exists(f ~ ".gz"), "without Accept-Encoding nothing should be enqueued");
 }

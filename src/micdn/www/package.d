@@ -15,7 +15,7 @@
  */
 
 module micdn.www;
-/// WWW 静态内容：构建时按 `<doc location>` 挂载到 `www.base` 下同名路径，运行时 `base ~ httpPath` 直接读盘。
+/// WWW 静态内容：构建时按 `<doc>` 挂载到 `www.base` 下同名路径，运行时 `base ~ httpPath` 直接读盘。
 
 import std.algorithm;
 import std.file;
@@ -43,9 +43,8 @@ class WwwRepo {
   static WwwRepo build(MicdnConfig config) {
     auto wwwBase = config.www.base;
     prepareBase(wwwBase);
-    foreach (doc; config.www.docs) {
+    foreach (doc; config.www.docs)
       deployDoc(config, doc);
-    }
     return new WwwRepo(wwwBase, config.www.docs);
   }
 
@@ -95,7 +94,7 @@ class WwwRepo {
   /** 将单个 www `<doc>` 部署到 `www.base` 下与 `location` 同构的目录
     （如 `/manual` → `{base}/manual`）。供 `build` 与 `micdn … deploy www` 共用。
 
-    按 provider 处理 dir 符号链接、npm 解压或 zip 增量解压。
+    按 provider 处理 npm 解压或 zip 增量解压。
     成功返回 true，失败打日志并返回 false。
   */
   static bool deployDoc(MicdnConfig config, const WwwDocConfig doc, bool force = false) {
@@ -103,25 +102,20 @@ class WwwRepo {
       auto docDir = resolveRepositoryPath(config.www.base, doc.endpoint());
       assert(docDir !is null, "www doc path escapes base: " ~ doc.name);
 
-      auto writableDir = docDir;
-      if (cast(DirProvider) doc.provider)
-        writableDir = dirName(docDir);
-      if (!verifyDeployDirWritable(writableDir)) {
-        logError("Deploy www %s failed: %s is not writable", doc.name, writableDir);
+      if (!verifyDeployDirWritable(docDir)) {
+        logError("Deploy www %s failed: %s is not writable", doc.name, docDir);
         return false;
       }
 
-      if (DirProvider dp = cast(DirProvider) doc.provider) {
-        if (!deployDocDir(dp, docDir))
-          return false;
-      } else if (NpmProvider np = cast(NpmProvider) doc.provider) {
+      if (NpmProvider np = cast(NpmProvider) doc.provider) {
         if (!deployDocNpm(config, np, docDir, force))
           return false;
       } else if (ZipProvider zp = cast(ZipProvider) doc.provider) {
         if (!deployDocZip(zp, docDir, force))
           return false;
       } else {
-        assert(false, "unsupported www provider for " ~ doc.name);
+        logError("Deploy www %s failed: unsupported provider (www only supports npm or zip)", doc.name);
+        return false;
       }
 
       warnMissingTryFile(config.www.base, doc);
@@ -141,19 +135,6 @@ class WwwRepo {
       return;
     if (!exists(path) || std.file.isDir(path))
       logWarn("www doc %s try-file %s not found at %s", doc.name, doc.tryFile, path);
-  }
-
-  /// `<dir>`：清空 `docDir` 后创建符号链接（与 static bundle 一致，不先 mkdir）。
-  private static bool deployDocDir(const DirProvider dp, string docDir) {
-    if (!exists(dp.location)) {
-      logWarn("Cannot link " ~ dp.location ~ " to " ~ docDir);
-      return false;
-    }
-    mkdirRecurse(dirName(docDir));
-    clearDocDirForSymlink(docDir);
-    logInfo("Linking " ~ dp.location ~ " to " ~ docDir);
-    makeSymlink(dp.location, docDir);
-    return true;
   }
 
   /// `<npm>`：拉取 tgz 并解压到 `docDir`。
@@ -192,12 +173,4 @@ class WwwRepo {
     ensureDirWritable(wwwBase);
   }
 
-  private static void clearDocDirForSymlink(string docDir) {
-    if (!exists(docDir))
-      return;
-    if (isSymlink(docDir))
-      remove(docDir);
-    else
-      rmdirRecurse(docDir);
-  }
 }

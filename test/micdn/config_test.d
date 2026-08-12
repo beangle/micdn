@@ -161,7 +161,7 @@ unittest {
 <micdn>
   <maven/><npm/>
   <www base="~/tmp/www">
-    <doc name="m/edu/learning" dir="~/docs/spa" try-file="index.html" />
+    <doc name="m/edu/learning" zip="~/docs/spa.zip" try-file="index.html" />
   </www>
 </micdn>`;
   auto config = parse("~/tmp", xml);
@@ -176,30 +176,42 @@ unittest {
 <micdn>
   <maven/><npm/>
   <www base="~/tmp/www">
-    <doc name="manual" dir="~/m" try-file="../secret.html" />
+    <doc name="manual" zip="~/m.zip" try-file="../secret.html" />
   </www>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", xml));
 }
 
-@("www doc parses npm dir zip attributes")
+@("www doc parses npm zip attributes")
 unittest {
   auto xml = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn>
   <maven/><npm/>
   <www base="~/tmp/www">
     <doc name="manual" npm="@xurp/manual@0.0.2" />
-    <doc name="local" dir="~/docs/local" />
     <doc name="zipdoc" zip="~/docs/pkg.zip" inner="dist" />
   </www>
 </micdn>`;
   auto config = parse("~/tmp", xml);
-  assert(config.www.docs.length == 3);
+  assert(config.www.docs.length == 2);
   assert(cast(NpmProvider) config.www.docs[0].provider !is null);
-  assert(cast(DirProvider) config.www.docs[1].provider !is null);
-  assert(cast(ZipProvider) config.www.docs[2].provider !is null);
+  assert(cast(ZipProvider) config.www.docs[1].provider !is null);
   assert((cast(NpmProvider) config.www.docs[0].provider).dir == "dist");
-  assert((cast(ZipProvider) config.www.docs[2].provider).dir == "dist");
+  assert((cast(ZipProvider) config.www.docs[1].provider).dir == "dist");
+}
+
+@("www doc rejects dir attribute")
+unittest {
+  import std.exception;
+
+  auto xml = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn>
+  <maven/><npm/>
+  <www base="~/tmp/www">
+    <doc name="local" dir="~/docs/local" />
+  </www>
+</micdn>`;
+  assertThrown!Exception(parse("~/tmp", xml));
 }
 
 @("www doc parses auto-deploy on zip")
@@ -225,7 +237,7 @@ unittest {
 <micdn>
   <maven/><npm/>
   <www base="~/tmp/www">
-    <doc name="manual" dir="~/m" auto-deploy="true" />
+    <doc name="manual" npm="~/m" auto-deploy="true" />
   </www>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", xml));
@@ -239,7 +251,7 @@ unittest {
 <micdn>
   <maven/><npm/>
   <www base="~/tmp/www">
-    <doc name="manual" npm="@a/b@1" dir="~/m"/>
+    <doc name="manual" npm="@a/b@1" zip="~/m.zip"/>
   </www>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", xml));
@@ -254,7 +266,7 @@ unittest {
   <maven/>
   <npm/>
   <www base="~/tmp/www">
-    <doc name="manual/../admin" dir="~/m"/>
+    <doc name="manual/../admin" zip="~/m.zip"/>
   </www>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", traversal));
@@ -269,7 +281,7 @@ unittest {
   <maven/>
   <npm/>
   <www base="~/tmp/www">
-    <doc name="/" dir="~/m"/>
+    <doc name="/" zip="~/m.zip"/>
   </www>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", emptyLoc));
@@ -279,7 +291,7 @@ unittest {
   <maven/>
   <npm/>
   <www base="~/tmp/www">
-    <doc dir="~/m"/>
+    <doc zip="~/m.zip"/>
   </www>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", missingLoc));
@@ -296,7 +308,7 @@ unittest {
   assert(!isValidDocName("/manual"));
   assert(!isValidDocName("manual/"));
   assert(!isValidDocName("a/../b"));
-  auto doc = new WwwDocConfig("a/b", new DirProvider("/tmp"));
+  auto doc = new WwwDocConfig("a/b", new ZipProvider("/tmp/x.zip", ""));
   assert(doc.endpoint() == "/a/b");
 }
 
@@ -312,7 +324,7 @@ unittest {
     <bundle name="x"><dir location="~/x"/></bundle>
   </static>
   <www base="~/tmp/www">
-    <doc name="admin" dir="~/manual"/>
+    <doc name="admin" zip="~/manual.zip"/>
   </www>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", content));
@@ -325,7 +337,7 @@ unittest {
     <bundle name="x"><dir location="~/x"/></bundle>
   </static>
   <www base="~/tmp/www">
-    <doc name="manual" dir="~/manual"/>
+    <doc name="manual" zip="~/manual.zip"/>
   </www>
 </micdn>`;
   auto config = parse("~/tmp", ok);
@@ -346,7 +358,7 @@ unittest {
     <bundle name="x"><dir location="~/x"/></bundle>
   </static>
   <www base="~/tmp/www">
-    <doc name="maven" dir="~/m"/>
+    <doc name="maven" zip="~/m.zip"/>
   </www>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", mavenPrefix),
@@ -364,7 +376,7 @@ unittest {
     <bucket name="b" key="k"/>
   </blob>
   <www base="~/tmp/www">
-    <doc name="blob" dir="~/m"/>
+    <doc name="blob" zip="~/m.zip"/>
   </www>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", staticBlob),
@@ -376,8 +388,8 @@ unittest {
   <maven/>
   <npm/>
   <www base="~/tmp/www">
-    <doc name="doc" dir="~/d1"/>
-    <doc name="doc/guide" dir="~/d2"/>
+    <doc name="doc" zip="~/d1.zip"/>
+    <doc name="doc/guide" zip="~/d2.zip"/>
   </www>
 </micdn>`;
   assertThrown!Exception(parse("~/tmp", wwwPrefix),
@@ -392,7 +404,7 @@ unittest {
     <bundle name="x"><dir location="~/x"/></bundle>
   </static>
   <www base="~/tmp/www">
-    <doc name="manual" dir="~/m"/>
+    <doc name="manual" zip="~/m.zip"/>
   </www>
 </micdn>`;
   auto config = parse("~/tmp", noConflict);
@@ -443,6 +455,7 @@ unittest {
 @("resolveMicdn checks configured service data roots")
 unittest {
   import std.conv : octal;
+  import std.zip : ArchiveMember, ZipArchive;
 
   auto home = buildPath(tempDir, "micdn-resolve-roots");
   scope (exit)
@@ -456,7 +469,7 @@ unittest {
     <bundle name="x"><dir location="` ~ home ~ `/src"/></bundle>
   </static>
   <www base="` ~ home ~ `/www">
-    <doc name="m" dir="` ~ home ~ `/src"/>
+    <doc name="m" zip="` ~ home ~ `/m.zip"/>
   </www>
   <blob base="` ~ home ~ `/blob" maxSize="1M">
     <bucket name="b" key="k"/>
@@ -464,6 +477,12 @@ unittest {
 </micdn>`;
   auto config = parse(home, xml);
   mkdirRecurse(home ~ "/src");
+  auto zm = new ArchiveMember();
+  zm.name = "index.html";
+  zm.expandedData(cast(ubyte[]) "x");
+  auto z = new ZipArchive();
+  z.addMember(zm);
+  write(home ~ "/m.zip", z.build());
   assert(resolveMicdn(config));
 
   config.www.base.setAttributes(octal!555);

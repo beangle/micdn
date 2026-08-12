@@ -43,6 +43,7 @@ class WwwService {
       res.headers["Access-Control-Allow-Origin"] = "*";
     }
 
-    sendFile(req, res, rs, wwwDocCachePolicy(rs), &setCORS);
+    // www 内容全部参与 gzip 预压缩。
+    sendFile(req, res, rs, wwwDocCachePolicy(rs), &setCORS, true);
   }
 }

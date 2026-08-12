@@ -69,9 +69,10 @@ class AssetService {
           res.headers["Access-Control-Allow-Origin"] = "*";
         }
 
-        auto policy = assetBundleCachePolicy(repo.isDynaBundle(uri));
+        auto dyna = repo.isDynaBundle(uri);
+        auto policy = assetBundleCachePolicy(dyna);
         if (rs.length == 1) {
-          sendFile(req, res, rs[0], policy, &setCORS);
+          sendFile(req, res, rs[0], policy, &setCORS, !dyna);
         } else {
           sendFiles(req, res, rs, policy, &setCORS);
         }

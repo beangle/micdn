@@ -154,10 +154,10 @@
     </xs:attribute>
   </xs:complexType>
 
-  <!-- docType for www：npm / dir / zip 三选一（属性）；inner 仅用于 npm/zip 包内子目录 -->
+  <!-- docType for www：npm / zip 二选一（属性）；inner 仅用于 npm/zip 包内子目录 -->
   <xs:complexType name="docType">
     <xs:annotation>
-      <xs:documentation> name 必填；npm、dir、zip 三属性恰填其一（解析期校验）。inner、try-file 可选；npm 默认 dist，zip 默认空。 </xs:documentation>
+      <xs:documentation> name 必填；npm、zip 二属性恰填其一（解析期校验）。inner、try-file 可选；npm 默认 dist，zip 默认空。 </xs:documentation>
     </xs:annotation>
     <xs:attribute name="name" type="docNameType" use="required">
       <xs:annotation>
@@ -167,11 +167,6 @@
     <xs:attribute name="npm" type="xs:string" use="optional">
       <xs:annotation>
         <xs:documentation> NPM 包规格，如 @scope/package@version </xs:documentation>
-      </xs:annotation>
-    </xs:attribute>
-    <xs:attribute name="dir" type="xs:string" use="optional">
-      <xs:annotation>
-        <xs:documentation> 本地目录路径 </xs:documentation>
       </xs:annotation>
     </xs:attribute>
     <xs:attribute name="zip" type="xs:string" use="optional">

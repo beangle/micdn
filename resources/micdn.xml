@@ -121,6 +121,7 @@
     </bundle>
   </static>
 
+  <!-- www doc 来源支持 npm / zip 二选一；SPA 可加 try-file -->
   <www base="/var/cache/micdn/www">
     <doc name="manual" npm="@xurp/manual@0.0.2" try-file="index.html"/>
   </www>

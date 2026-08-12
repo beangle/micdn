@@ -53,6 +53,7 @@ import micdn.web;
 import micdn.www;
 import micdn.www.web;
 import micdn.config;
+import micdn.gzip;
 import micdn.logging;
 import micdn.resolve;
 import micdn.runtime;
@@ -263,6 +264,7 @@ version (unittest) {
     }
 
     scope (exit) {
+      stopGzipWorker();
       wwwAutoDeploy.stop();
       listener.stopListening();
     }

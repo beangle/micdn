@@ -9,9 +9,9 @@
 module micdn.www_test;
 
 import std.algorithm : endsWith;
-import std.conv : octal;
 import std.file;
-import std.path : buildPath;
+import std.path : buildPath, dirName;
+import std.zip : ArchiveMember, ZipArchive;
 import micdn.config : parse;
 import micdn.model;
 import micdn.web;
@@ -32,56 +32,6 @@ unittest {
   assert(repo.get("/manual/missing.html") is null);
   assert(repo.get("/other/x") is null);
   assert(repo.get("/manual/../etc/passwd") is null);
-}
-
-@("WwwRepo build ensures www base dir is writable")
-unittest {
-  import std.conv : octal;
-
-  auto home = buildPath(tempDir, "micdn-www-build-writable");
-  scope (exit)
-    if (exists(home))
-      rmdirRecurse(home);
-  auto src = buildPath(home, "src", "manual");
-  mkdirRecurse(src);
-  write(buildPath(src, "index.html"), "ok");
-
-  auto xml = `<?xml version="1.0"?><micdn>
-  <maven/><npm/>
-  <www base="` ~ home ~ `/www">
-    <doc name="manual" dir="` ~ src ~ `" />
-  </www>
-</micdn>`;
-  auto config = parse(home, xml);
-  mkdirRecurse(config.www.base);
-  config.www.base.setAttributes(octal!555);
-
-  auto repo = WwwRepo.build(config);
-  assert(repo.get("/manual/index.html") !is null);
-}
-
-@("deployDoc links dir and leaves tree writable")
-unittest {
-  auto home = buildPath(tempDir, "micdn-www-mount");
-  scope (exit)
-    if (exists(home))
-      rmdirRecurse(home);
-  auto src = buildPath(home, "src", "manual");
-  mkdirRecurse(src);
-  write(buildPath(src, "index.html"), "ok");
-
-  auto xml = `<?xml version="1.0"?><micdn>
-  <maven/><npm/>
-  <www base="` ~ home ~ `/www">
-    <doc name="manual" dir="` ~ src ~ `" />
-  </www>
-</micdn>`;
-  auto config = parse(home, xml);
-  assert(WwwRepo.deployDoc(config, config.www.docs[0]));
-  auto repo = new WwwRepo(config.www.base);
-  assert(repo.get("/manual/index.html") !is null);
-  auto attrs = getAttributes(repo.get("/manual/index.html"));
-  assert((attrs & octal!200) != 0, "mounted files should stay writable");
 }
 
 @("WwwRepo rejects encoded traversal")
@@ -110,7 +60,7 @@ unittest {
   write(buildPath(docRoot, "index.html"), "spa");
   write(buildPath(docRoot, "assets", "ok.js"), "js");
 
-  auto dummy = new DirProvider("/tmp");
+  auto dummy = new ZipProvider("/tmp/placeholder.zip", "");
   auto doc = new WwwDocConfig("app", dummy, "index.html");
   auto repo = new WwwRepo(tmp, [doc]);
 
@@ -133,7 +83,7 @@ unittest {
   write(buildPath(docRoot, "index.html"), "spa");
   write(buildPath(docRoot, "app.js"), "js");
 
-  auto dummy = new DirProvider("/tmp");
+  auto dummy = new ZipProvider("/tmp/placeholder.zip", "");
   auto doc = new WwwDocConfig("m/edu/learning", dummy, "index.html");
   auto repo = new WwwRepo(tmp, [doc]);
 
@@ -150,14 +100,19 @@ unittest {
   scope (exit)
     if (exists(home))
       rmdirRecurse(home);
-  auto src = buildPath(home, "src", "m", "edu", "teaching");
-  mkdirRecurse(src);
-  write(buildPath(src, "index.html"), "spa");
+  auto zipPath = buildPath(home, "teaching.zip");
+  mkdirRecurse(dirName(zipPath));
+  auto m = new ArchiveMember();
+  m.name = "index.html";
+  m.expandedData(cast(ubyte[]) "spa");
+  auto z = new ZipArchive();
+  z.addMember(m);
+  write(zipPath, z.build());
 
   auto xml = `<?xml version="1.0"?><micdn>
   <maven/><npm/>
   <www base="` ~ home ~ `/www">
-    <doc name="m/edu/teaching" dir="` ~ src ~ `" try-file="index.html" />
+    <doc name="m/edu/teaching" zip="` ~ zipPath ~ `" try-file="index.html" />
   </www>
 </micdn>`;
   auto config = parse(home, xml);
@@ -176,7 +131,7 @@ unittest {
       rmdirRecurse(tmp);
   mkdirRecurse(buildPath(tmp, "app"));
 
-  auto dummy = new DirProvider("/tmp");
+  auto dummy = new ZipProvider("/tmp/placeholder.zip", "");
   auto doc = new WwwDocConfig("app", dummy, "index.html");
   auto repo = new WwwRepo(tmp, [doc]);
 
@@ -189,17 +144,23 @@ unittest {
   scope (exit)
     if (exists(home))
       rmdirRecurse(home);
-  auto src = buildPath(home, "src", "spa");
-  mkdirRecurse(src);
-  write(buildPath(src, "app.js"), "js");
+  auto zipPath = buildPath(home, "spa.zip");
+  mkdirRecurse(dirName(zipPath));
+  auto m = new ArchiveMember();
+  m.name = "app.js";
+  m.expandedData(cast(ubyte[]) "js");
+  auto z = new ZipArchive();
+  z.addMember(m);
+  write(zipPath, z.build());
 
   auto xml = `<?xml version="1.0"?><micdn>
   <maven/><npm/>
   <www base="` ~ home ~ `/www">
-    <doc name="spa" dir="` ~ src ~ `" try-file="index.html" />
+    <doc name="spa" zip="` ~ zipPath ~ `" try-file="index.html" />
   </www>
 </micdn>`;
   auto config = parse(home, xml);
+  assert(cast(ZipProvider) config.www.docs[0].provider !is null);
   assert(WwwRepo.deployDoc(config, config.www.docs[0]));
   auto repo = new WwwRepo(config.www.base, config.www.docs);
   assert(repo.get("/spa/deep/link").endsWith("index.html"));
@@ -216,7 +177,7 @@ unittest {
   write(buildPath(tmp, "a", "index.html"), "a");
   write(buildPath(tmp, "a", "b", "index.html"), "ab");
 
-  auto dummy = new DirProvider("/tmp");
+  auto dummy = new ZipProvider("/tmp/placeholder.zip", "");
   auto docs = [
     new WwwDocConfig("a", dummy, "index.html"),
     new WwwDocConfig("a/b", dummy, "index.html"),

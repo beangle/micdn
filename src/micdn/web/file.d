@@ -38,6 +38,7 @@ import vibe.http.server;
 import vibe.inet.message;
 import vibe.inet.mimetypes;
 
+import micdn.gzip;
 import micdn.model;
 import micdn.web.cache;
 
@@ -138,10 +139,13 @@ ulong[2] parseRange(string range, ulong maxSize) @safe {
   return [start, end];
 }
 
-/** 发送单个文件；`policy` 必选，见 `micdn.web.cache`。 */
+/** 发送单个文件；`policy` 必选，见 `micdn.web.cache`。
+    `favorGzip` 为 gzip 总开关：false 时完全忽略预压缩（不发送也不生成）；
+    true 时客户端接受 gzip 且存在 `path.gz` 则发送 gz，尚无则入队后台压缩（请求线程只读）。
+*/
 void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
-    string path, immutable(CachePolicy) policy, SendFileHook preWrite = null) {
-  sendFileImpl(req, res, NativePath(path), policy, preWrite);
+    string path, immutable(CachePolicy) policy, SendFileHook preWrite = null, bool favorGzip = false) {
+  sendFileImpl(req, res, NativePath(path), policy, preWrite, favorGzip);
 }
 
 /** 按顺序拼接多个文件；`policy` 必选。 */
@@ -152,7 +156,7 @@ void sendFiles(scope HTTPServerRequest req, scope HTTPServerResponse res,
 }
 
 private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse res, NativePath path,
-    immutable(CachePolicy) policy, SendFileHook preWrite) {
+    immutable(CachePolicy) policy, SendFileHook preWrite, bool favorGzip) {
   auto pathstr = path.toNativeString();
   if (!existsFile(pathstr))
     throw new HTTPStatusException(HTTPStatus.notFound);
@@ -169,6 +173,27 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
     throw new HTTPStatusException(HTTPStatus.notFound);
   }
 
+  // 预压缩 sidecar：仅 favorGzip（非 `<dir>` 挂载）时参与；客户端接受 gzip、
+  // 无 Range 且存在 `path.gz` 则发送 gz 内容，尚无 sidecar 则入队后台压缩。
+  // Content-Type 仍按原文件名取；ETag/Last-Modified/Content-Length 按实际发送的 gz 文件计算。
+  auto prange = "Range" in req.headers;
+  bool gzip;
+  NativePath contentPath = path;
+  if (favorGzip && acceptsGzip(req) && isGzipEligible(pathstr)) {
+    auto gzPath = pathstr ~ ".gz";
+    auto hasGz = existsFile(gzPath);
+    if (prange is null && hasGz) {
+      try {
+        dirent = getFileInfo(gzPath);
+        contentPath = NativePath(gzPath);
+        gzip = true;
+      } catch (Exception) {
+      }
+    }
+    if (!hasGz)
+      enqueueGzip(pathstr);
+  }
+
   if (handleCacheFile(req, res, dirent, policy.cacheControl, policy.maxAge)) {
     return;
   }
@@ -178,10 +203,13 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
   }
   res.headers.addField("Accept-Ranges", "bytes");
   res.headers.addField("Access-Control-Allow-Origin", "*");
+  if (gzip) {
+    res.headers["Content-Encoding"] = "gzip";
+    res.headers.addField("Vary", "Accept-Encoding");
+  }
 
   ulong rangeStart = 0;
   ulong rangeEnd = 0;
-  auto prange = "Range" in req.headers;
 
   if (prange) {
     if (dirent.size == 0) {
@@ -212,14 +240,14 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
     return;
   }
   if (!prange && dirent.size <= maxWholeFileMemSend) {
-    ubyte[] data = readFile(path);
+    ubyte[] data = readFile(contentPath);
     res.bodyWriter.write(data);
     return;
   }
 
   FileStream fil;
   try {
-    fil = openFile(path);
+    fil = openFile(contentPath);
   } catch (Exception e) {
     return;
   }

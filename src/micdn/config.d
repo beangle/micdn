@@ -394,11 +394,14 @@ private BundleProvider parseWwwDocProvider(string home, string[string] docAttrs,
   string zip = docAttrs.get("zip", "").strip();
   string inner = stripLeadingSlash(docAttrs.get("inner", "").strip());
 
-  int sources = (npm.length > 0) + (dir.length > 0) + (zip.length > 0);
+  if (dir.length > 0)
+    throw new Exception("www <doc name=\"" ~ name ~ "\"> dir is not supported; use npm or zip");
+
+  int sources = (npm.length > 0) + (zip.length > 0);
   if (sources == 0)
-    throw new Exception("www <doc name=\"" ~ name ~ "\"> requires one of npm, dir, or zip attribute");
+    throw new Exception("www <doc name=\"" ~ name ~ "\"> requires one of npm or zip attribute");
   if (sources > 1)
-    throw new Exception("www <doc name=\"" ~ name ~ "\"> must not set more than one of npm, dir, zip");
+    throw new Exception("www <doc name=\"" ~ name ~ "\"> must not set more than one of npm, zip");
 
   if (inner.length > 0 && !isSafePathSegments(inner))
     throw new Exception("www <doc name=\"" ~ name ~ "\"> inner must not contain '.' or '..' path segments");
@@ -406,12 +409,6 @@ private BundleProvider parseWwwDocProvider(string home, string[string] docAttrs,
   if (npm.length > 0) {
     auto subdir = inner.length > 0 ? inner : "dist";
     return new NpmProvider(npm, subdir);
-  }
-  if (dir.length > 0) {
-    if (inner.length > 0)
-      throw new Exception("www <doc name=\"" ~ name ~ "\"> inner is not allowed with dir");
-    string loc = expandTilde(dir.replace("${micdn.home}", home));
-    return new DirProvider(loc);
   }
   auto subdir = inner;
   string file = expandTilde(zip.replace("${micdn.home}", home));
