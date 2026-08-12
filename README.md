@@ -76,6 +76,8 @@ static / www 部署的文本类静态资源（`js`、`css`、`html`、`svg`、`j
   - 小文本（如几十字节的 JS/CSS）gzip 固定开销约 18 字节，压缩后往往不更小，下限避免无收益的入队与压缩。
 - 典型前端静态资源（JS/CSS/HTML 等）远小于 8MB、远大于 1KB，该区间不影响正常部署；如需调整，直接修改 `minGzipFileSize` / `maxGzipFileSize` 即可（当前为硬编码，未做配置化）。
 
+与上游中间件（nginx / varnish / haproxy）的缓存、压缩协作部署见 [docs/reverse_proxy.md](docs/reverse_proxy.md)。
+
 ## 安装与运维
 
 | 文档 | 内容 |
@@ -85,6 +87,7 @@ static / www 部署的文本类静态资源（`js`、`css`、`html`、`svg`、`j
 | [docs/build_aur.md](docs/build_aur.md) | Arch AUR |
 | [docs/maintenance.md](docs/maintenance.md) | systemd、`micdn`/`beangle` 权限、resolve/deploy、auto-deploy |
 | [docs/release-v0.2.6.md](docs/release-v0.2.6.md) | 当前版本说明 |
+| [docs/reverse_proxy.md](docs/reverse_proxy.md) | nginx / varnish 缓存、haproxy 压缩等协作部署 |
 
 打包脚本（每次默认 `dub clean` + 清空 `target/` 后全量构建）：
 
