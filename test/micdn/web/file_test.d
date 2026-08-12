@@ -26,7 +26,8 @@ import core.time : msecs;
 
 import vibe.http.common : HTTPMethod, HTTPStatus;
 import vibe.http.server : createTestHTTPServerRequest, createTestHTTPServerResponse, TestHTTPResponseMode;
-import vibe.inet.message : InetHeaderMap;
+import vibe.core.file : getFileInfo;
+import vibe.inet.message : InetHeaderMap, toRFC822DateTimeString;
 import vibe.inet.url : URL;
 import vibe.stream.memory : createMemoryOutputStream;
 
@@ -132,7 +133,50 @@ unittest {
   sendFile(req, res, f, publicMaxAge1yImmutable, null, true);
 
   assert(!("Content-Encoding" in res.headers), "no Content-Encoding without Accept-Encoding");
+  assert(res.headers["Vary"] == "Accept-Encoding", "identity response of gzip-eligible content must declare Vary");
   assert(cast(string) output.data == content);
+}
+
+@("web sendFile omits Vary for incompressible files")
+unittest {
+  auto dir = buildPath(tempDir(), "micdn-sendfile-gz-" ~ randomUUID().toString);
+  mkdirRecurse(dir);
+  scope (exit) rmdirRecurse(dir);
+
+  auto f = buildPath(dir, "a.png");
+  write(f, cast(ubyte[]) [0x89, 0x50, 0x4E, 0x47]);
+
+  InetHeaderMap headers;
+  headers["Accept-Encoding"] = "gzip";
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://localhost/a.png"), HTTPMethod.GET, headers, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  sendFile(req, res, f, publicMaxAge1yImmutable, null, true);
+
+  assert(!("Content-Encoding" in res.headers));
+  assert(!("Vary" in res.headers), "incompressible content must not declare Vary");
+}
+
+@("web sendFile declares Vary on 304 not-modified")
+unittest {
+  auto dir = buildPath(tempDir(), "micdn-sendfile-gz-" ~ randomUUID().toString);
+  mkdirRecurse(dir);
+  scope (exit) rmdirRecurse(dir);
+
+  auto f = buildPath(dir, "a.js");
+  write(f, gzipTestContent());
+  auto mt = toRFC822DateTimeString(getFileInfo(f).timeModified);
+
+  InetHeaderMap headers;
+  headers["If-Modified-Since"] = mt;
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://localhost/a.js"), HTTPMethod.GET, headers, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  sendFile(req, res, f, publicMaxAge1yImmutable, null, true);
+
+  assert(res.statusCode == HTTPStatus.notModified);
+  assert(res.headers["Vary"] == "Accept-Encoding", "304 must declare Vary like the 200 it validates");
+  assert(output.data.length == 0);
 }
 
 @("web sendFile skips gzip for Range requests")
@@ -156,6 +200,7 @@ unittest {
 
   assert(res.statusCode == HTTPStatus.partialContent);
   assert(!("Content-Encoding" in res.headers), "Range responses must serve original file");
+  assert(res.headers["Vary"] == "Accept-Encoding", "gzip-eligible content must declare Vary even on Range responses");
   assert(cast(string) output.data == content[0 .. 4]);
 }
 

@@ -179,7 +179,8 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
   auto prange = "Range" in req.headers;
   bool gzip;
   NativePath contentPath = path;
-  if (favorGzip && acceptsGzip(req) && isGzipEligible(pathstr)) {
+  bool gzipEligible = isGzipEligible(pathstr);
+  if (favorGzip && acceptsGzip(req) && gzipEligible) {
     auto gzPath = pathstr ~ ".gz";
     auto hasGz = existsFile(gzPath);
     if (prange is null && hasGz) {
@@ -194,6 +195,11 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
       enqueueGzip(pathstr);
   }
 
+  // 可压缩内容无论本次是否实际发送 gz 都声明 Vary，避免缓存固化单份原版后压缩版无法命中。
+  // 放在 handleCacheFile 之前，使 304 条件响应同样携带（RFC 7232 §4.1）。
+  if (gzipEligible)
+    res.headers["Vary"] = "Accept-Encoding";
+
   if (handleCacheFile(req, res, dirent, policy.cacheControl, policy.maxAge)) {
     return;
   }
@@ -205,7 +211,6 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
   res.headers.addField("Access-Control-Allow-Origin", "*");
   if (gzip) {
     res.headers["Content-Encoding"] = "gzip";
-    res.headers.addField("Vary", "Accept-Encoding");
   }
 
   ulong rangeStart = 0;
