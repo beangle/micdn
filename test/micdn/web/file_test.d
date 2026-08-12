@@ -20,6 +20,8 @@ import std.file;
 import std.path;
 import std.uuid : randomUUID;
 import std.zlib : UnCompress, HeaderFormat;
+import std.string : indexOf;
+import std.algorithm : canFind;
 
 import core.thread : Thread;
 import core.time : msecs;
@@ -107,13 +109,23 @@ unittest {
   headers["Accept-Encoding"] = "gzip";
   auto output = createMemoryOutputStream();
   auto req = createTestHTTPServerRequest(URL("http://localhost/a.js"), HTTPMethod.GET, headers, null);
-  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  // plain 模式走真实 HTTP1 写出路径：可验证 Content-Length 保留与无二次压缩
+  // （bodyOnly 模式预置 bodyWriter，会绕过 vibe 的 Content-Encoding 处理分支）。
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.plain);
   sendFile(req, res, f, publicMaxAge1yImmutable, null, true);
 
   assert(res.headers["Content-Encoding"] == "gzip", "Content-Encoding should be gzip");
   assert(res.headers["Vary"] == "Accept-Encoding");
-  assert(output.data.length < content.length, "gzip body should be smaller");
-  assert(decompressAll(output.data) == content, "gzip body should decompress to original");
+
+  auto wire = cast(string) output.data;
+  auto sep = wire.indexOf("\r\n\r\n");
+  assert(sep > 0, "plain mode should capture raw HTTP response");
+  auto head = wire[0 .. sep];
+  auto body = wire[sep + 4 .. $];
+  assert(head.canFind("Content-Length: "), "gzip response must keep Content-Length");
+  assert(!head.canFind("Transfer-Encoding: chunked"), "gzip response must not be chunked");
+  assert(body.length < content.length, "gzip body should be smaller");
+  assert(decompressAll(cast(ubyte[]) body) == content, "single decompress must yield original (no double gzip)");
 }
 
 @("web sendFile serves original when client does not accept gzip")

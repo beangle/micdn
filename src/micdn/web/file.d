@@ -30,6 +30,7 @@ import std.typecons;
 import vibe.core.file;
 import vibe.core.path;
 import vibe.core.stream;
+import vibe.stream.memory : createMemoryStream;
 
 /// 无 Range 时整文件若不超过此大小则读入内存再写出，避免 `FileStream` 与 `bodyWriter` 组合在部分场景下的句柄/GC 告警。
 private enum maxWholeFileMemSend = 8u * 1024 * 1024;
@@ -246,7 +247,13 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
   }
   if (!prange && dirent.size <= maxWholeFileMemSend) {
     ubyte[] data = readFile(contentPath);
-    res.bodyWriter.write(data);
+    // gzip 分支走原始写通道：vibe 的 bodyWriter 在 `Content-Encoding: gzip` 时会
+    // 移除 Content-Length 并把输出流再包一层 gzip（假定应用写未压缩内容），
+    // 对预压缩 sidecar 会造成二次压缩；writeRawBody 不做任何进一步编码。
+    if (gzip)
+      res.writeRawBody(createMemoryStream(data));
+    else
+      res.bodyWriter.write(data);
     return;
   }
 
@@ -262,6 +269,8 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
   if (prange) {
     fil.seek(rangeStart);
     fil.pipe(res.bodyWriter, rangeEnd - rangeStart + 1);
+  } else if (gzip) {
+    res.writeRawBody(fil);
   } else {
     fil.pipe(res.bodyWriter);
   }
