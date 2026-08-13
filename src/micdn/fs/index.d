@@ -78,6 +78,9 @@ struct IndexedFileInfo {
 /// 单根目录的发布期文件索引：按相对根目录的段组织的树（段名共享，无路径冗余）。
 /// 请求期沿段遍历判定存在性：命中叶子 = 存在，断链 = 缺失，全程 0 stat。
 final class FileIndex {
+  /// 索引根目录（绝对路径）；构造传入，命中时直接拼物理路径，避免请求期重建
+  const string rootDir;
+
   private static final class Node {
     IndexedFileInfo info;
     Node[string] children;
@@ -92,6 +95,7 @@ final class FileIndex {
   /// 构建为纯只读目录扫描：不生成、不修改任何文件（`*.gz` sidecar 由部署期 `precompressDir`
   /// 预生成后，本扫描仅登记其大小；运行期重建索引同样不会触发 gz 生成）。
   this(string rootDir) {
+    this.rootDir = rootDir;
     root_ = buildDir(rootDir, fileCount_, dirCount_, symlinkCount_);
   }
 

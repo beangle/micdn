@@ -212,12 +212,12 @@ class WwwRepo {
   private WwwFile resolveByStat(const(WwwDocConfig) doc, ref const(ResourceUri) uri) const {
     auto docSegs = doc.segments;
     auto fileSegs = uri.segs[docSegs.length .. $];
-    auto docDir = buildPath(base, doc.name);
+    auto docDir = base ~ "/" ~ doc.name;
     auto location = repositoryPath(base, uri);
     try {
       auto fi = getFileInfo(location);
       if (fi.isDirectory) {
-        auto indexPath = buildPath(location, "index.html");
+        auto indexPath = location ~ "/index.html";
         try {
           auto indexFi = getFileInfo(indexPath);
           if (indexFi.isFile)
@@ -237,7 +237,7 @@ class WwwRepo {
   if (doc.tryFile.length > 0) {
     if (fileSegs.length > 0 && isStaticAsset(fileSegs[$ - 1]))
       return WwwFile(null, doc);
-    auto tryPath = buildPath(docDir, doc.tryFile);
+    auto tryPath = docDir ~ "/" ~ doc.tryFile;
     try {
       auto tryFi = getFileInfo(tryPath);
       if (tryFi.isFile)
@@ -268,13 +268,14 @@ private WwwFile attachGzByStat(const(WwwDocConfig) doc, WwwFile wf) const {
       ref const(ResourceUri) uri) const {
     auto docSegs = doc.segments;
     auto fileSegs = uri.segs[docSegs.length .. $];
-    auto docDir = buildPath(base, doc.name);
+    // 物理路径直接用索引根目录拼接（docDir 固定，构造时已归一；比每请求 buildPath 便宜）
+    auto docDir = idx.rootDir;
 
     if (fileSegs.length == 0) {
       // doc 根（`/manual` 或 `/manual/`）：折叠 index.html
       auto ih = idx.find(["index.html"]);
       if (ih !is null && ih.isFile) {
-        auto indexPath = buildPath(docDir, "index.html");
+        auto indexPath = docDir ~ "/index.html";
         return makeWwwFile(doc, ih, indexPath);
       }
       return WwwFile(null, doc);
@@ -285,12 +286,12 @@ private WwwFile attachGzByStat(const(WwwDocConfig) doc, WwwFile wf) const {
       if (hit.isDirectory) {
         auto ih = idx.find(fileSegs ~ ["index.html"]);
         if (ih !is null && ih.isFile) {
-          auto indexPath = buildPath(docDir, fileSegs.join("/") ~ "/index.html");
+          auto indexPath = docDir ~ "/" ~ fileSegs.join("/") ~ "/index.html";
           return makeWwwFile(doc, ih, indexPath);
         }
         return WwwFile(null, doc);
       }
-      return makeWwwFile(doc, hit, buildPath(docDir, fileSegs.join("/")));
+      return makeWwwFile(doc, hit, docDir ~ "/" ~ fileSegs.join("/"));
     }
 
     // 断链：SPA try-file 回退（索引内查找，0 stat）；带静态扩展名不参与回退。
@@ -299,7 +300,7 @@ private WwwFile attachGzByStat(const(WwwDocConfig) doc, WwwFile wf) const {
         return WwwFile(null, doc);
       auto th = idx.find([doc.tryFile]);
       if (th !is null && th.isFile) {
-        return makeWwwFile(doc, th, buildPath(docDir, doc.tryFile));
+        return makeWwwFile(doc, th, docDir ~ "/" ~ doc.tryFile);
       }
     }
     return WwwFile(null, doc);

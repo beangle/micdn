@@ -100,13 +100,16 @@ class AssetRepo {
       首段为 bundle 名（索引根已含该层），其余段对齐 `{base}/{bundle}`。 */
   AssetFile get(ref const(ResourceUri) uri) const {
     auto bundle = uri.segs.length > 0 ? uri.segs[0] : "";
-    auto location = repositoryPath(base, uri);
     if (auto idx = bundleIndexFor(bundle)) {
       auto hit = idx.find(uri.segs[1 .. $]);
       if (hit is null)
         return AssetFile.init;
+      // 命中路径直接用索引根目录拼接（bundle 根固定，比 repositoryPath 省一次 base 前缀计算）
+      auto rel = uri.segs[1 .. $];
+      auto location = rel.length == 0 ? idx.rootDir : idx.rootDir ~ "/" ~ rel.join("/");
       return AssetFile(bundle, location, *hit, hit.isDirectory);
     }
+    auto location = repositoryPath(base, uri);
     try {
       auto fi = getFileInfo(location);
       return AssetFile(bundle, location, IndexedFileInfo.fromFileInfo(fi), fi.isDirectory);

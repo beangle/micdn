@@ -113,11 +113,12 @@ string repositoryUri(const ResourceUri uri) {
 }
 
 /** 由 `ResourceUri` 的段构造绝对物理路径（须已由 `getResourceUri`/`segmentPath` 消解）。
-    空段返回 `baseAbs` 本身；段无 `.`/`..`，拼接结果天然在 `baseAbs` 下，无需再次越界校验。 */
+    空段返回 `baseAbs` 本身；`baseAbs` 须为归一绝对路径（无尾斜杠）、`segs` 无 `.`/`..` 与空段，
+    直接拼接即安全且比 `buildPath` 便宜（后者内部逐字符 chainPath 拷贝）。 */
 string repositoryPath(string baseAbs, const ResourceUri uri) {
   if (uri.segs.length == 0)
     return baseAbs;
-  return buildPath(baseAbs, uri.segs.join("/"));
+  return baseAbs ~ "/" ~ uri.segs.join("/");
 }
 
 /** 解码相对路径（由 `getResourceUri` 在 HTTP 入口调用；测试亦可直调）。
