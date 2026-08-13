@@ -9,7 +9,7 @@
 module micdn.main_test;
 
 import std.file;
-import std.path : buildPath;
+import std.path : absolutePath, buildPath;
 
 import micdn.asset : AssetRepo;
 import micdn.config : parseFile;

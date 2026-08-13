@@ -576,12 +576,17 @@ void ensureDirWritable(string dir) {
     dir.setAttributes(dir.getAttributes | octal!700);
 }
 
-/** 确保目录存在，并探测当前进程能否在其中创建文件（挂载前校验用）。 */
+/** 校验部署目录可用：目录已存在时探测其可写；不存在时探测父链可写。
+    不创建目标目录本身，避免部署前留下空目录（clean 后重启会对自建空目录误打 Removing）。 */
 bool verifyDeployDirWritable(string dir) {
   if (dir.length == 0)
     return false;
   try {
-    mkdirRecurse(dir);
+    if (!exists(dir)) {
+      auto parent = dirName(dir);
+      mkdirRecurse(parent);
+      dir = parent;
+    }
     if (!exists(dir) || !isDir(dir))
       return false;
     auto probe = buildPath(dir, ".micdn-write-probe");
