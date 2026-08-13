@@ -40,7 +40,7 @@ final class WwwAutoDeployer {
   private Timer _pollTimer;
   private bool _pollActive;
 
-  version (Linux) {
+  version (linux) {
     import micdn.fs.watch;
 
     private Watch _watch;
@@ -56,7 +56,7 @@ final class WwwAutoDeployer {
     if (config.www is null)
       return;
 
-    version (Linux) {
+    version (linux) {
       import core.sys.linux.sys.inotify;
 
       string[] watchDirs;
@@ -110,7 +110,7 @@ final class WwwAutoDeployer {
       _pollTimer.stop();
       _pollActive = false;
     }
-    version (Linux) {
+    version (linux) {
       if (_watchActive) {
         _watch.stop();
         _watchActive = false;
@@ -120,7 +120,7 @@ final class WwwAutoDeployer {
     _config = null;
   }
 
-  version (Linux) {
+  version (linux) {
     private void onPoll() @trusted {
       if (!_watchActive)
         return;

@@ -19,7 +19,7 @@ module test.micdn.fs.watch_test;
 import micdn.fs.watch;
 import micdn.fs.inotify;
 
-version (Linux) {
+version (linux) {
   import core.sys.linux.sys.inotify;
   import core.thread;
   import core.time;

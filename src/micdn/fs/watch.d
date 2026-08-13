@@ -17,7 +17,7 @@
 module micdn.fs.watch;
 /// 目录/文件变动监控封装，Linux 下基于 inotify，其它平台返回空实现。
 
-version (Linux) {
+version (linux) {
   import std.algorithm;
   import std.exception;
   import std.file;
