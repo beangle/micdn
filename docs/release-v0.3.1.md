@@ -9,7 +9,7 @@
 
 v0.3.1 是维护性小版本，主题是「更省内存、更稳定」。
 
-- **更省内存**：文件响应改为 `FileStream` 流式写出（不再整文件读入 GC 堆）；内置主动回收 `runGcMinimize`（启动期重活后回收一次 + 每 20 分钟周期回收，glibc `malloc_trim` 经 dlsym 探测、musl 下自动跳过）；GC `maxPoolSize` 调至 4M（实测各阶段 RSS 比 8M 低 5–8MB，吞吐无回退）；新增 `/admin/reclaim` 按需回收端点。
+- **更省内存**：文件响应改为 `FileStream` 流式写出（不再整文件读入 GC 堆）；内置主动回收 `runGcMinimize`（启动期重活后回收一次 + 每 10 分钟周期回收，glibc `malloc_trim` 经 dlsym 探测、musl 下自动跳过）；GC `maxPoolSize` 调至 4M（实测各阶段 RSS 比 8M 低 5–8MB，吞吐无回退）；新增 `/admin/reclaim` 按需回收端点。
 - **更稳定**：修复 `version (Linux)` 守卫（实际为 `version (linux)`），inotify watch、www auto-deploy、SIGHUP reload 在 Linux 真正编译启用；SIGHUP 改经 eventcore 跨线程事件派发，不再因任务落在不消费队列的线程而失效；`clean` 后重启不再为自建空目录输出 `Removing` 噪音日志。
 - **工程**：压测脚本化——`scripts/stress_bench.sh`（四场景吞吐）与 `scripts/stress_mem.sh`（多文件内存，可选 `/admin/reclaim`），移除旧 `scripts/stress_http.sh`；固化了历次压测踩坑（ab URL 最后传参、awk 解析、404 不带 `-k`、记录 CPU 频率与 load）。
 
@@ -22,7 +22,7 @@ v0.3.1 是维护性小版本，主题是「更省内存、更稳定」。
 ### 更省内存
 
 - 流式响应：`sendFile` 走 `FileStream` pipe（`maxWholeFileMemSend = 0`），大文件不再整读入 GC 堆，降低堆峰值与分配抖动；gzip 预压缩 sidecar 走 `writeRawBody` 原始写通道，避免 `Content-Encoding: gzip` 下的二次压缩。
-- 主动回收：启动期重活（www 索引构建、gzip 预压缩）完成后立即回收一次，让 RSS 回到日常水平；之后每 20 分钟周期回收；`runGcMinimize` 统一为 `GC.collect` + minimize + glibc `malloc_trim`（dlsym 运行时探测，musl/Alpine 镜像无此符号时自动跳过）。
+- 主动回收：启动期重活（www 索引构建、gzip 预压缩）完成后立即回收一次，让 RSS 回到日常水平；之后每 10 分钟周期回收；`runGcMinimize` 统一为 `GC.collect` + minimize + glibc `malloc_trim`（dlsym 运行时探测，musl/Alpine 镜像无此符号时自动跳过）。
 - GC `maxPoolSize` 4M：与 8M 同日 A/B 对比，RSS 各阶段低 5–8MB，四场景吞吐无回退（详见「性能数据」）。
 - `/admin/reclaim`：按需手动回收（仅 localhost），返回回收前后 RSS/HWM、GC used/free 与 `mallocTrim` 布尔值，便于观察"内存是否真的还给了 OS"。
 
