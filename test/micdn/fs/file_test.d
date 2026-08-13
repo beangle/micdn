@@ -318,6 +318,19 @@ unittest {
   assert(verifyDeployDirWritable(tmp));
 }
 
+@("verifyDeployDirWritable must not create the target directory itself")
+unittest {
+  auto tmp = buildPath(tempDir(), "micdn-writable-missing-" ~ randomUUID().toString);
+  auto target = buildPath(tmp, "deep", "doc-0.0.4");
+  scope (exit) {
+    if (exists(tmp))
+      rmdirRecurse(tmp);
+  }
+  assert(verifyDeployDirWritable(target), "parent chain writable must pass");
+  assert(exists(dirName(target)), "parent chain must be created");
+  assert(!exists(target), "target directory itself must not be created");
+}
+
 @("isSafePathSegments rejects traversal segments")
 unittest {
   assert(isSafePathSegments("/manual"));
