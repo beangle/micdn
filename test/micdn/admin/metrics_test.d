@@ -14,6 +14,7 @@ import core.sys.posix.unistd : getpid;
 import std.string;
 
 import micdn.admin.metrics;
+import micdn.runtime;
 
 @("admin metrics atomic request counters")
 unittest {
