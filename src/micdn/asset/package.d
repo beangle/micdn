@@ -15,20 +15,34 @@
  */
 
 module micdn.asset;
-/// 静态资源子模块：根据配置构建/刷新本地资源仓库，并按 URI 解析并返回物理路径列表。
+/// 静态资源子模块：根据配置构建/刷新本地资源仓库，并按 URI 解析出命中结果（物理路径 + 文件信息）。
 
 import std.algorithm;
 import std.exception;
 import std.file;
 import std.path;
 import std.string;
+import std.datetime.stopwatch : StopWatch;
 
 import vibe.core.log;
+import vibe.core.file : FileInfo, getFileInfo;
 
+import micdn.fs.index;
 import micdn.fs.file;
 import micdn.model;
 import micdn.npm;
 import micdn.web;
+import micdn.web.gzip : precompressDir;
+
+/// `AssetRepo.get` 命中结果：所属 bundle 名、物理路径、命中文件/目录的 `IndexedFileInfo`
+/// （文件命中且存在 `path.gz` 时 `gzSize` 非 0；非 `<dir>` bundle 强制 gzip，索引同趟登记）
+/// 与目录标志。未命中时 `path` 为 null。
+struct AssetFile {
+  string bundle; // 所属 bundle 名（URI 首段；供 `isDynaBundle` 等按 bundle 粒度判定，免重复解析 URI）
+  string path;
+  IndexedFileInfo info;
+  bool isDir;
+}
 
 /// 静态资源仓库实例，持有本地根目录与目录列表开关，提供 URI 解析与文件路径查询。
 class AssetRepo {
@@ -39,85 +53,83 @@ class AssetRepo {
   /// `null` 表示无任何 dyna bundle 登记（与空表等价）。
   const bool[string] dynaBundles;
 
+  /// 非 `<dir>` bundle 的发布期文件索引（键为 bundle 名）：存在性与 gzip sidecar 查表（0 stat）。
+  const FileIndex[string] bundleIndexes;
+
   /** 构造资源仓库实例。
 
       Params:
           base         = 仓库根目录
           dynaBundles = dyna bundle 名集合；`null` 表示未登记
+          bundleIndexes = 非 `<dir>` bundle 的文件索引；`null` 表示未构建
   */
-  this(string base, bool[string] dynaBundles = null) {
+  this(string base, bool[string] dynaBundles = null, FileIndex[string] bundleIndexes = null) {
     enforce(base.length > 0, "repo base must not be empty");
     this.base = absolutePath(expandTilde(base));
     this.dynaBundles = dynaBundles;
+    this.bundleIndexes = bundleIndexes;
   }
 
-  /** 根据逻辑 URI 解析出对应的本地文件路径列表。
+  /** 非 `<dir>` bundle 的文件索引（按 bundle 名查；dyna 或未构建返回 null）。 */
+  private const(FileIndex)* bundleIndexFor(string bundle) const {
+    if (bundleIndexes is null)
+      return null;
+    return bundle in bundleIndexes;
+  }
 
-      支持逗号合并写法（如 /a/b,c.js 解析为 /a/b.js 与 /a/c.js）。
-      路径经 URL 解码与规范化后须位于 `base` 下；任一文件不存在时返回 null。
-
-      Params:
-          uri = 逻辑 URI（可含逗号表示多个文件）
-
-      Returns:
-          本地绝对路径数组，失败返回 null
-  */
   /** 从逻辑 URI 取首段 bundle 名（如 `/bui/0.6.7/x.js` → `bui`）。假定路径以 `/` 开头（`getPath` 语义）。 */
-  static string bundleNameFromUri(string uri) {
+  private static string bundleNameFromUri(string uri) {
+    if (uri is null || uri.length < 2)
+      return ""; // 空/仅 "/"（或解码失败的 null）：无 bundle 名，按未登记处理
     auto idx = uri.indexOf('/', 1);
     if (idx < 0)
       return uri[1 .. $];
     return uri[1 .. idx];
   }
 
-  /** 首段 bundle 在 `dynaBundles` 中时为 true（`<dir>` 挂载），用于 HTTP 缓存策略。 */
-  bool isDynaBundle(string uri) const {
+  /** bundle 名在 `dynaBundles` 中时为 true（`<dir>` 挂载），用于 HTTP 缓存策略。 */
+  bool isDynaBundle(string bundle) const {
     if (dynaBundles is null)
       return false;
-    return (bundleNameFromUri(uri) in dynaBundles) !is null;
+    return (bundle in dynaBundles) !is null;
   }
 
-  /** Params: uri = 已由 `getPath` 解码的相对路径。
+  /** 按逻辑 URI 解析并预取文件信息（类似 `WwwRepo.get`），不支持逗号拼接形式。
+
+      非 `<dir>` bundle：发布期索引查询（存在性、目录分支与 gzip sidecar，0 stat）；
+      `<dir>` bundle（dyna）：单次异步 stat。命中（文件或目录）时 `path` 非 null，
+      文件命中且存在 `path.gz` 时 `info.gzSize` 为其大小；未命中时 `path` 为 null。
   */
-  string[] get(string uri) const {
-    auto files = resolve(uri);
-    string[] paths;
-    paths.length = files.length;
-    for (int i = 0; i < files.length; i++) {
-      auto location = resolveRepositoryPath(base, files[i]);
-      if (location is null || !exists(location))
-        return null;
-      paths[i] = location;
+  AssetFile get(string uri) const {
+    auto bundle = bundleNameFromUri(uri);
+    auto location = resolveRepositoryPath(base, uri);
+    if (location is null)
+      return AssetFile.init;
+    if (auto idx = bundleIndexFor(bundle)) {
+      auto hit = idx.find(indexSegments(uri));
+      if (hit is null)
+        return AssetFile.init;
+      return AssetFile(bundle, location, *hit, hit.isDirectory);
     }
-    return paths;
+    try {
+      auto fi = getFileInfo(location);
+      return AssetFile(bundle, location, IndexedFileInfo.fromFileInfo(fi), fi.isDirectory);
+    } catch (Exception) {
+      return AssetFile.init;
+    }
   }
 
-  /** 将“逗号合并”形式的 URI 拆成多个逻辑路径。
-
-      例如 "/path/a,b.js" -> ["/path/a.js", "/path/b.js"]，无逗号则返回 [uri]。
-
-      Params:
-          uri = 可能含逗号的 URI
-
-      Returns:
-          拆分后的路径数组
-  */
-  static string[] resolve(string uri) {
-    auto commaIdx = uri.indexOf(',');
-    if (commaIdx > 0) {
-      auto lastDotIdx = lastIndexOf(uri, '.');
-      auto extension = uri[lastDotIdx .. $];
-      string path = uri[0 .. commaIdx];
-      auto lastSlashIdx = lastIndexOf(path, '/');
-      path = path[0 .. lastSlashIdx + 1];
-      string[] names = split(uri[(lastSlashIdx + 1) .. lastDotIdx], ',');
-      for (int i = 0; i < names.length; i++) {
-        names[i] = path ~ names[i] ~ extension;
-      }
-      return names;
-    } else {
-      return [uri];
+  /** 逻辑 URI（以 `/` 开头）切段并剥掉 bundle 名首段，与索引根（`{base}/{bundle}`）对齐。
+      如 `/bui/0.1/a.js` → `["0.1", "a.js"]`；仅 bundle 根（`/bui`）返回空段（命中根目录）。 */
+  private static string[] indexSegments(string uri) {
+    string[] segs;
+    auto parts = uri.split("/");
+    // parts[0] 为前导空段，parts[1] 为 bundle 名（索引根已含该层，不再参与查找）
+    foreach (part; parts[2 .. $]) {
+      if (part.length > 0)
+        segs ~= part;
     }
+    return segs;
   }
 
   /** 确保 `asset.base` 存在且目录本身可写（见 `ensureDirWritable`，不递归子项）。 */
@@ -141,18 +153,39 @@ class AssetRepo {
     prepareBase(base);
 
     bool[string] dynaBundles;
+    FileIndex[string] indexes;
+    size_t bundleCount, fileCount, dirCount, symlinkCount;
+    StopWatch sw; // 仅累计索引构建耗时（部署期解压/下载不计入）
     logInfo("Building static resources at %s", base);
     foreach (c; config.asset.bundles) {
       deployBundle(config, c);
+      bool dyna;
       foreach (p; c.providers) {
         if (DirProvider dp = cast(DirProvider) p) {
           auto bundleBase = base ~ "/" ~ c.name;
           if (exists(dp.location) && exists(bundleBase))
-            dynaBundles[c.name] = true;
+            dyna = true;
+        }
+      }
+      if (dyna) {
+        dynaBundles[c.name] = true;
+      } else {
+        auto bundleBase = base ~ "/" ~ c.name;
+        if (exists(bundleBase)) {
+          sw.start();
+          auto idx = new FileIndex(bundleBase);
+          sw.stop();
+          indexes[c.name] = idx;
+          bundleCount++;
+          fileCount += idx.fileCount;
+          dirCount += idx.dirCount;
+          symlinkCount += idx.symlinkCount;
         }
       }
     }
-    return new AssetRepo(base, dynaBundles.rehash());
+    logInfo("Built asset bundle indexes: %s bundles, %s files, %s dirs, %s symlinks in %s ms",
+        bundleCount, fileCount, dirCount, symlinkCount, sw.peek.total!"msecs");
+    return new AssetRepo(base, dynaBundles.rehash(), indexes);
   }
 
   /** 将单个 static `<bundle>` 安装到 `asset.base` 下。供 `build` 与 `micdn … deploy static` 共用。
@@ -228,23 +261,33 @@ class AssetRepo {
       logError("Deploy static %s failed: %s is not writable", gap.gav, docBase);
       return false;
     }
-    if (exists(localJar))
-      return deployJar(localJar, docBase, innerDir, gap.gav, force);
-    if (localJar.endsWith("SNAPSHOT.jar")) {
+    bool deployed;
+    if (exists(localJar)) {
+      deployed = deployJar(localJar, docBase, innerDir, gap.gav, force);
+    } else if (localJar.endsWith("SNAPSHOT.jar")) {
       logWarn("Cannot resolve %s, ignore it.", gap.gav);
       return false;
-    }
-    string[] remotes = maven.remoteUrls(gap.gav);
-    mkdirRecurse(dirName(localJar));
-    foreach (remote; remotes) {
-      logInfo("Downloading %s", remote);
-      import micdn.web.file;
+    } else {
+      string[] remotes = maven.remoteUrls(gap.gav);
+      mkdirRecurse(dirName(localJar));
+      foreach (remote; remotes) {
+        logInfo("Downloading %s", remote);
+        import micdn.web.file;
 
-      if (curlDownload(remote, localJar))
-        return deployJar(localJar, docBase, innerDir, gap.gav, force);
+        if (curlDownload(remote, localJar)) {
+          deployed = deployJar(localJar, docBase, innerDir, gap.gav, force);
+          break;
+        }
+      }
+      if (!deployed) {
+        logWarn("Cannot resolve %s", gap.gav);
+        return false;
+      }
     }
-    logWarn("Cannot resolve %s", gap.gav);
-    return false;
+    // 非 `<dir>` bundle 强制启用 gzip：部署期预压缩全部可压缩文件（sidecar 已存在则跳过）。
+    if (deployed)
+      precompressDir(docBase);
+    return deployed;
   }
 
   private static bool deployBundleNpm(MicdnConfig config, const string bundlePath, const NpmProvider np,
@@ -265,6 +308,8 @@ class AssetRepo {
       logWarn("Failed to extract %s to %s", tgzPath, docBase);
       return false;
     }
+    // 非 `<dir>` bundle 强制启用 gzip：部署期预压缩全部可压缩文件（sidecar 已存在则跳过）。
+    precompressDir(docBase);
     return true;
   }
 

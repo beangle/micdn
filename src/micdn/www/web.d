@@ -19,6 +19,7 @@ module micdn.www.web;
 
 import std.exception;
 
+import vibe.core.file : FileInfo;
 import vibe.http.server;
 
 import micdn.web;
@@ -51,7 +52,8 @@ class WwwService {
       res.headers["Access-Control-Allow-Origin"] = "*";
     }
 
-    // gzip 预压缩按 doc 的 auto-gzip 开关（默认参与）；FileInfo 由 repo.get 预取复用，避免二次 stat。
-    sendFile(req, res, rs.path, rs.info, wwwDocCachePolicy(rs.path), &setCORS, rs.doc.autoGzip);
+    // gzip 预压缩按 doc 的 auto-gzip 开关（默认参与）：sidecar 信息随 rs.info.gzSize 传入，
+    // sendFile 内部决定是否发送 path.gz（modified/flags 复用源文件，缓存元数据稳定）。
+    sendFile(req, res, rs.path, rs.info, wwwDocCachePolicy(rs.path), &setCORS);
   }
 }

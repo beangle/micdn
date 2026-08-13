@@ -31,11 +31,11 @@ unittest {
   auto repo = new WwwRepo(tmp, [new WwwDocConfig("manual", dummy)]);
   auto hit = repo.get("/manual/a.html");
   assert(hit.path == resolveRepositoryPath(tmp, decodeRepositoryUri("/manual/a.html")));
-  assert(hit.info.isFile, "hit must carry the resolved file info");
+  assert(hit.info.isFile(), "hit must carry the resolved file info");
   assert(hit.info.size == cast(ulong) "<html></html>".length);
   auto miss = repo.get("/manual/missing.html");
   assert(miss.path is null);
-  assert(!miss.info.isFile, "miss must not carry file info");
+  assert(!miss.info.isFile(), "miss must not carry file info");
   assert(repo.get("/other/x").path is null);
   assert(repo.get("/manual/../etc/passwd").path is null);
 }
@@ -317,7 +317,7 @@ unittest {
   assert(hit.doc.autoGzip == false);
   auto plain = repo.get("/plain/");
   assert(plain.doc.autoGzip == true);
-  assert(plain.info.isFile, "directory index must carry index.html info");
+  assert(plain.info.isFile(), "directory index must carry index.html info");
   assert(repo.get("/missing").path is null);
 }
 
@@ -369,7 +369,7 @@ unittest {
 
   auto fileHit = repo.get("/manual/assets/app.js");
   assert(fileHit.path !is null && fileHit.path.endsWith("app.js"));
-  assert(fileHit.info.isFile && fileHit.info.size == 2);
+  assert(fileHit.info.isFile() && fileHit.info.size == 2);
   auto dirFold = repo.get("/manual/docs");
   assert(dirFold.path !is null && dirFold.path.endsWith(buildPath("docs", "index.html")));
   auto spa = repo.get("/manual/route/foo");
@@ -411,7 +411,7 @@ unittest {
   assert(repo.get("/manual/b.js").path !is null, "rebuildIndex must pick up redeployed files");
 }
 
-@("WwwRepo index ignores runtime gzip sidecars")
+@("WwwRepo index attaches gzip sidecar to source node")
 unittest {
   auto home = buildPath(tempDir, "micdn-www-index-gz");
   scope (exit)
@@ -434,10 +434,75 @@ unittest {
 </micdn>`;
   auto repo = WwwRepo.build(parse(home, xml));
 
+  // 部署期预压缩对小文件（<1KB）不生成 sidecar；手动写入并重建索引验证挂载逻辑。
   write(buildPath(home, "www", "manual", "a.js.gz"), "gz");
-  assert(repo.get("/manual/a.js.gz").path is null, "gz sidecar must not be indexed");
-  assert(repo.get("/manual/a.js").path !is null, "source file still served");
-
   repo.rebuildIndex("manual");
-  assert(repo.get("/manual/a.js.gz").path is null, "rebuild must keep ignoring gz sidecars");
+
+  auto hit = repo.get("/manual/a.js");
+  assert(hit.path !is null && hit.info.gzSize != 0, "sidecar size must be attached to the source node");
+  assert(hit.info.gzSize == getSize(buildPath(home, "www", "manual", "a.js.gz")));
+  assert(repo.get("/manual/a.js.gz").path is null, "gz sidecar is not addressable as content");
+}
+
+@("WwwRepo deploy precompresses autoGzip doc and index attaches sidecar")
+unittest {
+  auto home = buildPath(tempDir, "micdn-www-precompress");
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  auto zipPath = buildPath(home, "site.zip");
+  mkdirRecurse(dirName(zipPath));
+  string bigContent;
+  foreach (i; 0 .. 200)
+    bigContent ~= "var k = 1; console.log('x');\n";
+  auto m = new ArchiveMember();
+  m.name = "big.js";
+  m.expandedData(cast(ubyte[]) bigContent);
+  auto z = new ZipArchive();
+  z.addMember(m);
+  write(zipPath, z.build());
+
+  auto xml = `<?xml version="1.0"?><micdn>
+  <maven/><npm/>
+  <www base="` ~ home ~ `/www">
+    <doc name="manual" zip="` ~ zipPath ~ `" />
+  </www>
+</micdn>`;
+  auto repo = WwwRepo.build(parse(home, xml));
+
+  auto gzPath = buildPath(home, "www", "manual", "big.js.gz");
+  assert(exists(gzPath), "autoGzip doc must be precompressed at deploy time");
+  auto hit = repo.get("/manual/big.js");
+  assert(hit.info.gzSize != 0, "index must attach the deploy-time sidecar");
+  assert(hit.info.gzSize == getSize(gzPath));
+}
+
+@("WwwRepo auto-gzip=false skips deploy precompression")
+unittest {
+  auto home = buildPath(tempDir, "micdn-www-nogzip");
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  auto zipPath = buildPath(home, "site.zip");
+  mkdirRecurse(dirName(zipPath));
+  string bigContent;
+  foreach (i; 0 .. 200)
+    bigContent ~= "var k = 1; console.log('x');\n";
+  auto m = new ArchiveMember();
+  m.name = "big.js";
+  m.expandedData(cast(ubyte[]) bigContent);
+  auto z = new ZipArchive();
+  z.addMember(m);
+  write(zipPath, z.build());
+
+  auto xml = `<?xml version="1.0"?><micdn>
+  <maven/><npm/>
+  <www base="` ~ home ~ `/www">
+    <doc name="manual" zip="` ~ zipPath ~ `" auto-gzip="false" />
+  </www>
+</micdn>`;
+  auto repo = WwwRepo.build(parse(home, xml));
+
+  assert(!exists(buildPath(home, "www", "manual", "big.js.gz")), "auto-gzip=false must not precompress");
+  assert(repo.get("/manual/big.js").info.gzSize == 0);
 }

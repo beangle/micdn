@@ -103,15 +103,13 @@ kill <pid>          # 停止
 | 最坏路径（目录 → index.html） | `/manual/` | `./scripts/stress_http.sh 'http://127.0.0.1:8899/manual/'` | 0（索引：目录折叠 index.html 查表） |
 | 文件命中 | `/manual/app.js` | `./scripts/stress_http.sh 'http://127.0.0.1:8899/manual/app.js'` | 0（索引命中） |
 | 404 未命中 | `/manual/nope.js` | `ab -r -n 10000 -c 100 'http://127.0.0.1:8899/manual/nope.js'` | 0（索引断链，静态资产不回退） |
-| gzip 命中 | `/manual/app.js` | 先预热（见下），再 `ab -k -r -n 10000 -c 100 -H 'Accept-Encoding: gzip' 'http://127.0.0.1:8899/manual/app.js'` | 1（get 源文件 0 + sendFile 单次 `getFileInfo(gz)`） |
+| gzip 命中 | `/manual/app.js` | `ab -k -r -n 10000 -c 100 -H 'Accept-Encoding: gzip' 'http://127.0.0.1:8899/manual/app.js'` | 0（索引命中即带 `gzSize`，无需二次 stat） |
 
-> 索引版（发布期文件索引）：`WwwRepo.build` 在 deploy 后遍历 docDir 构建段树索引（`IndexedFileInfo` 轻量快照），请求期存在性/目录折叠/try-file 回退全部查表（0 stat）；autodeploy 重新部署后 `WwwService.invalidateDoc` 触发重建。索引构建跳过 `*.gz`（运行期 sidecar，非部署内容；gz 服务由请求线程直接 `getFileInfo` 现查），反复启停不会把遗留 gz 的元数据预扫进 page cache。非 `build()` 构造的仓库（如直接 `new WwwRepo`）仍走 stat 路径。
+> 索引（发布期文件索引）：`WwwRepo.build` 在 deploy 后遍历各 docDir 构建共享段树索引（`FileIndex`），请求期存在性/目录折叠/try-file 回退全部查表（0 stat）；同一趟构建把 `path.gz` 大小挂到源文件节点（`gzSize`），gzip 命中同样 0 stat。autodeploy 重新部署后 `WwwService.invalidateDoc` 触发重建。索引构建为纯只读扫描，跳过 `*.gz`（不建节点）；非 `build()` 构造的仓库（如直接 `new WwwRepo`）仍走 stat 路径。启动日志输出**汇总**：`Built www file indexes: 1 docs, 6 files, 2 dirs, 0 symlinks in 0 ms`。
 
-**gzip 场景必须预热**：sidecar 由后台线程按需生成，首次请求只会入队并返回原版。
+**gzip sidecar 在部署期已生成**（`precompressDir`，www doc `auto-gzip` 默认参与），无需预热；若目录中缺少 `app.js.gz`，先重新部署或在部署后执行一次 `precompressDir`。
 
 ```bash
-curl -s -H 'Accept-Encoding: gzip' -o /dev/null http://127.0.0.1:8899/manual/app.js
-sleep 1                     # 等后台 worker 生成 app.js.gz
 ls -l /tmp/micdn-stress/www/manual/app.js.gz
 ```
 

@@ -15,34 +15,27 @@
  */
 
 module micdn.web.gzip;
-/// gzip 预压缩 sidecar：请求侧资格判断与后台压缩队列。
+/// gzip 预压缩 sidecar：部署期预压缩与请求侧资格判断。
 ///
 /// 设计约定：
-/// - 请求线程只读 `path.gz`，存在即由 `web.file.sendFile` 直接发送；不存在且 `favorGzip` 时由 `sendFile` 入队，仍按源文件服务。
-/// - 压缩只发生在后台 worker 线程（单消费者），写 `tmp` 后原子 `rename`，无文件写竞争。
-/// - asset 的 `<dir>` 符号链接挂载完全忽略 gzip（不发送已有 `.gz` 也不生成），由调用方以 `favorGzip=false` 排除。
+/// - 压缩只发生在部署期（www doc `auto-gzip` 时、asset 非 `<dir>` bundle），写 `tmp` 后原子 `rename`，无请求期竞争。
+/// - 请求线程只读：调用方预取 `path.gz` 的**大小**（www 发布期索引、asset 非 `<dir>` 索引均含 `gzSize`），
+///   由 `web.file.sendFile` 按 `gzSize` 决定是否发送；不再有后台压缩线程。
+/// - asset 的 `<dir>` 符号链接挂载完全忽略 gzip（不发送已有 `.gz` 也不生成），由调用方以 `gzSize=0` 排除。
 
-import std.exception;
 import std.file;
 import std.path;
 import std.string;
 import std.uni : toLower;
 import std.zlib : Compress, HeaderFormat;
 
-import core.sync.condition : Condition;
-import core.sync.mutex : Mutex;
-import core.thread : Thread;
-
-import vibe.core.log;
 import vibe.http.server : HTTPServerRequest;
 
-/// 后台压缩队列容量上限；满则丢弃入队（去重集合保证同一路径只入队一次，丢弃不损失待压路径）。
-enum size_t maxPendingGzip = 8192;
-/// 单个文件小于该大小不压缩（gzip 固定开销约 18 字节，小文本压缩后通常不更小，避免无收益入队）。
+/// 单个文件小于该大小不压缩（gzip 固定开销约 18 字节，小文本压缩后通常不更小，避免无收益生成）。
 enum size_t minGzipFileSize = 1024;
 /// 单个文件超过该大小不压缩（避免大内存分配），与 `web.file` 内存发送阈值一致。
 enum size_t maxGzipFileSize = 8u * 1024 * 1024;
-/// 压缩级别：后台线程执行，用最高级别。
+/// 压缩级别：部署期执行，用最高级别。
 enum int gzipCompressionLevel = 9;
 
 /// 可压缩的文本类扩展名（小写、含前导 `.`）。已压缩格式（`.gz`/`.br`/图片/字体等）不在白名单。
@@ -59,9 +52,6 @@ shared static this() {
   foreach (ext; gzipExtensionList)
     set[ext] = true;
   gzipExtensions = cast(immutable) set;
-
-  queueMutex = new Mutex();
-  queueCond = new Condition(queueMutex);
 }
 
 /** 文件是否适合 gzip（扩展名在白名单内，且不是符号链接由调用方保证）。 */
@@ -75,8 +65,8 @@ bool isGzipSized(ulong size) @safe pure nothrow {
   return size >= minGzipFileSize && size <= maxGzipFileSize;
 }
 
-/** 文件整体是否适合入队压缩：非符号链接、扩展名白名单、大小在区间内。
-    存在性/目录检查由调用方前置完成（如 `sendFileImpl` 已检查）；worker 侧的 IO 异常由 `workerMain` 兜底。
+/** 文件整体是否适合压缩：非符号链接、扩展名白名单、大小在区间内。
+    存在性/目录检查由调用方前置完成（如 `gzipFile` 已检查）。
 */
 bool isGzipEligibleFile(string path) @safe {
   if (isSymlink(path))
@@ -102,7 +92,7 @@ bool acceptsGzip(scope HTTPServerRequest req) @safe {
 /** 将单个文件压缩为 `path.gz`（tmp + rename 原子落盘）。
 
     仅当压缩后确实更小才生成；文件不存在、过大、已是符号链接或不可压缩时返回 false。
-    sidecar 已存在时视为成功（幂等，供队列去重后的重复处理使用）。
+    sidecar 已存在时视为成功（幂等，供部署期对同一目录的重复调用）。
 */
 bool gzipFile(string path) {
   if (!exists(path) || isDir(path))
@@ -131,66 +121,13 @@ bool gzipFile(string path) {
   return true;
 }
 
-// --- 后台压缩队列：单 worker 线程，Mutex + Condition，去重 ---
-
-private __gshared Mutex queueMutex;
-private __gshared Condition queueCond;
-private __gshared Thread workerThread;
-private __gshared bool workerStopped;
-private __gshared string[] pending;
-private __gshared bool[string] queued;
-
-/** 请求线程调用：将待压缩文件路径入队（去重）；worker 未启动则惰性启动。 */
-void enqueueGzip(string path) {
-  queueMutex.lock();
-  if (workerStopped || (path in queued) !is null || pending.length >= maxPendingGzip) {
-    queueMutex.unlock();
-    return;
+/** 遍历目录，为每个可压缩且大小在区间内的普通文件生成 `path.gz`（sidecar 已存在则跳过）。
+    供部署期调用（www doc `auto-gzip`、asset 非 `<dir>` bundle）；返回本次生成的 sidecar 数。 */
+size_t precompressDir(string dir) {
+  size_t n;
+  foreach (entry; dirEntries(dir, SpanMode.depth)) {
+    if (entry.isFile && !exists(entry.name ~ ".gz") && gzipFile(entry.name))
+      n++;
   }
-  queued[path] = true;
-  pending ~= path;
-  if (workerThread is null) {
-    workerThread = new Thread(&workerMain);
-    workerThread.isDaemon = true;
-    workerThread.start();
-  }
-  queueMutex.unlock();
-  queueCond.notify();
-}
-
-private void workerMain() {
-  while (true) {
-    queueMutex.lock();
-    while (pending.length == 0 && !workerStopped)
-      queueCond.wait();
-    if (pending.length == 0 && workerStopped) {
-      queueMutex.unlock();
-      break;
-    }
-    auto path = pending[$ - 1];
-    pending.length--;
-    queued.remove(path);
-    queueMutex.unlock();
-
-    try
-      gzipFile(path);
-    catch (Exception e)
-      logWarn("gzip sidecar failed for %s: %s", path, e.msg);
-  }
-}
-
-/** 停止并等待后台压缩线程退出（进程退出前调用；未启动过则空操作）。
-    停止后允许再次 `enqueueGzip` 惰性重启新 worker，便于测试复用。 */
-void stopGzipWorker() {
-  queueMutex.lock();
-  workerStopped = true;
-  queueMutex.unlock();
-  queueCond.notifyAll();
-  if (workerThread !is null) {
-    workerThread.join();
-    workerThread = null;
-  }
-  queueMutex.lock();
-  workerStopped = false;
-  queueMutex.unlock();
+  return n;
 }

@@ -26,6 +26,7 @@ import micdn.npm;
 import micdn.web;
 import micdn.web.cache;
 import micdn.web.file;
+import micdn.fs.index;
 
 class NpmService {
   private enum string endpoint = mountNpm;
@@ -52,7 +53,8 @@ class NpmService {
             tfi = getFileInfo(local);
           catch (Exception)
             throw new HTTPStatusException(HTTPStatus.notFound);
-          sendFile(req, res, local, tfi, npmArtifactCachePolicy(), null, false);
+          auto info = IndexedFileInfo.fromFileInfo(tfi);
+          sendFile(req, res, local, info, npmArtifactCachePolicy());
           return;
         }
         throw new HTTPStatusException(HTTPStatus.notFound);
@@ -78,7 +80,8 @@ class NpmService {
         res.redirect(req.requestURI.replace(pub, pub ~ "/"));
       }
     } else {
-      sendFile(req, res, path, fi, npmArtifactCachePolicy(), null, false);
+      auto info = IndexedFileInfo.fromFileInfo(fi);
+      sendFile(req, res, path, info, npmArtifactCachePolicy());
     }
   }
 }

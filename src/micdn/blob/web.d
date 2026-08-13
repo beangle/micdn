@@ -37,6 +37,7 @@ import vibe.inet.url;
 import vibe.web.web;
 
 import micdn.blob.store;
+import micdn.fs.index;
 import micdn.model;
 import micdn.routes;
 import micdn.web;
@@ -262,17 +263,18 @@ void sendObject(BlobRepo repo, const Bucket bucket, string objectPath,
     fi = getFileInfo(physicalPath);
   catch (Exception)
     throw new HTTPStatusException(HTTPStatus.notFound);
+  auto info = IndexedFileInfo.fromFileInfo(fi);
   if (isImage(objectPath)) {
-    sendFile(req, res, physicalPath, fi, blobObjectCachePolicy(), null, false);
+    sendFile(req, res, physicalPath, info, blobObjectCachePolicy());
   } else {
     auto realname = repo.getRealname(bucket, objectPath);
     if (realname.length > 0) {
       void setContextDisposition(scope HTTPServerRequest req, scope HTTPServerResponse res) @safe {
         res.headers["Content-Disposition"] = encodeAttachmentName(realname);
       }
-      sendFile(req, res, physicalPath, fi, blobObjectCachePolicy(), &setContextDisposition, false);
+      sendFile(req, res, physicalPath, info, blobObjectCachePolicy(), &setContextDisposition);
     } else {
-      sendFile(req, res, physicalPath, fi, blobObjectCachePolicy(), null, false);
+      sendFile(req, res, physicalPath, info, blobObjectCachePolicy());
     }
   }
 }

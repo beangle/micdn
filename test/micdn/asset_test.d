@@ -20,6 +20,8 @@ import micdn.asset;
 import micdn.config;
 import micdn.model;
 import micdn.web;
+import micdn.fs.index : FileIndex;
+import micdn.web.gzip : gzipFile;
 import micdn.xml;
 import std.file;
 import std.path;
@@ -29,24 +31,9 @@ unittest {
   bool[string] reg;
   reg["mine"] = true;
   auto repo = new AssetRepo("/base", reg.rehash());
-  assert(repo.isDynaBundle("/mine/a.js"));
-  assert(repo.isDynaBundle("/mine/x"));
-  assert(!repo.isDynaBundle("/jarbundle/0.1/a.js"));
-  assert(!repo.isDynaBundle("/"));
-}
-
-@("asset Repository resolve")
-unittest {
-  auto uri = "/a/b,c.js";
-  auto paths = AssetRepo.resolve(uri);
-  assert(paths.length == 2);
-  assert(paths[1] == "/a/c.js");
-
-  uri = "/a/b,c1/c.min,c2/c.min.js";
-  paths = AssetRepo.resolve(uri);
-  assert(paths.length == 3);
-  assert(paths[1] == "/a/c1/c.min.js");
-  assert(paths[2] == "/a/c2/c.min.js");
+  assert(repo.isDynaBundle("mine"));
+  assert(!repo.isDynaBundle("jarbundle"));
+  assert(!repo.isDynaBundle(""));
 }
 
 @("asset get rejects traversal under base")
@@ -65,10 +52,95 @@ unittest {
 
   auto repo = new AssetRepo(tmp);
   auto good = repo.get("/bui/0.1/a.js");
-  assert(good !is null);
-  assert(good[0] == resolveRepositoryPath(tmp, "/bui/0.1/a.js"));
-  assert(repo.get(decodeRepositoryUri("/%2e%2e%2f" ~ baseName(outside))) is null);
-  assert(repo.get(decodeRepositoryUri("/%5cWindows%5cwin.ini")) is null);
+  assert(good.path == resolveRepositoryPath(tmp, "/bui/0.1/a.js"));
+  assert(good.info.isFile());
+  assert(repo.get(decodeRepositoryUri("/%2e%2e%2f" ~ baseName(outside))).path is null);
+  assert(repo.get(decodeRepositoryUri("/%5cWindows%5cwin.ini")).path is null);
+}
+
+@("asset get resolves via bundle index with gzSize")
+unittest {
+  auto tmp = absolutePath(buildPath(tempDir, "micdn-asset-index"));
+  scope (exit)
+    if (exists(tmp))
+      rmdirRecurse(tmp);
+  mkdirRecurse(buildPath(tmp, "bui", "0.1"));
+  string content;
+  foreach (i; 0 .. 200)
+    content ~= "var k = 1; console.log('x');\n";
+  auto jsPath = buildPath(tmp, "bui", "0.1", "a.js");
+  write(jsPath, content);
+  assert(gzipFile(jsPath), "non-dir bundles precompress at deploy time");
+
+  FileIndex[string] indexes;
+  indexes["bui"] = new FileIndex(buildPath(tmp, "bui"));
+  auto repo = new AssetRepo(tmp, null, indexes);
+
+  auto rs = repo.get("/bui/0.1/a.js");
+  assert(rs.bundle == "bui", "hit must carry its bundle name");
+  assert(rs.path == resolveRepositoryPath(tmp, "/bui/0.1/a.js"));
+  assert(rs.info.isFile());
+  assert(rs.info.gzSize == getSize(jsPath ~ ".gz"), "index must attach the sidecar size");
+  assert(!rs.isDir);
+  assert(repo.get("/bui/0.1/missing.js").path is null);
+  assert(repo.get("/bui/0.1").isDir, "bundle subdir must resolve as directory");
+  assert(repo.get("/bui").isDir, "bundle root must resolve as directory");
+}
+
+@("asset index semantics: sidecar gzSize, no gz nodes, dirs, stale path")
+unittest {
+  auto tmp = absolutePath(buildPath(tempDir, "micdn-asset-index-sem"));
+  scope (exit)
+    if (exists(tmp))
+      rmdirRecurse(tmp);
+  mkdirRecurse(buildPath(tmp, "bui", "0.1"));
+  string bigContent;
+  foreach (i; 0 .. 200)
+    bigContent ~= "var k = 1; console.log('x');\n";
+  auto bigPath = buildPath(tmp, "bui", "0.1", "big.js");
+  write(bigPath, bigContent);
+  assert(gzipFile(bigPath));
+  // 小于压缩下限的文件部署期不会生成 sidecar
+  write(buildPath(tmp, "bui", "0.1", "small.js"), "var s=1;");
+
+  FileIndex[string] indexes;
+  indexes["bui"] = new FileIndex(buildPath(tmp, "bui"));
+  auto repo = new AssetRepo(tmp, null, indexes);
+
+  auto big = repo.get("/bui/0.1/big.js");
+  assert(big.info.isFile());
+  assert(big.info.gzSize == getSize(bigPath ~ ".gz"), "index must attach the sidecar size");
+  assert(repo.get("/bui/0.1/small.js").info.gzSize == 0, "no sidecar => gzSize 0");
+  assert(repo.get("/bui/0.1/big.js.gz").path is null, ".gz must not be indexed as content");
+  assert(repo.get("/bui/0.1").isDir);
+  assert(repo.get("/bui").isDir);
+
+  // 索引 0 stat：命中后不复查磁盘；文件被删仍返回 path（读盘失败由 sendFile 兜底）。
+  remove(bigPath);
+  auto stale = repo.get("/bui/0.1/big.js");
+  assert(stale.path == resolveRepositoryPath(tmp, "/bui/0.1/big.js"));
+}
+
+@("asset get semantics for dyna dir bundles: no index, gzip ignored")
+unittest {
+  auto tmp = absolutePath(buildPath(tempDir, "micdn-asset-dyna"));
+  scope (exit)
+    if (exists(tmp))
+      rmdirRecurse(tmp);
+  mkdirRecurse(buildPath(tmp, "dirb", "sub"));
+  write(buildPath(tmp, "dirb", "sub", "x.js"), "var x=1;");
+  write(buildPath(tmp, "dirb", "sub", "x.js.gz"), "gz");
+  bool[string] dyna;
+  dyna["dirb"] = true;
+  auto repo = new AssetRepo(tmp, dyna.rehash());
+
+  auto rs = repo.get("/dirb/sub/x.js");
+  assert(rs.bundle == "dirb");
+  assert(rs.info.isFile());
+  assert(rs.info.gzSize == 0, "dyna dir ignores gzip even if a sidecar exists on disk");
+  assert(repo.get("/dirb").isDir);
+  assert(repo.get("/dirb/sub").isDir);
+  assert(repo.get("/dirb/sub/missing.js").path is null);
 }
 
 @("asset Repository config parse")

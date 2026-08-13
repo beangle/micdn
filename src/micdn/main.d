@@ -264,7 +264,6 @@ version (unittest) {
     }
 
     scope (exit) {
-      stopGzipWorker();
       wwwAutoDeploy.stop();
       listener.stopListening();
     }

@@ -18,7 +18,6 @@ module micdn.web.file;
 /// 静态文件响应与 Range/缓存控制等 HTTP 输出工具。
 
 import std.algorithm;
-import std.array;
 import std.ascii : isWhite;
 import std.conv;
 import std.datetime;
@@ -40,6 +39,7 @@ import vibe.inet.message;
 import vibe.inet.mimetypes;
 
 import micdn.web.gzip;
+import micdn.fs.index;
 import micdn.model;
 import micdn.web.cache;
 
@@ -141,58 +141,42 @@ ulong[2] parseRange(string range, ulong maxSize) @safe {
 }
 
 /** 发送单个文件；`policy` 必选，见 `micdn.web.cache`。
-    `favorGzip` 为 gzip 总开关：false 时完全忽略预压缩（不发送也不生成）；
-    true 时客户端接受 gzip 且存在 `path.gz` 则发送 gz，尚无则入队后台压缩（请求线程只读）。
-    `fi` 必填且紧随 `path`：调用方须预先对 `path` stat 并确认文件存在且为普通文件后传入
-    （本函数不再自检）。stat 与读盘之间存在 TOCTOU 窗口，文件被删除/替换时按读盘失败既有逻辑兜底。
+    `info` 必填且紧随 `path`：调用方预取的 `IndexedFileInfo`（www 发布期索引 / asset 索引或 stat /
+    blob、npm、maven 由 `getFileInfo` 转换），须确认 `path` 存在且为普通文件后传入（本函数不再自检）。
+    `info.gzSize` 非 0 且客户端接受 gzip、无 Range 时发送 `path.gz`（sidecar 由部署期预压缩生成，
+    如 www auto-gzip / asset 非 `<dir>` 强制；不再有后台压缩线程）。
+    stat 与读盘之间存在 TOCTOU 窗口，文件被删除/替换时按读盘失败既有逻辑兜底。
 */
 void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
-    string path, ref const(FileInfo) fi, immutable(CachePolicy) policy,
-    SendFileHook preWrite = null, bool favorGzip = false) {
-  sendFileImpl(req, res, NativePath(path), fi, policy, preWrite, favorGzip);
-}
-
-/** 按顺序拼接多个文件；`policy` 必选。 */
-void sendFiles(scope HTTPServerRequest req, scope HTTPServerResponse res,
-    const(string[]) paths, immutable(CachePolicy) policy, SendFileHook preWrite = null) {
-  auto npaths = array(paths.map!(p => NativePath(p)));
-  sendFilesImpl(req, res, npaths, policy, preWrite);
+    string path, ref const(IndexedFileInfo) info, immutable(CachePolicy) policy,
+    SendFileHook preWrite = null) {
+  sendFileImpl(req, res, NativePath(path), info, policy, preWrite);
 }
 
 private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse res, NativePath path,
-    ref const(FileInfo) fi, immutable(CachePolicy) policy, SendFileHook preWrite, bool favorGzip) {
+    ref const(IndexedFileInfo) info, immutable(CachePolicy) policy, SendFileHook preWrite) {
   auto pathstr = path.toNativeString();
-  FileInfo dirent = fi;
+  auto dirent = info.toFileInfo(pathstr);
   if (dirent.isDirectory) {
     throw new HTTPStatusException(HTTPStatus.notFound);
   }
 
-  // 预压缩 sidecar：仅 favorGzip（非 `<dir>` 挂载）时参与；客户端接受 gzip、
-  // 无 Range 且存在 `path.gz` 则发送 gz 内容，尚无 sidecar 则入队后台压缩。
-  // Content-Type 仍按原文件名取；ETag/Last-Modified/Content-Length 按实际发送的 gz 文件计算。
   auto prange = "Range" in req.headers;
   bool gzip;
   NativePath contentPath = path;
-  bool gzipEligible = isGzipEligible(pathstr);
-  if (favorGzip && acceptsGzip(req) && gzipEligible) {
-    auto gzPath = pathstr ~ ".gz";
-    // 无 Range 时探测 sidecar：getFileInfo 一次合并"存在性 + 信息"（不存在/不可读统一按无 sidecar 处理）。
-    if (prange is null) {
-      try {
-        dirent = getFileInfo(gzPath);
-        contentPath = NativePath(gzPath);
-        gzip = true;
-      } catch (Exception) {
-      }
-    }
-    // 未发送 gz 时按源文件判断入队资格（扩展名白名单已由外层 gzipEligible 校验；Range 请求同样入队，保持原语义）。
-    if (!gzip && !dirent.isSymlink && isGzipSized(dirent.size))
-      enqueueGzip(pathstr);
+  // 预压缩 sidecar：`info.gzSize` 由调用方预取（www 索引 / asset 强制），部署期预压缩仅覆盖可压缩白名单，
+  // 非 0 即存在变体，无需再按扩展名判断；客户端接受 gzip 且无 Range 时发送 gz。
+  // Content-Type 仍按原文件名取；ETag/Last-Modified 复用源文件信息（gz 是其编码表示）、Content-Length 用 gz 实际大小。
+  if (info.gzSize != 0 && acceptsGzip(req) && prange is null) {
+    dirent.size = info.gzSize;
+    contentPath = NativePath(pathstr ~ ".gz");
+    gzip = true;
   }
 
-  // 可压缩内容无论本次是否实际发送 gz 都声明 Vary，避免缓存固化单份原版后压缩版无法命中。
-  // 放在 handleCacheFile 之前，使 304 条件响应同样携带（RFC 7232 §4.1）。
-  if (gzipEligible)
+  // 存在 gz 变体的内容无论本次是否实际发送 gz 都声明 Vary（放在 handleCacheFile 之前，
+  // 使 304 条件响应同样携带，RFC 7232 §4.1），避免缓存固化单份原版后压缩版无法命中。
+  // 无变体（不可压缩或未生成 sidecar）不声明。
+  if (info.gzSize != 0)
     res.headers["Vary"] = "Accept-Encoding";
 
   if (handleCacheFile(req, res, dirent, policy.cacheControl, policy.maxAge)) {
@@ -267,70 +251,5 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
     res.writeRawBody(fil);
   } else {
     fil.pipe(res.bodyWriter);
-  }
-}
-
-private void sendFilesImpl(scope HTTPServerRequest req, scope HTTPServerResponse res, NativePath[] paths,
-    immutable(CachePolicy) policy, SendFileHook preWrite) {
-  auto firstPath = paths[0].toNativeString();
-  auto infos = paths.map!(p => getFileInfo(p.toNativeString()));
-  if (handleCacheFile(req, res, infos[0], policy.cacheControl, policy.maxAge)) {
-    return;
-  }
-  assert(infos.length > 0);
-  ulong size = infos.map!(i => i.size).sum;
-  ulong separatorCount = 0;
-  foreach (_; 1 .. infos.length)
-    separatorCount++;
-  size += separatorCount;
-
-  if (!("Content-Type" in res.headers)) {
-    res.headers["Content-Type"] = res.headers.get("Content-Type", getMimeTypeForFile(firstPath));
-  }
-  res.headers["Content-Length"] = size.to!string;
-
-  if (preWrite)
-    preWrite(req, res);
-
-  if (res.isHeadResponse()) {
-    res.writeVoidBody();
-    return;
-  }
-
-  if (size <= maxWholeFileMemSend) {
-    ubyte[] data;
-    data.reserve(cast(size_t) size);
-    foreach (i, p; paths) {
-      if (i > 0)
-        data ~= '\n';
-      data ~= readFile(p);
-    }
-    res.bodyWriter.write(data);
-    return;
-  }
-
-  FileStream[] fss;
-  fss.reserve(paths.length);
-  foreach (ref p; paths) {
-    try {
-      fss ~= openFile(p);
-    } catch (Exception e) {
-      foreach (ref x; fss)
-        x.close();
-      return;
-    }
-  }
-
-  scope (exit) {
-    foreach (ref fs; fss)
-      fs.close();
-  }
-  int processed = 0;
-  foreach (ref fs; fss) {
-    fs.pipe(res.bodyWriter);
-    processed += 1;
-    if (processed < fss.length) {
-      res.writeBody("\n");
-    }
   }
 }

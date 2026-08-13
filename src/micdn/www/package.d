@@ -35,105 +35,8 @@ import micdn.npm;
 import micdn.web.file;
 import micdn.web;
 import micdn.web.ext;
-
-/// www 文件索引条目：发布期 stat 的轻量快照（路径由段树节点隐含，不重复存储）。
-/// 仅保留 HTTP 服务所需字段：类型标志、大小与修改时间（ETag/Last-Modified/Content-Length）。
-struct IndexedFileInfo {
-  enum : ubyte { dirFlag = 0x01, fileFlag = 0x02, symlinkFlag = 0x04 }
-
-  ulong size;
-  long modified; // stdTime（UTC，2000-01-01 起 hnsecs）
-  ubyte flags;
-
-  /// 展开为 vibe `FileInfo`（name/directory 由给定物理路径切片派生，零分配）。
-  FileInfo toFileInfo(string path) const @safe {
-    FileInfo fi;
-    fi.name = baseName(path);
-    fi.directory = NativePath(dirName(path));
-    fi.size = size;
-    fi.timeModified = SysTime(modified, UTC());
-    fi.isSymlink = (flags & symlinkFlag) != 0;
-    fi.isDirectory = (flags & dirFlag) != 0;
-    fi.isFile = (flags & fileFlag) != 0;
-    return fi;
-  }
-
-  bool isDirectory() const @safe pure nothrow {
-    return (flags & dirFlag) != 0;
-  }
-
-  bool isFile() const @safe pure nothrow {
-    return (flags & fileFlag) != 0;
-  }
-}
-
-/// 单 doc 的发布期文件索引：按相对 doc 根的段组织的树（段名共享，无路径冗余）。
-/// 请求期沿段遍历判定存在性：命中叶子 = 存在，断链 = 缺失，全程 0 stat。
-private final class WwwFileIndex {
-  private static final class Node {
-    IndexedFileInfo info;
-    bool hasInfo;
-    Node[string] children;
-  }
-
-  private Node root_;
-  private size_t fileCount_;
-  private size_t dirCount_;
-  private size_t symlinkCount_;
-
-  /// 遍历 docDir 构建（发布期一次；autodeploy 后重建）。
-  this(string docDir) {
-    root_ = buildDir(docDir, fileCount_, dirCount_, symlinkCount_);
-  }
-
-  /// 索引内文件数（不含被跳过的 `*.gz` sidecar）。
-  size_t fileCount() const @property { return fileCount_; }
-  /// 索引内目录数（含 doc 根）。
-  size_t dirCount() const @property { return dirCount_; }
-  /// 索引内符号链接数（只计数，不建条目；请求期按缺失处理）。
-  size_t symlinkCount() const @property { return symlinkCount_; }
-
-  /// 按相对 doc 根段查：命中（文件或目录）返回 info 引用；断链返回 null。
-  const(IndexedFileInfo)* find(scope const(string)[] segments) const {
-    auto node = &root_;
-    foreach (seg; segments) {
-      auto next = seg in node.children;
-      if (next is null)
-        return null;
-      node = next;
-    }
-    return node.hasInfo ? &node.info : null;
-  }
-
-  private static Node buildDir(string dir, ref size_t files, ref size_t dirs, ref size_t symlinks) {
-    auto node = new Node();
-    node.hasInfo = true;
-    node.info.flags = IndexedFileInfo.dirFlag;
-    node.info.modified = DirEntry(dir).timeLastModified.stdTime;
-    dirs++;
-    foreach (entry; dirEntries(dir, SpanMode.shallow)) {
-      auto name = baseName(entry.name);
-      // 跳过运行期 sidecar `*.gz`：非部署内容，且 gz 服务由 web 层直接 `getFileInfo` 现查，
-      // 不依赖索引；排除后反复启停也不会把遗留 gz 的元数据预扫进 page cache。
-      if (entry.isFile && name.endsWith(".gz"))
-        continue;
-      if (entry.isDir) {
-        node.children[name] = buildDir(entry.name, files, dirs, symlinks);
-      } else if (entry.isFile) {
-        files++;
-        auto child = new Node();
-        child.hasInfo = true;
-        child.info.flags = IndexedFileInfo.fileFlag;
-        child.info.size = entry.size;
-        child.info.modified = entry.timeLastModified.stdTime;
-        node.children[name] = child;
-      } else {
-        symlinks++;
-      }
-    }
-    return node;
-  }
-}
+import micdn.fs.index;
+import micdn.web.gzip;
 
 /// 按 doc endpoint 段组织的查找树：URI 段逐级匹配，返回最长前缀命中的 doc。
 /// 不做规范化；调用方须保证传入段已规范化（如由 `resolveRepositoryPath` 归一后剥离 baseAbs 前缀）。
@@ -185,12 +88,14 @@ class WwwDocTree {
   }
 }
 
-/// `WwwRepo.get` 命中结果：最终文件路径、所属 doc 与命中文件的 `FileInfo`
-/// （供 `sendFile` 复用，避免二次 stat）；未命中时 `path` 为 null（已匹配 doc 则 `doc` 非 null，便于 doc 粒度兜底）。
+/// `WwwRepo.get` 命中结果：最终文件路径、所属 doc 与命中文件的 `IndexedFileInfo`
+/// （供 `sendFile` 复用，避免二次 stat）；`autoGzip` 且 sidecar 存在时 `info.gzSize` 为 `path.gz` 的大小
+/// （0 = 无；`modified`/`flags` 复用源文件）。
+/// 未命中时 `path` 为 null（已匹配 doc 则 `doc` 非 null，便于 doc 粒度兜底）。
 struct WwwFile {
   string path;
   const(WwwDocConfig) doc;
-  FileInfo info;
+  IndexedFileInfo info;
 }
 
 /// `www.base` 下的统一仓库：磁盘布局与 URL 一致（`/manual/foo` → `{base}/manual/foo`）。
@@ -201,7 +106,7 @@ class WwwRepo {
   const WwwDocConfig[] docs;
 
   private WwwDocTree docTree;
-  private WwwFileIndex[string] docIndexes;
+  private FileIndex[string] docIndexes;
 
   this(string base, const WwwDocConfig[] docs = null) {
     enforce(base.length > 0, "repo base must not be empty");
@@ -224,10 +129,23 @@ class WwwRepo {
     return repo;
   }
 
-  /** 为全部 doc 构建发布期文件索引（deploy 完成后调用，启动期一次目录遍历）。 */
+  /** 为全部 doc 构建发布期文件索引并输出**汇总**日志（deploy 完成后调用，启动期一次目录遍历）。 */
   private void buildIndexes() {
-    foreach (doc; docs)
-      buildDocIndex(doc);
+    size_t docCount, fileCount, dirCount, symlinkCount;
+    auto sw = StopWatch(AutoStart.yes);
+    foreach (doc; docs) {
+      auto docDir = resolveRepositoryPath(base, doc.endpoint());
+      if (docDir is null)
+        continue;
+      auto idx = new FileIndex(docDir);
+      docIndexes[doc.name] = idx;
+      docCount++;
+      fileCount += idx.fileCount;
+      dirCount += idx.dirCount;
+      symlinkCount += idx.symlinkCount;
+    }
+    logInfo("Built www file indexes: %s docs, %s files, %s dirs, %s symlinks in %s ms",
+        docCount, fileCount, dirCount, symlinkCount, sw.peek.total!"msecs");
   }
 
   /// autodeploy 重新部署某 doc 后重建其索引（供 `WwwAutoDeployer` 调用）。
@@ -240,15 +158,15 @@ class WwwRepo {
     }
   }
 
-  /** 构建单个 doc 的发布期索引并输出汇总日志（文件/目录/符号链接数与构建耗时）。 */
+  /** 构建单个 doc 的发布期索引（autodeploy 重建后调用；启动期全量构建见 `buildIndexes` 的汇总日志）。 */
   private void buildDocIndex(const(WwwDocConfig) doc) {
     auto docDir = resolveRepositoryPath(base, doc.endpoint());
     if (docDir is null)
       return;
     auto sw = StopWatch(AutoStart.yes);
-    auto idx = new WwwFileIndex(docDir);
+    auto idx = new FileIndex(docDir);
     docIndexes[doc.name] = idx;
-    logInfo("Built www file index for doc '%s': %s files, %s dirs, %s symlinks in %s ms",
+    logInfo("Rebuilt www file index for doc '%s': %s files, %s dirs, %s symlinks in %s ms",
         doc.name, idx.fileCount, idx.dirCount, idx.symlinkCount, sw.peek.total!"msecs");
   }
 
@@ -301,13 +219,13 @@ private WwwFile resolveByStat(const(WwwDocConfig) doc, string uri, string locati
       try {
         auto indexFi = getFileInfo(indexPath);
         if (indexFi.isFile)
-          return WwwFile(indexPath, doc, indexFi);
+          return attachGzByStat(doc, WwwFile(indexPath, doc, IndexedFileInfo.fromFileInfo(indexFi)));
       } catch (Exception) {
       }
       return WwwFile(null, doc);
     }
     if (fi.isFile)
-      return WwwFile(location, doc, fi);
+      return attachGzByStat(doc, WwwFile(location, doc, IndexedFileInfo.fromFileInfo(fi)));
     // 特殊文件（fifo/socket 等）不对外服务
     return WwwFile(null, doc);
   } catch (Exception) {
@@ -322,7 +240,7 @@ private WwwFile resolveByStat(const(WwwDocConfig) doc, string uri, string locati
       try {
         auto tryFi = getFileInfo(tryPath);
         if (tryFi.isFile)
-          return WwwFile(tryPath, doc, tryFi);
+          return attachGzByStat(doc, WwwFile(tryPath, doc, IndexedFileInfo.fromFileInfo(tryFi)));
       } catch (Exception) {
       }
     }
@@ -331,9 +249,22 @@ private WwwFile resolveByStat(const(WwwDocConfig) doc, string uri, string locati
   return WwwFile(null, doc);
 }
 
+/** stat 兜底路径附加 sidecar：doc 启用 autoGzip 时探测 `path.gz` 大小（非索引仓库，请求期一次异步 stat）。 */
+private WwwFile attachGzByStat(const(WwwDocConfig) doc, WwwFile wf) const {
+  if (!doc.autoGzip || wf.path.length == 0)
+    return wf;
+  try {
+    auto gz = getFileInfo(wf.path ~ ".gz");
+    if (gz.isFile)
+      wf.info.gzSize = gz.size;
+  } catch (Exception) {
+  }
+  return wf;
+}
+
   /** 沿发布期索引解析相对 doc 根的段：命中文件或目录折叠 index.html 直接返回；
       SPA try-file 回退同样查索引（0 stat）；断链返回 null（调用方转 404）。 */
-  private WwwFile resolveFromIndex(const(WwwDocConfig) doc, ref const(WwwFileIndex) idx,
+  private WwwFile resolveFromIndex(const(WwwDocConfig) doc, ref const(FileIndex) idx,
       string uri, string location, scope const(string)[] rel) const {
     auto docSegs = doc.segments;
     auto fileSegs = rel[docSegs.length .. $];
@@ -343,7 +274,7 @@ private WwwFile resolveByStat(const(WwwDocConfig) doc, string uri, string locati
       auto ih = idx.find(["index.html"]);
       if (ih !is null && ih.isFile) {
         auto indexPath = buildPath(location, "index.html");
-        return WwwFile(indexPath, doc, ih.toFileInfo(indexPath));
+        return makeWwwFile(doc, ih, indexPath);
       }
       return WwwFile(null, doc);
     }
@@ -354,11 +285,11 @@ private WwwFile resolveByStat(const(WwwDocConfig) doc, string uri, string locati
         auto ih = idx.find(fileSegs ~ ["index.html"]);
         if (ih !is null && ih.isFile) {
           auto indexPath = buildPath(location, "index.html");
-          return WwwFile(indexPath, doc, ih.toFileInfo(indexPath));
+          return makeWwwFile(doc, ih, indexPath);
         }
         return WwwFile(null, doc);
       }
-      return WwwFile(location, doc, hit.toFileInfo(location));
+      return makeWwwFile(doc, hit, location);
     }
 
     // 断链：SPA try-file 回退（索引内查找，0 stat）；带静态扩展名不参与回退。
@@ -369,10 +300,18 @@ private WwwFile resolveByStat(const(WwwDocConfig) doc, string uri, string locati
       if (th !is null && th.isFile) {
         auto tryPath = resolveRepositoryPath(base, doc.endpoint() ~ "/" ~ doc.tryFile);
         if (tryPath !is null)
-          return WwwFile(tryPath, doc, th.toFileInfo(tryPath));
+          return makeWwwFile(doc, th, tryPath);
       }
     }
     return WwwFile(null, doc);
+  }
+
+  /** 由索引命中构造 `WwwFile`：直接携带索引条目（含 `gzSize`，0 stat）；`auto-gzip=false` 时清零 sidecar。 */
+  private WwwFile makeWwwFile(const(WwwDocConfig) doc, const(IndexedFileInfo)* hit, string path) const {
+    WwwFile wf = WwwFile(path, doc, *hit);
+    if (!doc.autoGzip)
+      wf.info.gzSize = 0;
+    return wf;
   }
 
   /** 剥离 baseAbs 前缀并切段（路径已由 `resolveRepositoryPath` 归一，跳过空段）。 */
@@ -412,6 +351,9 @@ private WwwFile resolveByStat(const(WwwDocConfig) doc, string uri, string locati
         return false;
       }
 
+      // autoGzip：部署期预压缩全部可压缩文件（sidecar 已存在则跳过，幂等），索引构建时一并纳入。
+      if (doc.autoGzip)
+        precompressDir(docDir);
       warnMissingTryFile(config.www.base, doc);
       return true;
     } catch (Exception e) {

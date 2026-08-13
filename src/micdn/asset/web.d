@@ -17,12 +17,9 @@
 module micdn.asset.web;
 /// 静态资源服务入口，挂载资源上下文并提供 HTTP 访问。
 
-import std.exception;
-import std.stdio;
 import std.string;
 
 import vibe.core.core;
-import vibe.core.file;
 import vibe.core.log;
 import vibe.http.router;
 import vibe.http.server;
@@ -48,39 +45,28 @@ class AssetService {
   void service(HTTPServerRequest req, HTTPServerResponse res) {
     const uri = getPath(endpoint, req);
     const rs = repo.get(uri);
-    if (null == rs) {
+    if (rs.path is null)
       throw new HTTPStatusException(HTTPStatus.notFound);
-    } else {
-      // 单次异步 stat 判定目录分支，并把 FileInfo 传给 sendFile 复用（AssetRepo.get 已确认存在）。
-      FileInfo fi;
-      try
-        fi = getFileInfo(rs[0]);
-      catch (Exception)
-        throw new HTTPStatusException(HTTPStatus.notFound);
-      if (fi.isDirectory) {
-        if (req.method == HTTPMethod.HEAD) {
-          throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
-        }
-        if (uri.endsWith("/")) {
-          auto listData = genListContents(rs[0], endpoint, uri);
-          render!("index.dt", listData)(res);
-        } else {
-          auto pub = endpoint ~ uri;
-          res.redirect(req.requestURI.replace(pub, pub ~ "/"));
-        }
-      } else {
-        void setCORS(scope HTTPServerRequest req, scope HTTPServerResponse res) @safe {
-          res.headers["Access-Control-Allow-Origin"] = "*";
-        }
 
-        auto dyna = repo.isDynaBundle(uri);
-        auto policy = assetBundleCachePolicy(dyna);
-        if (rs.length == 1) {
-          sendFile(req, res, rs[0], fi, policy, &setCORS, !dyna);
-        } else {
-          sendFiles(req, res, rs, policy, &setCORS);
-        }
+    // 目录：HEAD 拒绝，`/` 结尾列表、否则重定向补 `/`（`isDir` 由 repo.get 判定：索引或单次 stat）。
+    if (rs.isDir) {
+      if (req.method == HTTPMethod.HEAD)
+        throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
+      if (uri.endsWith("/")) {
+        auto listData = genListContents(rs.path, endpoint, uri);
+        render!("index.dt", listData)(res);
+      } else {
+        auto pub = endpoint ~ uri;
+        res.redirect(req.requestURI.replace(pub, pub ~ "/"));
       }
+      return;
     }
+
+    void setCORS(scope HTTPServerRequest req, scope HTTPServerResponse res) @safe {
+      res.headers["Access-Control-Allow-Origin"] = "*";
+    }
+
+    // 非 `<dir>` bundle：info 含 gzSize（强制 gzip）；`<dir>` dyna：gzSize 为 0（忽略 gzip）。
+    sendFile(req, res, rs.path, rs.info, assetBundleCachePolicy(repo.isDynaBundle(rs.bundle)), &setCORS);
   }
 }

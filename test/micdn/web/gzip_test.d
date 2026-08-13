@@ -21,9 +21,6 @@ import std.path : buildPath;
 import std.uuid : randomUUID;
 import std.zlib : UnCompress, HeaderFormat;
 
-import core.thread : Thread;
-import core.time : msecs;
-
 import vibe.http.common : HTTPMethod;
 import vibe.http.server : createTestHTTPServerRequest;
 import vibe.inet.message : InetHeaderMap;
@@ -159,31 +156,27 @@ version (Posix) {
   }
 }
 
-@("background queue compresses enqueued file")
+@("precompressDir compresses eligible files recursively and skips existing sidecars")
 unittest {
   auto dir = tmpBase();
-  mkdirRecurse(dir);
+  mkdirRecurse(buildPath(dir, "sub"));
   scope (exit) {
-    stopGzipWorker();
     if (exists(dir))
       rmdirRecurse(dir);
   }
-  auto f = buildPath(dir, "bundle.js");
-  auto content = sampleContent();
-  write(f, content);
 
-  enqueueGzip(f);
-  auto gz = f ~ ".gz";
-  foreach (_; 0 .. 200) {
-    if (exists(gz))
-      break;
-    Thread.sleep(50.msecs);
-  }
-  assert(exists(gz), "worker should create sidecar for enqueued file");
+  auto a = buildPath(dir, "a.js");
+  write(a, sampleContent());
+  auto c = buildPath(dir, "sub", "c.css");
+  write(c, sampleContent());
+  auto png = buildPath(dir, "p.png");
+  write(png, cast(ubyte[]) [0x89, 0x50, 0x4E, 0x47]);
 
-  auto u = new UnCompress(HeaderFormat.gzip);
-  ubyte[] plain;
-  plain ~= cast(ubyte[]) u.uncompress(read(gz));
-  plain ~= cast(ubyte[]) u.flush();
-  assert(cast(string) plain == content, "worker sidecar should match original");
+  assert(gzipFile(a), "pre-existing sidecar");
+  assert(exists(a ~ ".gz"));
+
+  assert(precompressDir(dir) == 1, "only the missing sub/c.css.gz should be generated");
+  assert(exists(c ~ ".gz"), "recursive eligible file should be compressed");
+  assert(!exists(png ~ ".gz"), "non-eligible extension must be skipped");
+  assert(getSize(a ~ ".gz") < getSize(a), "existing sidecar kept as is");
 }

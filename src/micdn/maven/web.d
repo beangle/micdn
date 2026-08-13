@@ -35,6 +35,7 @@ import micdn.routes;
 import micdn.web;
 import micdn.web.cache;
 import micdn.web.file;
+import micdn.fs.index;
 import micdn.fs.browser;
 import micdn.xml;
 
@@ -76,7 +77,8 @@ class MavenService {
           ffi = getFileInfo(file);
         catch (Exception)
           throw new HTTPStatusException(HTTPStatus.notFound);
-        sendFile(req, res, file, ffi, mavenArtifactCachePolicy(uri), null, false);
+        auto info = IndexedFileInfo.fromFileInfo(ffi);
+        sendFile(req, res, file, info, mavenArtifactCachePolicy(uri));
       } else {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
@@ -95,7 +97,8 @@ class MavenService {
         res.redirect(req.requestURI.replace(pub, pub ~ "/"));
       }
     } else {
-      sendFile(req, res, file, fi, mavenArtifactCachePolicy(uri), null, false);
+      auto info = IndexedFileInfo.fromFileInfo(fi);
+      sendFile(req, res, file, info, mavenArtifactCachePolicy(uri));
     }
   }
 }
