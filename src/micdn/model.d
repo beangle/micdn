@@ -286,6 +286,7 @@ class AssetBundle {
   this(string name) {
     assert(name !is null && !name.empty, "name cannot be empty");
     assert(!name.canFind("/"), "name cannot contain /");
+    assert(name != "." && name != "..", "name cannot be '.' or '..'");
     this.name = name;
   }
 

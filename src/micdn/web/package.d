@@ -31,18 +31,37 @@ import dxml.dom;
 import vibe.core.args;
 import vibe.http.server;
 
-import micdn.fs.file : isPathUnder;
 import micdn.web.file;
 import micdn.xml;
 
-/** 从请求中取出相对 `contextPath` 的路径（HTTP 入口的统一 URI 防护）。
+/** HTTP 入口解析出的仓库资源 URI。
 
-    顺序：去掉挂载前缀 → 去掉查询串 → `decodeRepositoryUri`（URL 解码，拒绝 NUL/反斜杠）。
+    - `segs`：已消解的路径段（不含 `.`/`..`、中间空段已合并），**不含尾斜杠空段**；`segs is null` 表示解析失败；
+    - `slashEnded`：原始 uri 是否以 `/` 结尾（如 `/maven/` → `segs=[]`、`slashEnded=true`）。
 
-    不判断文件是否存在；解码失败或与 `contextPath` 不匹配时抛 404。
-    读盘服务随后应再调用 `resolveRepositoryPath` 限制在仓库 `base` 下。
+    下游（仓库 `get`、`repositoryUri`、`repositoryPath`）直接读取字段，无需再截取末尾空段。
 */
-string getPath(string contextPath, HTTPServerRequest req) {
+struct ResourceUri {
+  /// 已消解路径段；`null` 表示解析失败（点段越界等）
+  const(string)[] segs;
+  /// 原始 uri 是否以 `/` 结尾
+  bool slashEnded;
+
+  /// 解析是否成功（`segs !is null`）。
+  bool ok() const @safe pure nothrow {
+    return segs !is null;
+  }
+}
+
+/** 从请求中取出相对 `contextPath` 的仓库资源 URI（HTTP 入口的统一 URI 防护）。
+
+    顺序：去掉挂载前缀 → 去掉查询串 → `decodeRepositoryUri`（URL 解码，拒绝 NUL/反斜杠）→
+    `segmentPath`（切段 + 点段消解）。
+
+    解码失败、点段越界（`..` 逃出根）或与 `contextPath` 不匹配时抛 404。
+    读盘服务基于 `ResourceUri.segs` 构造路径或经 `repositoryUri` 重建 uri，均已在入口消解，无需再防穿越。
+*/
+ResourceUri getResourceUri(string contextPath, HTTPServerRequest req) {
   auto uri = req.requestURI;
   if (contextPath != "" && contextPath != "/") {
     if (uri.startsWith(contextPath)) {
@@ -58,10 +77,50 @@ string getPath(string contextPath, HTTPServerRequest req) {
   auto decoded = decodeRepositoryUri(uri);
   if (decoded is null)
     throw new HTTPStatusException(HTTPStatus.notFound);
-  return decoded;
+  auto rs = segmentPath(decoded);
+  if (!rs.ok)
+    throw new HTTPStatusException(HTTPStatus.notFound);
+  return rs;
 }
 
-/** 解码相对路径（由 `getPath` 在 HTTP 入口调用；测试亦可直调）。
+/** 将已解码路径切段并做点段消解（RFC 3986 remove_dot_segments）。
+    跳过中间空段与 `.`；`..` 抵消前一段，弹栈越界（试图逃出根）返回 null；
+    原始路径以 `/` 结尾时 `slashEnded=true`（段数组本身不含末尾空段）。
+    调用方须保证 `uri` 已由 `decodeRepositoryUri` 处理（拒绝 NUL/反斜杠）。 */
+ResourceUri segmentPath(string uri) {
+  auto slashEnded = uri.endsWith("/");
+  string[] segs;
+  foreach (part; uri.split("/")) {
+    if (part.length == 0 || part == ".")
+      continue;
+    if (part == "..") {
+      if (segs.length == 0)
+        return ResourceUri.init;
+      segs.length--;
+      continue;
+    }
+    segs ~= part;
+  }
+  return ResourceUri(segs, slashEnded);
+}
+
+/** 由 `ResourceUri` 重建仓库相对 URI（以 `/` 开头；`slashEnded` 还原尾斜杠；空段 = `/`）。 */
+string repositoryUri(const ResourceUri uri) {
+  if (uri.segs.length == 0)
+    return "/";
+  auto s = "/" ~ uri.segs.join("/");
+  return uri.slashEnded ? s ~ "/" : s;
+}
+
+/** 由 `ResourceUri` 的段构造绝对物理路径（须已由 `getResourceUri`/`segmentPath` 消解）。
+    空段返回 `baseAbs` 本身；段无 `.`/`..`，拼接结果天然在 `baseAbs` 下，无需再次越界校验。 */
+string repositoryPath(string baseAbs, const ResourceUri uri) {
+  if (uri.segs.length == 0)
+    return baseAbs;
+  return buildPath(baseAbs, uri.segs.join("/"));
+}
+
+/** 解码相对路径（由 `getResourceUri` 在 HTTP 入口调用；测试亦可直调）。
 
     - URL 解码（如 `%2e%2e` → `..`）
     - 拒绝 NUL、反斜杠
@@ -80,25 +139,11 @@ string decodeRepositoryUri(string uri) {
   return decoded;
 }
 
-/** 将已解码 URI 规范化为仓库内的绝对物理路径（防路径穿越）。
-
-    流程：`baseAbs`（须为绝对路径）与 URI 相对段做 `buildNormalizedPath` → `isPathUnder` 校验。
-
-    注意：
-    - **不**调用 `exists` / `isFile` / `isDir`；路径在磁盘上不存在时仍可返回非 null。
-    - 越界（规范化后逃出 `baseAbs`）或 `decodedUri == null` 时返回 null。
-
-    调用方在拿到返回值后须自行判断是否存在，并按模块语义处理（404、拉取上游、目录列表等）。
-*/
-string resolveRepositoryPath(string baseAbs, string decodedUri) {
-  if (decodedUri is null)
-    return null;
-  string relative = decodedUri;
-  while (relative.startsWith("/"))
-    relative = relative[1 .. $];
-
-  auto path = absolutePath(buildNormalizedPath(baseAbs, relative));
-  return isPathUnder(baseAbs, path) ? path : null;
+/** 规范化仓库根目录：展开 `~`、转绝对路径并消解 `.`/`..` 段（供各仓库构造复用）。 */
+string normalizeBasePath(string base) {
+  auto norm = buildNormalizedPath(absolutePath(expandTilde(base)).split("/"));
+  // `buildNormalizedPath` 会剥掉根斜杠（如 `/a/b` → `a/b`），绝对路径需补回根
+  return norm.startsWith("/") ? norm : "/" ~ norm;
 }
 
 string resolveConfigFile(string defaultConfigFileName) {

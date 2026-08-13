@@ -54,7 +54,7 @@ class BlobService {
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
-    const uri = getPath(this.endpoint, req);
+    const uri = repositoryUri(getResourceUri(this.endpoint, req));
     switch (req.method) {
     case HTTPMethod.GET:
       getObject(req, res, uri);

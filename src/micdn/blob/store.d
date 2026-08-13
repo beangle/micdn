@@ -21,6 +21,7 @@ import std.string;
 import std.digest : toHexString, LetterCase;
 import std.digest.sha;
 
+import micdn.web : normalizeBasePath;
 import vibe.core.log;
 import vibe.inet.mimetypes : getMimeTypeForFile;
 
@@ -118,9 +119,9 @@ class BlobRepo {
   Bucket[string] buckets;
 
   this(const(BlobConfig) config) {
-    this.base = config.base;
+    this.base = normalizeBasePath(config.base);
     this.maxSize = config.maxSize;
-    mkdirRecurse(expandTilde(config.base));
+    mkdirRecurse(base);
     loadBucketsFromConfig(config, this);
   }
 
@@ -149,7 +150,7 @@ class BlobRepo {
       return "";
     if (!objectPath.startsWith("/"))
       objectPath = "/" ~ objectPath;
-    return expandTilde(base) ~ "/" ~ bucket.name ~ objectPath;
+    return base ~ "/" ~ bucket.name ~ objectPath;
   }
 
   int check(const Bucket bucket, string objectPath) const {

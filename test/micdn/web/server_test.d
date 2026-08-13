@@ -48,19 +48,53 @@ unittest {
   assert(extractRemoteUrl(`<micdn remote = "http://x.com/c.xml">`) == "http://x.com/c.xml");
 }
 
-@("repository path rejects encoded traversal")
+@("repository path builds absolute path from entry segments")
 unittest {
   auto base = buildNormalizedPath(tempDir(), "micdn-repo-safe");
-
-  auto goodUri = decodeRepositoryUri("/org/example/app/1.0/app-1.0.jar");
-  auto goodPath = resolveRepositoryPath(base, goodUri);
-  assert(goodPath !is null);
+  auto goodUri = segmentPath(decodeRepositoryUri("/org/example/app/1.0/app-1.0.jar"));
+  auto goodPath = repositoryPath(base, goodUri);
+  assert(goodPath == buildPath(base, "org", "example", "app", "1.0", "app-1.0.jar"));
   assert(baseName(goodPath) == "app-1.0.jar");
 
-  auto encodedTraversal = decodeRepositoryUri("/%2e%2e%2fsecret.txt");
-  assert(encodedTraversal == "/../secret.txt");
-  assert(resolveRepositoryPath(base, encodedTraversal) is null);
+  // 编码穿越在入口切段阶段拒绝（`resolveRepositoryPath` 已移除，防穿越收敛到 `getResourceUri`/`segmentPath`）
+  assert(!segmentPath(decodeRepositoryUri("/%2e%2e%2fsecret.txt")).ok);
+  assert(decodeRepositoryUri("/%5cWindows%5cwin.ini") is null);
+}
 
-  auto encodedBackslash = decodeRepositoryUri("/%5cWindows%5cwin.ini");
-  assert(encodedBackslash is null);
+@("segmentPath splits, resolves dot segments and keeps trailing slash")
+unittest {
+  assert(segmentPath("/org/example/app").segs == ["org", "example", "app"]);
+  assert(!segmentPath("/org/example/app").slashEnded);
+  assert(segmentPath("/manual/a.html").segs == ["manual", "a.html"]);
+  assert(segmentPath("/manual/").segs == ["manual"]);
+  assert(segmentPath("/manual/").slashEnded);
+  assert(segmentPath("/").segs.length == 0);
+  assert(segmentPath("/").slashEnded);
+  // `.` 与中间空段合并
+  assert(segmentPath("/manual/./a.html").segs == ["manual", "a.html"]);
+  assert(segmentPath("/manual//a.html").segs == ["manual", "a.html"]);
+  // `..` 抵消前一段
+  assert(segmentPath("/manual/../manual/a.html").segs == ["manual", "a.html"]);
+  assert(segmentPath("/manual/..").segs.length == 0);
+  // 弹栈越界（试图逃出根）拒绝
+  assert(!segmentPath("/..").ok);
+  assert(!segmentPath("/manual/../..").ok);
+}
+
+@("repositoryUri rebuilds uri honoring slashEnded")
+unittest {
+  assert(repositoryUri(ResourceUri(["org", "beangle"], true)) == "/org/beangle/");
+  assert(repositoryUri(ResourceUri(["org", "beangle"], false)) == "/org/beangle");
+  assert(repositoryUri(ResourceUri([], true)) == "/");
+  assert(repositoryUri(ResourceUri([], false)) == "/");
+}
+
+@("repositoryPath builds absolute path from normalized segments")
+unittest {
+  auto base = buildNormalizedPath(tempDir(), "micdn-repo-path");
+  assert(repositoryPath(base, ResourceUri(["org", "beangle"], false)) == buildPath(base, "org", "beangle"));
+  // slashEnded 不影响物理路径
+  assert(repositoryPath(base, ResourceUri(["org", "beangle"], true)) == buildPath(base, "org", "beangle"));
+  assert(repositoryPath(base, ResourceUri([], false)) == base);
+  assert(repositoryPath(base, ResourceUri([], true)) == base);
 }

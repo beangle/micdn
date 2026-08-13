@@ -65,7 +65,7 @@ class AssetRepo {
   */
   this(string base, bool[string] dynaBundles = null, FileIndex[string] bundleIndexes = null) {
     enforce(base.length > 0, "repo base must not be empty");
-    this.base = absolutePath(expandTilde(base));
+    this.base = normalizeBasePath(base);
     this.dynaBundles = dynaBundles;
     this.bundleIndexes = bundleIndexes;
   }
@@ -75,16 +75,6 @@ class AssetRepo {
     if (bundleIndexes is null)
       return null;
     return bundle in bundleIndexes;
-  }
-
-  /** 从逻辑 URI 取首段 bundle 名（如 `/bui/0.6.7/x.js` → `bui`）。假定路径以 `/` 开头（`getPath` 语义）。 */
-  private static string bundleNameFromUri(string uri) {
-    if (uri is null || uri.length < 2)
-      return ""; // 空/仅 "/"（或解码失败的 null）：无 bundle 名，按未登记处理
-    auto idx = uri.indexOf('/', 1);
-    if (idx < 0)
-      return uri[1 .. $];
-    return uri[1 .. idx];
   }
 
   /** bundle 名在 `dynaBundles` 中时为 true（`<dir>` 挂载），用于 HTTP 缓存策略。 */
@@ -100,13 +90,19 @@ class AssetRepo {
       `<dir>` bundle（dyna）：单次异步 stat。命中（文件或目录）时 `path` 非 null，
       文件命中且存在 `path.gz` 时 `info.gzSize` 为其大小；未命中时 `path` 为 null。
   */
-  AssetFile get(string uri) const {
-    auto bundle = bundleNameFromUri(uri);
-    auto location = resolveRepositoryPath(base, uri);
-    if (location is null)
-      return AssetFile.init;
+  /** 便捷值重载：rvalue（如测试直构）走浅拷贝；生产路径（web 层持 lvalue）走 `ref` 版本。 */
+  AssetFile get(const ResourceUri uri) const {
+    return get(uri);
+  }
+
+  /** 按入口解析出的仓库 URI 解析并预取文件信息（仅供 web 服务层调用；**调用方负责防穿越**：须已由
+      `getResourceUri` 切段消解，未消解的点段（`.`/`..`）可能导致 stat 兜底越界，属调用方违约）。
+      首段为 bundle 名（索引根已含该层），其余段对齐 `{base}/{bundle}`。 */
+  AssetFile get(ref const(ResourceUri) uri) const {
+    auto bundle = uri.segs.length > 0 ? uri.segs[0] : "";
+    auto location = repositoryPath(base, uri);
     if (auto idx = bundleIndexFor(bundle)) {
-      auto hit = idx.find(indexSegments(uri));
+      auto hit = idx.find(uri.segs[1 .. $]);
       if (hit is null)
         return AssetFile.init;
       return AssetFile(bundle, location, *hit, hit.isDirectory);
@@ -117,19 +113,6 @@ class AssetRepo {
     } catch (Exception) {
       return AssetFile.init;
     }
-  }
-
-  /** 逻辑 URI（以 `/` 开头）切段并剥掉 bundle 名首段，与索引根（`{base}/{bundle}`）对齐。
-      如 `/bui/0.1/a.js` → `["0.1", "a.js"]`；仅 bundle 根（`/bui`）返回空段（命中根目录）。 */
-  private static string[] indexSegments(string uri) {
-    string[] segs;
-    auto parts = uri.split("/");
-    // parts[0] 为前导空段，parts[1] 为 bundle 名（索引根已含该层，不再参与查找）
-    foreach (part; parts[2 .. $]) {
-      if (part.length > 0)
-        segs ~= part;
-    }
-    return segs;
   }
 
   /** 确保 `asset.base` 存在且目录本身可写（见 `ensureDirWritable`，不递归子项）。 */

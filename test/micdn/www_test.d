@@ -17,6 +17,11 @@ import micdn.model;
 import micdn.web;
 import micdn.www;
 
+/// 测试辅助：uri 字符串 → `ResourceUri`（模拟入口 `getResourceUri` 的语义）。
+private ResourceUri segsOf(string uri) {
+  return segmentPath(uri);
+}
+
 @("WwwRepo maps http path under base")
 unittest {
   auto tmp = buildPath(tempDir, "micdn-www-test");
@@ -29,15 +34,34 @@ unittest {
 
   auto dummy = new ZipProvider("/tmp/placeholder.zip", "");
   auto repo = new WwwRepo(tmp, [new WwwDocConfig("manual", dummy)]);
-  auto hit = repo.get("/manual/a.html");
-  assert(hit.path == resolveRepositoryPath(tmp, decodeRepositoryUri("/manual/a.html")));
+  auto hit = repo.get(segsOf("/manual/a.html"));
+  assert(hit.path == repositoryPath(tmp, segsOf("/manual/a.html")));
   assert(hit.info.isFile(), "hit must carry the resolved file info");
   assert(hit.info.size == cast(ulong) "<html></html>".length);
-  auto miss = repo.get("/manual/missing.html");
+  auto miss = repo.get(segsOf("/manual/missing.html"));
   assert(miss.path is null);
   assert(!miss.info.isFile(), "miss must not carry file info");
-  assert(repo.get("/other/x").path is null);
-  assert(repo.get("/manual/../etc/passwd").path is null);
+  assert(repo.get(segsOf("/other/x")).path is null);
+  assert(repo.get(segsOf("/manual/../etc/passwd")).path is null);
+}
+
+@("WwwRepo get ref overload matches value overload")
+unittest {
+  auto tmp = buildPath(tempDir, "micdn-www-refval");
+  scope (exit)
+    if (exists(tmp))
+      rmdirRecurse(tmp);
+  mkdirRecurse(buildPath(tmp, "manual"));
+  write(buildPath(tmp, "manual", "a.html"), "ok");
+
+  auto dummy = new ZipProvider("/tmp/placeholder.zip", "");
+  auto repo = new WwwRepo(tmp, [new WwwDocConfig("manual", dummy)]);
+  auto uri = segsOf("/manual/a.html");
+  auto viaRef = repo.get(uri); // lvalue：走 ref 重载
+  auto viaVal = repo.get(segsOf("/manual/a.html")); // rvalue：走值重载
+  assert(viaRef.path == viaVal.path);
+  assert(viaRef.info.isFile());
+  assert(viaRef.info.size == viaVal.info.size);
 }
 
 @("WwwRepo does not serve files outside any doc")
@@ -51,8 +75,8 @@ unittest {
   write(buildPath(tmp, "loose.txt"), "loose");
 
   auto repo = new WwwRepo(tmp);
-  assert(repo.get("/manual/a.html").path is null);
-  assert(repo.get("/loose.txt").path is null);
+  assert(repo.get(segsOf("/manual/a.html")).path is null);
+  assert(repo.get(segsOf("/loose.txt")).path is null);
 }
 
 @("WwwDocTree finds longest doc prefix and falls back on broken chain")
@@ -107,9 +131,20 @@ unittest {
   ]));
 }
 
-@("WwwRepo rejects encoded traversal")
+@("WwwRepo traversal protection lives at the entry")
 unittest {
   auto tmp = buildPath(tempDir, "micdn-www-safe");
+  scope (exit)
+    if (exists(tmp))
+      rmdirRecurse(tmp);
+  // 编码穿越在入口 `getResourceUri`/`segmentPath` 消解或拒绝
+  assert(!segmentPath(decodeRepositoryUri("/%2e%2e%2fsecret.txt")).ok);
+  assert(decodeRepositoryUri("/%5cWindows%5cwin.ini") is null);
+}
+
+@("WwwRepo normalizes dot segments before matching")
+unittest {
+  auto tmp = buildPath(tempDir, "micdn-www-dotseg");
   scope (exit)
     if (exists(tmp))
       rmdirRecurse(tmp);
@@ -117,9 +152,19 @@ unittest {
   write(buildPath(tmp, "manual", "a.html"), "ok");
   write(buildPath(tmp, "secret.txt"), "secret");
 
-  auto repo = new WwwRepo(tmp);
-  assert(repo.get(decodeRepositoryUri("/%2e%2e%2fsecret.txt")).path is null);
-  assert(repo.get(decodeRepositoryUri("/%5cWindows%5cwin.ini")).path is null);
+  auto dummy = new ZipProvider("/tmp/placeholder.zip", "");
+  auto repo = new WwwRepo(tmp, [new WwwDocConfig("manual", dummy)]);
+
+  // `.` 与空段等价于原路径，照常命中
+  assert(repo.get(segsOf("/manual/./a.html")).path !is null);
+  assert(repo.get(segsOf("/manual//a.html")).path !is null);
+  // `..` 抵消回 doc 根下：/manual/../manual/a.html → /manual/a.html
+  assert(repo.get(segsOf("/manual/../manual/a.html")).path !is null);
+  // 抵消到 doc 树根（不属于任何 doc）→ 404
+  assert(repo.get(segsOf("/manual/..")).path is null);
+  // 弹栈越界（试图逃出根）在入口拒绝
+  assert(!segsOf("/../../etc/passwd").ok);
+  assert(!segsOf("/manual/../../etc/passwd").ok);
 }
 
 @("WwwRepo try-file skips fallback for missing static assets")
@@ -137,12 +182,12 @@ unittest {
   auto doc = new WwwDocConfig("app", dummy, "index.html");
   auto repo = new WwwRepo(tmp, [doc]);
 
-  assert(repo.get("/app/route/foo").path !is null);
-  assert(repo.get("/app/route/foo").path.endsWith("index.html"));
-  assert(repo.get("/app/assets/ok.js").path !is null);
-  assert(repo.get("/app/assets/missing.js").path is null);
-  assert(repo.get("/app/missing.css").path is null);
-  assert(repo.get("/app/missing.woff2").path is null);
+  assert(repo.get(segsOf("/app/route/foo")).path !is null);
+  assert(repo.get(segsOf("/app/route/foo")).path.endsWith("index.html"));
+  assert(repo.get(segsOf("/app/assets/ok.js")).path !is null);
+  assert(repo.get(segsOf("/app/assets/missing.js")).path is null);
+  assert(repo.get(segsOf("/app/missing.css")).path is null);
+  assert(repo.get(segsOf("/app/missing.woff2")).path is null);
 }
 
 @("WwwRepo try-file falls back for spa deep link")
@@ -160,11 +205,11 @@ unittest {
   auto doc = new WwwDocConfig("m/edu/learning", dummy, "index.html");
   auto repo = new WwwRepo(tmp, [doc]);
 
-  assert(repo.get("/m/edu/learning/app.js").path !is null);
-  assert(repo.get("/m/edu/learning/app.js").path.endsWith("app.js"));
-  assert(repo.get("/m/edu/learning/route/foo").path !is null);
-  assert(repo.get("/m/edu/learning/route/foo").path.endsWith("index.html"));
-  assert(repo.get("/other/route").path is null);
+  assert(repo.get(segsOf("/m/edu/learning/app.js")).path !is null);
+  assert(repo.get(segsOf("/m/edu/learning/app.js")).path.endsWith("app.js"));
+  assert(repo.get(segsOf("/m/edu/learning/route/foo")).path !is null);
+  assert(repo.get(segsOf("/m/edu/learning/route/foo")).path.endsWith("index.html"));
+  assert(repo.get(segsOf("/other/route")).path is null);
 }
 
 @("WwwRepo try-file falls back for m/edu/teaching deep link")
@@ -191,9 +236,9 @@ unittest {
   auto config = parse(home, xml);
   auto repo = WwwRepo.build(config);
 
-  assert(repo.get("/m/edu/teaching").path !is null);
-  assert(repo.get("/m/edu/teaching/a/bc").path !is null);
-  assert(repo.get("/m/edu/teaching/a/bc").path.endsWith("index.html"));
+  assert(repo.get(segsOf("/m/edu/teaching")).path !is null);
+  assert(repo.get(segsOf("/m/edu/teaching/a/bc")).path !is null);
+  assert(repo.get(segsOf("/m/edu/teaching/a/bc")).path.endsWith("index.html"));
 }
 
 @("WwwRepo try-file missing yields null path with doc kept")
@@ -208,7 +253,7 @@ unittest {
   auto doc = new WwwDocConfig("app", dummy, "index.html");
   auto repo = new WwwRepo(tmp, [doc]);
 
-  auto miss = repo.get("/app/route/foo");
+  auto miss = repo.get(segsOf("/app/route/foo"));
   assert(miss.path is null, "missing try-file must not fall back to a stale path");
   assert(miss.doc is doc);
 }
@@ -239,7 +284,7 @@ unittest {
   assert(WwwRepo.deployDoc(config, config.www.docs[0]));
   // 直接构造（未走 build 归一化）：try-file 缺失时请求期同样不回退
   auto repo = new WwwRepo(config.www.base, config.www.docs);
-  auto miss = repo.get("/spa/deep/link");
+  auto miss = repo.get(segsOf("/spa/deep/link"));
   assert(miss.path is null, "missing try-file must not be served as fallback");
   assert(miss.doc !is null);
 }
@@ -269,7 +314,7 @@ unittest {
   auto repo = WwwRepo.build(config);
   assert(repo.docs.length == 1);
   assert(repo.docs[0].tryFile == "", "build must drop try-file that failed to deploy");
-  auto miss = repo.get("/spa/deep/link");
+  auto miss = repo.get(segsOf("/spa/deep/link"));
   assert(miss.path is null);
   assert(miss.doc is repo.docs[0]);
 }
@@ -292,8 +337,8 @@ unittest {
   ];
   auto repo = new WwwRepo(tmp, docs);
 
-  assert(repo.get("/a/b/x").path.endsWith(buildPath("a", "b", "index.html")));
-  assert(repo.get("/a/x").path.endsWith(buildPath("a", "index.html")));
+  assert(repo.get(segsOf("/a/b/x")).path.endsWith(buildPath("a", "b", "index.html")));
+  assert(repo.get(segsOf("/a/x")).path.endsWith(buildPath("a", "index.html")));
 }
 
 @("WwwRepo get carries matched doc with auto-gzip flag")
@@ -312,13 +357,13 @@ unittest {
     new WwwDocConfig("app", dummy, "index.html", false, false),
     new WwwDocConfig("plain", dummy),
   ]);
-  auto hit = repo.get("/app/route");
+  auto hit = repo.get(segsOf("/app/route"));
   assert(hit.path.endsWith("index.html"));
   assert(hit.doc.autoGzip == false);
-  auto plain = repo.get("/plain/");
+  auto plain = repo.get(segsOf("/plain/"));
   assert(plain.doc.autoGzip == true);
   assert(plain.info.isFile(), "directory index must carry index.html info");
-  assert(repo.get("/missing").path is null);
+  assert(repo.get(segsOf("/missing")).path is null);
 }
 
 @("WwwRepo get keeps matched doc on missing file")
@@ -333,10 +378,10 @@ unittest {
   auto doc = new WwwDocConfig("app", dummy);
   auto repo = new WwwRepo(tmp, [doc]);
 
-  auto miss = repo.get("/app/route/x");
+  auto miss = repo.get(segsOf("/app/route/x"));
   assert(miss.path is null);
   assert(miss.doc is doc);
-  assert(repo.get("/other/x").doc is null);
+  assert(repo.get(segsOf("/other/x")).doc is null);
 }
 
 @("WwwRepo build index serves file, dir fold, spa and 404 without stat")
@@ -367,15 +412,15 @@ unittest {
 </micdn>`;
   auto repo = WwwRepo.build(parse(home, xml));
 
-  auto fileHit = repo.get("/manual/assets/app.js");
+  auto fileHit = repo.get(segsOf("/manual/assets/app.js"));
   assert(fileHit.path !is null && fileHit.path.endsWith("app.js"));
   assert(fileHit.info.isFile() && fileHit.info.size == 2);
-  auto dirFold = repo.get("/manual/docs");
+  auto dirFold = repo.get(segsOf("/manual/docs"));
   assert(dirFold.path !is null && dirFold.path.endsWith(buildPath("docs", "index.html")));
-  auto spa = repo.get("/manual/route/foo");
+  auto spa = repo.get(segsOf("/manual/route/foo"));
   assert(spa.path !is null && spa.path.endsWith("index.html"));
-  assert(repo.get("/manual/assets/missing.js").path is null, "static asset must not fall back to try-file");
-  auto bin = repo.get("/manual/unknown.bin");
+  assert(repo.get(segsOf("/manual/assets/missing.js")).path is null, "static asset must not fall back to try-file");
+  auto bin = repo.get(segsOf("/manual/unknown.bin"));
   assert(bin.path !is null && bin.path.endsWith("index.html"), "non-static unknown path falls back to try-file");
 }
 
@@ -401,14 +446,14 @@ unittest {
   </www>
 </micdn>`;
   auto repo = WwwRepo.build(parse(home, xml));
-  assert(repo.get("/manual/a.js").path !is null);
-  assert(repo.get("/manual/b.js").path is null, "files added outside deploy are not visible to the index");
+  assert(repo.get(segsOf("/manual/a.js")).path !is null);
+  assert(repo.get(segsOf("/manual/b.js")).path is null, "files added outside deploy are not visible to the index");
 
   write(buildPath(home, "www", "manual", "b.js"), "b");
-  assert(repo.get("/manual/b.js").path is null, "index is authoritative until rebuild");
+  assert(repo.get(segsOf("/manual/b.js")).path is null, "index is authoritative until rebuild");
 
   repo.rebuildIndex("manual");
-  assert(repo.get("/manual/b.js").path !is null, "rebuildIndex must pick up redeployed files");
+  assert(repo.get(segsOf("/manual/b.js")).path !is null, "rebuildIndex must pick up redeployed files");
 }
 
 @("WwwRepo index attaches gzip sidecar to source node")
@@ -438,10 +483,10 @@ unittest {
   write(buildPath(home, "www", "manual", "a.js.gz"), "gz");
   repo.rebuildIndex("manual");
 
-  auto hit = repo.get("/manual/a.js");
+  auto hit = repo.get(segsOf("/manual/a.js"));
   assert(hit.path !is null && hit.info.gzSize != 0, "sidecar size must be attached to the source node");
   assert(hit.info.gzSize == getSize(buildPath(home, "www", "manual", "a.js.gz")));
-  assert(repo.get("/manual/a.js.gz").path is null, "gz sidecar is not addressable as content");
+  assert(repo.get(segsOf("/manual/a.js.gz")).path is null, "gz sidecar is not addressable as content");
 }
 
 @("WwwRepo deploy precompresses autoGzip doc and index attaches sidecar")
@@ -472,7 +517,7 @@ unittest {
 
   auto gzPath = buildPath(home, "www", "manual", "big.js.gz");
   assert(exists(gzPath), "autoGzip doc must be precompressed at deploy time");
-  auto hit = repo.get("/manual/big.js");
+  auto hit = repo.get(segsOf("/manual/big.js"));
   assert(hit.info.gzSize != 0, "index must attach the deploy-time sidecar");
   assert(hit.info.gzSize == getSize(gzPath));
 }
@@ -504,5 +549,5 @@ unittest {
   auto repo = WwwRepo.build(parse(home, xml));
 
   assert(!exists(buildPath(home, "www", "manual", "big.js.gz")), "auto-gzip=false must not precompress");
-  assert(repo.get("/manual/big.js").info.gzSize == 0);
+  assert(repo.get(segsOf("/manual/big.js")).info.gzSize == 0);
 }

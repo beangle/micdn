@@ -21,7 +21,6 @@ import std.algorithm;
 import std.conv;
 import std.exception;
 import std.file;
-import std.path;
 import std.stdio;
 import std.string;
 
@@ -33,6 +32,7 @@ import vibe.core.log;
 
 import micdn.model;
 import micdn.web.file;
+import micdn.web : normalizeBasePath;
 import micdn.xml;
 
 class GavRepo {
@@ -45,7 +45,7 @@ class GavRepo {
 
   this(const(string) base, const(string[]) remotes) {
     enforce(base.length > 0, "repo base must not be empty");
-    this.base = absolutePath(expandTilde(base));
+    this.base = normalizeBasePath(base);
     this.remotes = remotes;
   }
 

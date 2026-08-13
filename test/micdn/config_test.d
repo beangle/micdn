@@ -24,6 +24,7 @@ import std.path;
 import micdn.config;
 import micdn.model;
 import micdn.resolve;
+import micdn.web : normalizeBasePath;
 import micdn.xml;
 
 auto CentralURL = "https://repo1.maven.org/maven2";
@@ -541,4 +542,45 @@ unittest {
 
   config.www.base.setAttributes(octal!555);
   assert(!resolveMicdn(config));
+}
+
+@("repo base: empty attribute rejected")
+unittest {
+  auto dom = parseXml(`<?xml version="1.0"?><micdn><maven base=""/></micdn>`);
+  assertThrown(parseMaven("~/maven", dom));
+}
+
+@("repo base: dot segments resolved and ~ expanded")
+unittest {
+  auto dom = parseXml(`<?xml version="1.0"?><micdn><maven base="~/maven/../maven2"/></micdn>`);
+  auto config = parseMaven("~/maven", dom);
+  assert(config.base == normalizeBasePath("~/maven/../maven2"));
+}
+
+@("repo base: ${micdn.home} placeholder expanded")
+unittest {
+  auto dom = parseXml(`<?xml version="1.0"?><micdn><www base="${micdn.home}/www">
+    <doc name="m" zip="/tmp/m.zip"/></www></micdn>`);
+  auto config = parseWww("~/home", dom);
+  assert(config.base == normalizeBasePath("~/home/www"));
+}
+
+@("static bundle rejects unsafe name")
+unittest {
+  foreach (name; ["", "a/b", `a\b`, ".", ".."]) {
+    auto content = `<?xml version="1.0"?><micdn><static base="~/tmp/static">
+      <bundle name="` ~ name ~ `"><dir location="~/x"/></bundle></static></micdn>`;
+    auto dom = parseXml(content);
+    assertThrown(parseAsset("~/tmp", dom), "bundle name `" ~ name ~ "` must be rejected");
+  }
+}
+
+@("blob bucket rejects unsafe name")
+unittest {
+  foreach (name; ["", "a/b", `a\b`, ".", ".."]) {
+    auto content = `<?xml version="1.0"?><micdn><blob base="/tmp/blob">
+      <bucket name="` ~ name ~ `" key="k"/></blob></micdn>`;
+    auto dom = parseXml(content);
+    assertThrown(parseBlob("~/tmp", dom), "bucket name `" ~ name ~ "` must be rejected");
+  }
 }

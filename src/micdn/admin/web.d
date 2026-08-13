@@ -52,7 +52,7 @@ class AdminService {
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
-    const path = getPath(endpoint, req);
+    const path = repositoryUri(getResourceUri(endpoint, req));
     if (path == "/config.xml") {
       res.statusCode = HTTPStatus.ok;
       res.headers["Content-Type"] = "application/xml; charset=utf-8";

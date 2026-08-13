@@ -27,7 +27,6 @@ import std.string;
 import std.typecons;
 
 import vibe.core.file;
-import vibe.core.path;
 import vibe.core.stream;
 import vibe.stream.memory : createMemoryStream;
 
@@ -150,26 +149,20 @@ ulong[2] parseRange(string range, ulong maxSize) @safe {
 void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
     string path, ref const(IndexedFileInfo) info, immutable(CachePolicy) policy,
     SendFileHook preWrite = null) {
-  sendFileImpl(req, res, NativePath(path), info, policy, preWrite);
-}
-
-private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse res, NativePath path,
-    ref const(IndexedFileInfo) info, immutable(CachePolicy) policy, SendFileHook preWrite) {
-  auto pathstr = path.toNativeString();
-  auto dirent = info.toFileInfo(pathstr);
+  auto dirent = info.toFileInfo(path);
   if (dirent.isDirectory) {
     throw new HTTPStatusException(HTTPStatus.notFound);
   }
 
   auto prange = "Range" in req.headers;
   bool gzip;
-  NativePath contentPath = path;
+  auto contentPath = path;
   // 预压缩 sidecar：`info.gzSize` 由调用方预取（www 索引 / asset 强制），部署期预压缩仅覆盖可压缩白名单，
   // 非 0 即存在变体，无需再按扩展名判断；客户端接受 gzip 且无 Range 时发送 gz。
   // Content-Type 仍按原文件名取；ETag/Last-Modified 复用源文件信息（gz 是其编码表示）、Content-Length 用 gz 实际大小。
   if (info.gzSize != 0 && acceptsGzip(req) && prange is null) {
     dirent.size = info.gzSize;
-    contentPath = NativePath(pathstr ~ ".gz");
+    contentPath = path ~ ".gz";
     gzip = true;
   }
 
@@ -184,7 +177,7 @@ private void sendFileImpl(scope HTTPServerRequest req, scope HTTPServerResponse 
   }
 
   if (!("Content-Type" in res.headers)) {
-    res.headers["Content-Type"] = res.headers.get("Content-Type", getMimeTypeForFile(pathstr));
+    res.headers["Content-Type"] = res.headers.get("Content-Type", getMimeTypeForFile(path));
   }
   res.headers.addField("Accept-Ranges", "bytes");
   res.headers.addField("Access-Control-Allow-Origin", "*");

@@ -141,11 +141,7 @@ private bool validateProviderSpec(MicdnConfig config, string context, const(Bund
 
 private bool verifyWwwDocDeployed(MicdnConfig config, const WwwDocConfig doc) {
   auto ctx = "www doc " ~ doc.name;
-  auto docDir = resolveRepositoryPath(config.www.base, doc.endpoint());
-  if (docDir is null) {
-    logError("Resolve %s failed: path escapes base", ctx);
-    return false;
-  }
+  auto docDir = buildPath(config.www.base, doc.name);
   if (DirProvider dp = cast(DirProvider) doc.provider) {
     if (!exists(docDir)) {
       logError("Resolve %s failed: symlink missing: %s", ctx, docDir);
@@ -220,9 +216,7 @@ private size_t dirEntryCount(string dir) {
 private void warnMissingTryFile(MicdnConfig config, const WwwDocConfig doc) {
   if (doc.tryFile.length == 0)
     return;
-  auto path = resolveRepositoryPath(config.www.base, doc.endpoint() ~ "/" ~ doc.tryFile);
-  if (path is null)
-    return;
+  auto path = buildPath(config.www.base, doc.name, doc.tryFile);
   if (!exists(path) || isDir(path))
     logWarn("Resolve www doc %s: try-file %s not found at %s", doc.name, doc.tryFile, path);
 }

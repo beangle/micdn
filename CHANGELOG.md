@@ -10,6 +10,8 @@
 - **Breaking**：asset 移除逗号拼接 URI（`/a/b,c.js`）与 `sendFiles`；`AssetRepo.get` 返回 `AssetFile { bundle, path, info, isDir }`（非 `<dir>` bundle 走索引，dyna `<dir>` 走 stat）
 - **Breaking**：`try-file` 收窄为单个文件名（不能含路径分隔符）；doc 路径段预计算到 `WwwDocConfig.segments`
 - 内部：`sendFile` 改收 `IndexedFileInfo`（引用传递，含 `gzSize`）；新增 `IndexedFileInfo.fromFileInfo` 供 blob/npm/maven 等非索引调用方转换
+- 内部：URI 防穿越收敛到 HTTP 入口（`getResourceUri`/`segmentPath` 返回 `ResourceUri{segs, slashEnded}`），移除 `resolveRepositoryPath`；读盘经 `repositoryPath` 构造
+- 配置：仓库 base 解析即归一（空 base 报错，blob base 补齐绝对路径）；static `<bundle name>` 与 blob `<bucket name>` 校验（非空、无路径分隔符、非 `.`/`..`）
 - 工程：压测复测指南与对比报告（`docs/stress_test.md` / `docs/stress_report.md`）
 - 内部：仓库 base 统一绝对路径语义；gzip 模块并入 `micdn.web`
 

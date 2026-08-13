@@ -22,7 +22,7 @@ import std.datetime : SysTime, UTC;
 import std.datetime.stopwatch : AutoStart, StopWatch;
 import std.exception;
 import std.file;
-import std.path : absolutePath, baseName, buildPath, dirName, expandTilde;
+import std.path : baseName, buildPath;
 import std.string;
 
 import vibe.core.file;
@@ -39,7 +39,7 @@ import micdn.fs.index;
 import micdn.web.gzip;
 
 /// 按 doc endpoint 段组织的查找树：URI 段逐级匹配，返回最长前缀命中的 doc。
-/// 不做规范化；调用方须保证传入段已规范化（如由 `resolveRepositoryPath` 归一后剥离 baseAbs 前缀）。
+/// 不做规范化；调用方须保证传入段已由 `getResourceUri` 切段消解。
 class WwwDocTree {
   private static final class Node {
     WwwDocConfig doc;
@@ -110,7 +110,7 @@ class WwwRepo {
 
   this(string base, const WwwDocConfig[] docs = null) {
     enforce(base.length > 0, "repo base must not be empty");
-    this.base = absolutePath(expandTilde(base));
+    this.base = normalizeBasePath(base);
     this.docs = docs;
     docTree = new WwwDocTree(docs);
   }
@@ -134,9 +134,7 @@ class WwwRepo {
     size_t docCount, fileCount, dirCount, symlinkCount;
     auto sw = StopWatch(AutoStart.yes);
     foreach (doc; docs) {
-      auto docDir = resolveRepositoryPath(base, doc.endpoint());
-      if (docDir is null)
-        continue;
+      auto docDir = buildPath(base, doc.name);
       auto idx = new FileIndex(docDir);
       docIndexes[doc.name] = idx;
       docCount++;
@@ -160,9 +158,7 @@ class WwwRepo {
 
   /** 构建单个 doc 的发布期索引（autodeploy 重建后调用；启动期全量构建见 `buildIndexes` 的汇总日志）。 */
   private void buildDocIndex(const(WwwDocConfig) doc) {
-    auto docDir = resolveRepositoryPath(base, doc.endpoint());
-    if (docDir is null)
-      return;
+    auto docDir = buildPath(base, doc.name);
     auto sw = StopWatch(AutoStart.yes);
     auto idx = new FileIndex(docDir);
     docIndexes[doc.name] = idx;
@@ -175,74 +171,78 @@ class WwwRepo {
   private static const(WwwDocConfig) servingDoc(string wwwBase, const(WwwDocConfig) doc) {
     if (doc.tryFile.length == 0)
       return doc;
-    auto path = resolveRepositoryPath(wwwBase, doc.endpoint() ~ "/" ~ doc.tryFile);
-    if (path !is null && exists(path) && !std.file.isDir(path))
+    auto path = buildPath(wwwBase, doc.name, doc.tryFile);
+    if (exists(path) && !std.file.isDir(path))
       return doc;
     return doc.withoutTryFile();
   }
 
-  /** 按 HTTP 路径解析本地文件（须为 `getPath` 已解码路径；规范化并限制在 `base` 下）。
+  /** 便捷值重载：rvalue（如测试直构）走浅拷贝；生产路径（web 层持 lvalue）走 `ref` 版本。 */
+  WwwFile get(const ResourceUri uri) const {
+    return get(uri);
+  }
+
+  /** 按入口解析出的仓库 URI 解析本地文件（仅供 web 服务层调用；**调用方负责防穿越**：须已由 `getResourceUri`
+      切段消解，未消解的点段（`.`/`..`）可能导致 stat 兜底越界，属调用方违约）。
+    doc 树匹配与路径构造全部基于规范化段：命中文件路径 = `buildPath(base, uri.segs)`，无 `..` 段，天然限制在 `base` 下。
     先按 doc 树匹配：无 doc 返回 `WwwFile.init`（不读盘）。命中后顺序：$uri → $uri/（目录 index.html）→ 所属 doc 的 `try-file`（带静态扩展名且未命中则不回退）。
     返回语义：命中时 `path` 非空且 `info` 为命中文件的 stat 结果（供 `sendFile` 复用，避免二次 stat）；
     doc 匹配但文件缺失时 `path` 为 null 且 `doc` 保留（便于 doc 粒度兜底，如自定义 404）；无 doc 匹配时 `doc` 为 null。
   */
-  WwwFile get(string uri) const {
-    auto location = resolveRepositoryPath(base, uri);
-    if (location is null)
-      return WwwFile.init;
-
-    auto segs = relativeSegments(base, location);
-    auto doc = docTree.find(segs);
+  WwwFile get(ref const(ResourceUri) uri) const {
+    auto doc = docTree.find(uri.segs);
     if (doc is null)
       return WwwFile.init;
 
   // 发布期索引路径：存在性/目录折叠/try-file 回退全部查表，0 stat；
   // 断链即 404（索引由 deploy 构建并在 autodeploy 后重建，与磁盘保持一致）。
   if (auto p = doc.name in docIndexes) {
-    auto rs = resolveFromIndex(doc, *p, uri, location, segs);
+    auto rs = resolveFromIndex(doc, *p, uri);
     if (rs.path !is null)
       return rs;
     return WwwFile(null, doc);
   }
 
   // 无索引 doc（如直接 `new WwwRepo` 构造）走 stat 兜底解析。
-  return resolveByStat(doc, uri, location);
+  return resolveByStat(doc, uri);
 }
 
-/** 无索引 doc 的兜底解析：异步 stat 区分文件/目录/缺失，目录折叠 index.html，断链按 try-file 回退。
-    stat 与读盘之间文件可能变化，由 sendFile 的读盘失败兜底。目录折叠 index.html 与 try-file 回退各自再 stat 一次。 */
-private WwwFile resolveByStat(const(WwwDocConfig) doc, string uri, string location) const {
-  try {
-    auto fi = getFileInfo(location);
-    if (fi.isDirectory) {
-      auto indexPath = buildPath(location, "index.html");
-      try {
-        auto indexFi = getFileInfo(indexPath);
-        if (indexFi.isFile)
-          return attachGzByStat(doc, WwwFile(indexPath, doc, IndexedFileInfo.fromFileInfo(indexFi)));
-      } catch (Exception) {
+  /** 无索引 doc 的兜底解析：异步 stat 区分文件/目录/缺失，目录折叠 index.html，断链按 try-file 回退。
+      stat 与读盘之间文件可能变化，由 sendFile 的读盘失败兜底。目录折叠 index.html 与 try-file 回退各自再 stat 一次。 */
+  private WwwFile resolveByStat(const(WwwDocConfig) doc, ref const(ResourceUri) uri) const {
+    auto docSegs = doc.segments;
+    auto fileSegs = uri.segs[docSegs.length .. $];
+    auto docDir = buildPath(base, doc.name);
+    auto location = repositoryPath(base, uri);
+    try {
+      auto fi = getFileInfo(location);
+      if (fi.isDirectory) {
+        auto indexPath = buildPath(location, "index.html");
+        try {
+          auto indexFi = getFileInfo(indexPath);
+          if (indexFi.isFile)
+            return attachGzByStat(doc, WwwFile(indexPath, doc, IndexedFileInfo.fromFileInfo(indexFi)));
+        } catch (Exception) {
+        }
+        return WwwFile(null, doc);
       }
+      if (fi.isFile)
+        return attachGzByStat(doc, WwwFile(location, doc, IndexedFileInfo.fromFileInfo(fi)));
+      // 特殊文件（fifo/socket 等）不对外服务
       return WwwFile(null, doc);
+    } catch (Exception) {
+      // location 缺失 → 按 doc 的 try-file 回退
     }
-    if (fi.isFile)
-      return attachGzByStat(doc, WwwFile(location, doc, IndexedFileInfo.fromFileInfo(fi)));
-    // 特殊文件（fifo/socket 等）不对外服务
-    return WwwFile(null, doc);
-  } catch (Exception) {
-    // location 缺失 → 按 doc 的 try-file 回退
-  }
 
   if (doc.tryFile.length > 0) {
-    if (isStaticAsset(uri))
+    if (fileSegs.length > 0 && isStaticAsset(fileSegs[$ - 1]))
       return WwwFile(null, doc);
-    auto tryPath = resolveRepositoryPath(base, doc.endpoint() ~ "/" ~ doc.tryFile);
-    if (tryPath !is null) {
-      try {
-        auto tryFi = getFileInfo(tryPath);
-        if (tryFi.isFile)
-          return attachGzByStat(doc, WwwFile(tryPath, doc, IndexedFileInfo.fromFileInfo(tryFi)));
-      } catch (Exception) {
-      }
+    auto tryPath = buildPath(docDir, doc.tryFile);
+    try {
+      auto tryFi = getFileInfo(tryPath);
+      if (tryFi.isFile)
+        return attachGzByStat(doc, WwwFile(tryPath, doc, IndexedFileInfo.fromFileInfo(tryFi)));
+    } catch (Exception) {
     }
     return WwwFile(null, doc);
   }
@@ -265,15 +265,16 @@ private WwwFile attachGzByStat(const(WwwDocConfig) doc, WwwFile wf) const {
   /** 沿发布期索引解析相对 doc 根的段：命中文件或目录折叠 index.html 直接返回；
       SPA try-file 回退同样查索引（0 stat）；断链返回 null（调用方转 404）。 */
   private WwwFile resolveFromIndex(const(WwwDocConfig) doc, ref const(FileIndex) idx,
-      string uri, string location, scope const(string)[] rel) const {
+      ref const(ResourceUri) uri) const {
     auto docSegs = doc.segments;
-    auto fileSegs = rel[docSegs.length .. $];
+    auto fileSegs = uri.segs[docSegs.length .. $];
+    auto docDir = buildPath(base, doc.name);
 
     if (fileSegs.length == 0) {
       // doc 根（`/manual` 或 `/manual/`）：折叠 index.html
       auto ih = idx.find(["index.html"]);
       if (ih !is null && ih.isFile) {
-        auto indexPath = buildPath(location, "index.html");
+        auto indexPath = buildPath(docDir, "index.html");
         return makeWwwFile(doc, ih, indexPath);
       }
       return WwwFile(null, doc);
@@ -284,23 +285,21 @@ private WwwFile attachGzByStat(const(WwwDocConfig) doc, WwwFile wf) const {
       if (hit.isDirectory) {
         auto ih = idx.find(fileSegs ~ ["index.html"]);
         if (ih !is null && ih.isFile) {
-          auto indexPath = buildPath(location, "index.html");
+          auto indexPath = buildPath(docDir, fileSegs.join("/") ~ "/index.html");
           return makeWwwFile(doc, ih, indexPath);
         }
         return WwwFile(null, doc);
       }
-      return makeWwwFile(doc, hit, location);
+      return makeWwwFile(doc, hit, buildPath(docDir, fileSegs.join("/")));
     }
 
     // 断链：SPA try-file 回退（索引内查找，0 stat）；带静态扩展名不参与回退。
     if (doc.tryFile.length > 0) {
-      if (isStaticAsset(uri))
+      if (isStaticAsset(fileSegs[$ - 1]))
         return WwwFile(null, doc);
       auto th = idx.find([doc.tryFile]);
       if (th !is null && th.isFile) {
-        auto tryPath = resolveRepositoryPath(base, doc.endpoint() ~ "/" ~ doc.tryFile);
-        if (tryPath !is null)
-          return makeWwwFile(doc, th, tryPath);
+        return makeWwwFile(doc, th, buildPath(docDir, doc.tryFile));
       }
     }
     return WwwFile(null, doc);
@@ -314,16 +313,6 @@ private WwwFile attachGzByStat(const(WwwDocConfig) doc, WwwFile wf) const {
     return wf;
   }
 
-  /** 剥离 baseAbs 前缀并切段（路径已由 `resolveRepositoryPath` 归一，跳过空段）。 */
-  private static string[] relativeSegments(string baseAbs, string path) {
-    string[] segs;
-    foreach (part; path[baseAbs.length .. $].split("/")) {
-      if (part.length > 0)
-        segs ~= part;
-    }
-    return segs;
-  }
-
   /** 将单个 www `<doc>` 部署到 `www.base` 下与 `location` 同构的目录
     （如 `/manual` → `{base}/manual`）。供 `build` 与 `micdn … deploy www` 共用。
 
@@ -332,8 +321,7 @@ private WwwFile attachGzByStat(const(WwwDocConfig) doc, WwwFile wf) const {
   */
   static bool deployDoc(MicdnConfig config, const WwwDocConfig doc, bool force = false) {
     try {
-      auto docDir = resolveRepositoryPath(config.www.base, doc.endpoint());
-      assert(docDir !is null, "www doc path escapes base: " ~ doc.name);
+      auto docDir = buildPath(config.www.base, doc.name);
 
       if (!verifyDeployDirWritable(docDir)) {
         logError("Deploy www %s failed: %s is not writable", doc.name, docDir);
@@ -366,9 +354,7 @@ private WwwFile attachGzByStat(const(WwwDocConfig) doc, WwwFile wf) const {
   private static void warnMissingTryFile(string wwwBase, const WwwDocConfig doc) {
     if (doc.tryFile.length == 0)
       return;
-    auto path = resolveRepositoryPath(wwwBase, doc.endpoint() ~ "/" ~ doc.tryFile);
-    if (path is null)
-      return;
+    auto path = buildPath(wwwBase, doc.name, doc.tryFile);
     if (!exists(path) || std.file.isDir(path))
       logWarn("www doc %s try-file %s not found at %s", doc.name, doc.tryFile, path);
   }

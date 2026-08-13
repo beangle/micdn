@@ -26,8 +26,8 @@ v0.3.0 在 v0.2.6 基础上：新增 **gzip 预压缩 sidecar**（**部署期预
 | **WWW** | `try-file` 收窄为单个文件名（不能含路径分隔符），解析期报错 |
 | **Breaking** | asset 移除逗号拼接 URI（`/a/b,c.js`）与 `sendFiles`；`AssetRepo.get` 返回 `AssetFile { bundle, path, info, isDir }` |
 | **可观测** | 索引构建输出汇总日志（文件/目录/符号链接数 + 耗时） |
-| **安全** | `www.base` 下未挂 `<doc>` 的物理文件不再服务（404，且不读盘）；重复 doc name 配置报错 |
-| **内部** | 仓库 base 统一绝对路径语义（构造时校验 + 归一）；gzip 模块并入 `micdn.web` |
+| **安全** | `www.base` 下未挂 `<doc>` 的物理文件不再服务（404，且不读盘）；重复 doc name 配置报错；URI 防穿越收敛到 HTTP 入口（`getResourceUri`/`segmentPath`，返回 `ResourceUri{segs, slashEnded}`），移除 `resolveRepositoryPath` |
+| **内部** | 仓库 base 统一绝对路径语义（config 解析归一校验 + 构造非空校验）；`<bundle>`/`<bucket>` 名称校验；gzip 模块并入 `micdn.web` |
 | **工程** | 压测基建：`scripts/stress_http.sh` + 复测指南与对比报告 |
 
 ---
@@ -120,7 +120,9 @@ static / www 部署的文本类静态资源（`js`、`css`、`html`、`svg`、`j
 
 ### 其它
 
-- 仓库 base（maven / npm / asset / www）统一为绝对路径语义：`config.*.base` 解析即归一，repo 构造时校验非空。
+- 仓库 base（maven / npm / asset / blob / www）统一为绝对路径语义：`config.*.base` 解析即归一（`parseRepoBase`：展开 `${micdn.home}`/`~`、消解 `.`/`..`、显式空 base 报错），repo 构造时校验非空；blob base 一并补齐绝对路径归一（此前仅 `expandTilde`）。
+- 配置校验：static `<bundle name>` 与 blob `<bucket name>` 要求非空、不含 `/` 或 `\`、不得为 `.`/`..`（与 www `<doc name>` 同档）。
+- URI 防穿越收敛到 HTTP 入口：`getPath` 升级为 `getResourceUri`（切段 + 点段消解），返回 `ResourceUri{segs, slashEnded}`（段数组不再含尾斜杠空段，`slashEnded` 显式标记），读盘一律经 `repositoryPath` 构造物理路径；`resolveRepositoryPath` 已移除。
 - gzip 模块由 `micdn.gzip` 移入 `micdn.web.gzip`（纯内部重构，无配置影响）。
 - `WwwDocConfig` 新增预计算字段 `segments`（内部优化，无配置影响）。
 - `sendFile` 签名变更：`FileInfo + gzFileInfo` 合并为 `IndexedFileInfo`（引用传递）；非索引调用方（blob/npm/maven）以 `fromFileInfo` 转换，行为不变。
@@ -140,7 +142,7 @@ static / www 部署的文本类静态资源（`js`、`css`、`html`、`svg`、`j
 
 ## 测试
 
-`dub test --compiler=ldc2`：**126 passed, 0 failed**。
+`dub test --compiler=ldc2`：**137 passed, 0 failed**。
 
 新增/更新的覆盖：
 
@@ -150,4 +152,4 @@ static / www 部署的文本类静态资源（`js`、`css`、`html`、`svg`、`j
 - asset：`AssetFile` 索引命中（`gzSize` 挂载 / 小文件 0 / `.gz` 不可寻址 / 目录 / stale path 语义）、dyna `<dir>` stat 语义（忽略 gzip）、路径穿越防护
 - config：`auto-gzip` 默认值、解析与 `parse → toXml → parse` round-trip；重复 doc name 拒绝
 - config：`try-file` 含路径分隔符拒绝
-- base：仓库构造非空校验与绝对路径归一
+- config：仓库 base 解析归一与空 base 拒绝；`<bundle>`/`<bucket>` 名称校验（非空、无路径分隔符、非 `.`/`..`）

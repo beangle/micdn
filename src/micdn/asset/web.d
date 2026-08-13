@@ -43,7 +43,7 @@ class AssetService {
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
-    const uri = getPath(endpoint, req);
+    const uri = getResourceUri(endpoint, req);
     const rs = repo.get(uri);
     if (rs.path is null)
       throw new HTTPStatusException(HTTPStatus.notFound);
@@ -52,11 +52,11 @@ class AssetService {
     if (rs.isDir) {
       if (req.method == HTTPMethod.HEAD)
         throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
-      if (uri.endsWith("/")) {
-        auto listData = genListContents(rs.path, endpoint, uri);
+      if (uri.slashEnded) {
+        auto listData = genListContents(rs.path, endpoint, repositoryUri(uri));
         render!("index.dt", listData)(res);
       } else {
-        auto pub = endpoint ~ uri;
+        auto pub = endpoint ~ repositoryUri(uri);
         res.redirect(req.requestURI.replace(pub, pub ~ "/"));
       }
       return;

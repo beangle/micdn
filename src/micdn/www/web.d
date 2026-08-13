@@ -44,7 +44,8 @@ class WwwService {
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
-    auto rs = repo.get(getPath("", req));
+    auto uri = getResourceUri("", req);
+    auto rs = repo.get(uri);
     if (rs.path is null)
       throw new HTTPStatusException(HTTPStatus.notFound);
 

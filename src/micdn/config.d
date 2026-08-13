@@ -31,6 +31,7 @@ import dxml.parser : EntityType;
 import micdn.fs.file : isSafePathSegments;
 import micdn.logging;
 import micdn.model;
+import micdn.web : normalizeBasePath;
 import micdn.xml;
 
 /** 解析 home 属性：空=默认目录，~=用户主目录，否则 expandTilde。
@@ -55,6 +56,18 @@ private void validateMicdnServiceElementsUnique(T)(ref DOMEntity!T dom) {
     if (n > 1)
       throw new Exception(i`Duplicate <$(name)> element in micdn.xml (after includes)`.text);
   }
+}
+
+/** 解析仓库 base 属性并做 config 阶段归一校验。
+
+    展开 `${micdn.home}` 与 `~`，转绝对路径并消解 `.`/`..` 段（与各仓库构造函数的 `normalizeBasePath`
+    语义一致），使 `config.base` 为唯一规范形态；显式空 base 拒绝（避免静默回落为当前工作目录）。
+*/
+private string parseRepoBase(string home, string[string] attrs, string defaultSubDir) {
+  string base = attrs.get("base", home ~ defaultSubDir).replace("${micdn.home}", home);
+  if (base.length == 0)
+    throw new Exception("repo base must not be empty");
+  return normalizeBasePath(base);
 }
 
 /** 从 XML 字符串解析 MicdnConfig。defaultHome 为 xml 所在目录，用于 home 属性为空时。
@@ -226,7 +239,7 @@ MavenRepoConfig parseMaven(T)(string home, ref DOMEntity!T micdnDom) {
   auto dom = !mavenEntries.empty ? mavenEntries.front : repoEntries.front;
   auto attrs = getAttrs(dom);
 
-  string base = absolutePath(expandTilde(attrs.get("base", home ~ "/maven")).replace("${micdn.home}", home));
+  string base = parseRepoBase(home, attrs, "/maven");
   string[] remoteRepos = [];
   auto remoteEntries = children(dom, "remote");
   foreach (remoteEntry; remoteEntries) {
@@ -243,7 +256,7 @@ NpmRepoConfig parseNpm(T)(string home, ref DOMEntity!T micdnDom) {
   auto dom = children(micdnDom, "npm").front;
   auto attrs = getAttrs(dom);
 
-  string base = absolutePath(expandTilde(attrs.get("base", home ~ "/npm")).replace("${micdn.home}", home));
+  string base = parseRepoBase(home, attrs, "/npm");
   string[] remoteRepos = [];
   auto remoteEntries = children(dom, "remote");
   foreach (remoteEntry; remoteEntries) {
@@ -259,14 +272,19 @@ NpmRepoConfig parseNpm(T)(string home, ref DOMEntity!T micdnDom) {
 AssetConfig parseAsset(T)(string home, ref DOMEntity!T micdnDom) {
   auto dom = children(micdnDom, "static").front;
   auto attrs = getAttrs(dom);
-  string base = attrs.get("base", home ~ "/asset").replace("${micdn.home}", home);
-
-  base = absolutePath(expandTilde(base));
+  string base = parseRepoBase(home, attrs, "/asset");
   AssetBundle[string] bundles;
   auto bundleEntries = children(dom, "bundle");
 
   foreach (c; bundleEntries) {
-    auto bundle = new AssetBundle(getAttrs(c).get("name", ""));
+    string name = getAttrs(c).get("name", "").strip();
+    if (name.length == 0)
+      throw new Exception("static <bundle> requires a non-empty name attribute");
+    if (name.indexOf('/') >= 0 || name.indexOf('\\') >= 0)
+      throw new Exception("static <bundle> name must not contain '/' or '\\'");
+    if (name == "." || name == "..")
+      throw new Exception("static <bundle> name must not be '.' or '..'");
+    auto bundle = new AssetBundle(name);
     auto jars = children(c, "jar");
     foreach (jar; jars) {
       attrs = getAttrs(jar);
@@ -329,6 +347,8 @@ Bucket parseBlobBucket(T)(ref DOMEntity!T dom) {
     throw new Exception("blob <bucket> requires a non-empty name attribute");
   if (name.indexOf('/') >= 0 || name.indexOf('\\') >= 0)
     throw new Exception("blob <bucket> name must not contain '/' or '\\'");
+  if (name == "." || name == "..")
+    throw new Exception("blob <bucket> name must not be '.' or '..'");
 
   string key = attrs.get("key", "").strip();
   if (key.length == 0)
@@ -343,8 +363,7 @@ BlobConfig parseBlob(T)(string home, ref DOMEntity!T micdnDom) {
   auto dom = children(micdnDom, "blob").front;
   auto attrs = getAttrs(dom);
 
-  string base = attrs.get("base", home ~ "/blob").replace("${micdn.home}", home);
-  base = expandTilde(base);
+  string base = parseRepoBase(home, attrs, "/blob");
   string sizeLimit = attrs.get("maxSize", "100M");
 
   auto config = new BlobConfig(base);
@@ -367,7 +386,7 @@ WwwConfig parseWww(T)(string home, ref DOMEntity!T micdnDom) {
   auto dom = children(micdnDom, "www").front;
   auto attrs = getAttrs(dom);
 
-  string base = absolutePath(expandTilde(attrs.get("base", home ~ "/www")).replace("${micdn.home}", home));
+  string base = parseRepoBase(home, attrs, "/www");
   WwwDocConfig[] docs;
   bool[string] seenNames;
   foreach (c; children(dom, "doc")) {

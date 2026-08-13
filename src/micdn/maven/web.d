@@ -54,31 +54,30 @@ class MavenService {
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
-    const uri = getPath(endpoint, req);
-    auto file = resolveRepositoryPath(repo.base, uri);
-    if (file is null)
-      throw new HTTPStatusException(HTTPStatus.notFound);
+    const uri = getResourceUri(endpoint, req);
+    const ruri = repositoryUri(uri);
+    auto file = repositoryPath(repo.base, uri);
 
     FileInfo fi;
     try
       fi = getFileInfo(file);
     catch (Exception) {
       // 本地缺失：`.diff` 与目录型 URL 直接 404；文件型尝试从上游拉取后发送。
-      if (uri.endsWith(".diff")) {
+      if (ruri.endsWith(".diff")) {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
       // 目录型 URL：本地不存在则直接 404，不重定向（重定向后仍无列表内容）
-      if (uri.endsWith("/") || !looksLikeMavenArtifactFile(uri)) {
+      if (ruri.endsWith("/") || !looksLikeMavenArtifactFile(ruri)) {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
-      if (repo.fetch(uri)) {
+      if (repo.fetch(ruri)) {
         FileInfo ffi;
         try
           ffi = getFileInfo(file);
         catch (Exception)
           throw new HTTPStatusException(HTTPStatus.notFound);
         auto info = IndexedFileInfo.fromFileInfo(ffi);
-        sendFile(req, res, file, info, mavenArtifactCachePolicy(uri));
+        sendFile(req, res, file, info, mavenArtifactCachePolicy(ruri));
       } else {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
@@ -89,16 +88,16 @@ class MavenService {
       if (req.method == HTTPMethod.HEAD) {
         throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
       }
-      if (uri.endsWith("/")) {
-        auto listData = genListContents(file, endpoint, uri);
+      if (ruri.endsWith("/")) {
+        auto listData = genListContents(file, endpoint, ruri);
         render!("index.dt", listData)(res);
       } else {
-        auto pub = endpoint ~ uri;
+        auto pub = endpoint ~ ruri;
         res.redirect(req.requestURI.replace(pub, pub ~ "/"));
       }
     } else {
       auto info = IndexedFileInfo.fromFileInfo(fi);
-      sendFile(req, res, file, info, mavenArtifactCachePolicy(uri));
+      sendFile(req, res, file, info, mavenArtifactCachePolicy(ruri));
     }
   }
 }

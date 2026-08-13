@@ -37,14 +37,13 @@ class NpmService {
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
-    const uri = getPath(endpoint, req);
-    auto path = resolveRepositoryPath(repo.base, uri);
-    if (path is null)
-      throw new HTTPStatusException(HTTPStatus.notFound);
+    const uri = getResourceUri(endpoint, req);
+    const ruri = repositoryUri(uri);
+    auto path = repositoryPath(repo.base, uri);
 
     // 支持 NPM 官方 tgz URL：{packageName}/-/{name}-{version}.tgz，不存在则下载后返回
-    if (uri.canFind("/-/") && uri.endsWith(".tgz")) {
-      auto parsed = parseTarballUri(uri);
+    if (ruri.canFind("/-/") && ruri.endsWith(".tgz")) {
+      auto parsed = parseTarballUri(ruri);
       if (parsed[0]!is null && parsed[1]!is null && parsed[2]!is null) {
         if (repo.fetch(parsed[0], parsed[1], parsed[2])) {
           auto local = repo.localTarball(parsed[0], parsed[1], parsed[2]);
@@ -72,11 +71,11 @@ class NpmService {
       if (req.method == HTTPMethod.HEAD) {
         throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
       }
-      if (uri.endsWith("/")) {
-        auto listData = genListContents(path, endpoint, uri);
+      if (ruri.endsWith("/")) {
+        auto listData = genListContents(path, endpoint, ruri);
         render!("index.dt", listData)(res);
       } else {
-        auto pub = endpoint ~ uri;
+        auto pub = endpoint ~ ruri;
         res.redirect(req.requestURI.replace(pub, pub ~ "/"));
       }
     } else {

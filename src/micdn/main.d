@@ -27,7 +27,7 @@ import std.file : getcwd, exists;
 import std.range : empty;
 import std.stdio;
 import std.string : startsWith, strip, lastIndexOf;
-import std.path : absolutePath, dirName, expandTilde;
+import std.path : absolutePath, buildPath, dirName, expandTilde;
 
 import vibe.core.args;
 import vibe.core.core;
@@ -428,7 +428,7 @@ private int runDeployWww(MicdnConfig config, string docName, bool force) {
         ok = false;
       else
         logInfo("deploy www ok: %s -> %s", doc.name,
-            resolveRepositoryPath(config.www.base, doc.endpoint()));
+            buildPath(config.www.base, doc.name));
     }
     return ok ? 0 : 1;
   }
@@ -438,7 +438,7 @@ private int runDeployWww(MicdnConfig config, string docName, bool force) {
   if (!WwwRepo.deployDoc(config, doc, force))
     throw new Exception("deploy www failed for " ~ doc.name);
 
-  logInfo("deploy www ok: %s -> %s", doc.name, resolveRepositoryPath(config.www.base, doc.endpoint()));
+  logInfo("deploy www ok: %s -> %s", doc.name, buildPath(config.www.base, doc.name));
   return 0;
 }
 
