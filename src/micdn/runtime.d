@@ -27,9 +27,9 @@ import std.string : split, strip, toLower, indexOf, splitLines, startsWith;
 import vibe.core.core : Timer, setTimer;
 import vibe.core.log;
 
-enum gcMaxPoolSizeMb = 1;
+enum gcMaxPoolSizeMb = 4;
 
-extern (C) __gshared string[] rt_options = ["gcopt=maxPoolSize:1M heapSizeFactor:1.2"];
+extern (C) __gshared string[] rt_options = ["gcopt=maxPoolSize:4M heapSizeFactor:1.2"];
 
 /** HTTP 服务启动时调用，记录内置 GC 配置（druntime 在 main 之前已读 rt_options）。 */
 void applyRuntimeProfile() @safe nothrow {

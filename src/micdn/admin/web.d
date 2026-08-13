@@ -17,6 +17,8 @@
 module micdn.admin.web;
 /// 管理接口服务，提供 /admin/config.xml、/admin/metrics 等运维接口。
 
+import std.format : format;
+
 import vibe.http.router;
 import vibe.http.server;
 
@@ -24,6 +26,7 @@ import micdn.admin.access : requireLocalhostPeer;
 import micdn.admin.metrics : metricsJson, snapshotMetrics;
 import micdn.config;
 import micdn.model;
+import micdn.runtime : runGcMinimize;
 import micdn.web;
 
 struct MetricsPageData {
@@ -73,6 +76,16 @@ class AdminService {
       res.statusCode = HTTPStatus.ok;
       res.headers["Content-Type"] = "application/json; charset=utf-8";
       res.writeBody(metricsJson(snapshotMetrics()));
+    } else if (path == "/reclaim") {
+      requireLocalhostPeer(req);
+      auto r = runGcMinimize();
+      res.statusCode = HTTPStatus.ok;
+      res.headers["Content-Type"] = "application/json; charset=utf-8";
+      res.writeBody(format(
+          `{"before":{"rssKb":%s,"hwmKb":%s,"gcUsed":%s,"gcFree":%s},"after":{"rssKb":%s,"hwmKb":%s,"gcUsed":%s,"gcFree":%s},"mallocTrim":%s}`,
+          r.before.process.rssKb, r.before.process.hwmKb, r.before.gc.usedBytes, r.before.gc.freeBytes,
+          r.after.process.rssKb, r.after.process.hwmKb, r.after.gc.usedBytes, r.after.gc.freeBytes,
+          r.mallocTrim));
     } else if (path == "/metrics") {
       requireLocalhostPeer(req);
       auto pageData = MetricsPageData(appVersion);
