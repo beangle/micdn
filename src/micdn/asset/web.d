@@ -23,7 +23,6 @@ import vibe.core.core;
 import vibe.core.log;
 import vibe.http.router;
 import vibe.http.server;
-import vibe.web.web;
 
 import micdn.asset;
 import micdn.fs.browser;

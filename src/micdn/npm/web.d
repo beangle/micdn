@@ -17,7 +17,6 @@ import vibe.core.core;
 import vibe.core.file;
 import vibe.http.router;
 import vibe.http.server;
-import vibe.web.web;
 
 import micdn.fs.browser;
 import micdn.model;

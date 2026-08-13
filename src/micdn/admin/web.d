@@ -19,7 +19,6 @@ module micdn.admin.web;
 
 import vibe.http.router;
 import vibe.http.server;
-import vibe.web.web;
 
 import micdn.admin.access : requireLocalhostPeer;
 import micdn.admin.metrics : metricsJson, snapshotMetrics;

@@ -34,7 +34,6 @@ import vibe.core.log;
 import vibe.http.router;
 import vibe.http.server;
 import vibe.inet.url;
-import vibe.web.web;
 
 import micdn.blob.store;
 import micdn.fs.index;
