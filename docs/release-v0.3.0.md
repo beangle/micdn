@@ -17,6 +17,46 @@ HTTP 入口统一解析为 **`ResourceUri{segs, slashEnded}`**：切段 + 点段
 
 共 **23 个提交**，**56 个文件**变更（+3191 / −609 行）。
 
+总体评价：相比 v0.2.x 更一致、更安全、更稳定、更快速，逐项说明见下节「版本评价」。
+
+---
+
+## 版本评价
+
+v0.3.0 相对 v0.2.x 是一次以「收敛」为主题的版本：统一规则与语义、把安全校验前置到配置期、把代价从请求期移到部署期。
+
+### 更一致
+
+- www 与 asset 语义对齐：`WwwRepo.get` / `AssetRepo.get` 统一返回 `{ path, info, isDir }`（`WwwFile` / `AssetFile`），索引与 stat 两种解析路径对外语义一致。
+- 入口统一：HTTP 层一律解析为 `ResourceUri{segs, slashEnded}`，切段、点段消解、URI 重建与物理路径构造收敛到 `segmentPath` / `repositoryUri` / `repositoryPath`，移除 `resolveRepositoryPath`。
+- 配置规则统一：所有仓库 `base` 解析即归一（展开 `${micdn.home}`/`~`、消解 `.`/`..`、空 base 报错）；www doc / asset bundle / blob bucket 命名同档校验。
+- 行为收敛：移除 asset 逗号拼接 URI 与 `sendFiles`、移除 www `<dir>` 挂载，gzip 模块并入 `micdn.web`，依赖收敛为 vibe-http / vibe-inet / vibe-stream:tls / dxml。
+- 部署幂等一致：gzip 预压缩与实际解压部署绑定，manifest 快路径跳过解压时同步跳过，重复启动不扫描、不补齐，部署结果整体一致。
+
+### 更安全
+
+- 防穿越收敛到 HTTP 入口：URI 切段 + 点段消解统一完成，越界段直接拒绝。
+- 服务范围收紧：`www.base` 下未挂 `<doc>` 的物理文件一律 404，且不读盘。
+- 校验前置：重复 doc name、`try-file` 含路径分隔符、非法 bundle/bucket 名、空 base，全部改为解析期报错，不再静默生效。
+- `clean` 只清理可再生成的部署目录，maven/npm 下载缓存与 blob 用户数据不动；符号链接目录只删链接本身（`<dir>` bundle 的真实源文件不受影响）。
+- gzip sidecar 写临时文件后原子 `rename` 落盘。
+
+### 更稳定
+
+- 请求期 0 stat：存在性、目录折叠、SPA `try-file` 回退全部查索引，请求路径无读盘竞争。
+- 移除后台压缩线程：gzip 只发生在部署期，运行期无并发压缩。
+- 重复启动幂等：manifest 快路径跳过重复解压；缺失目录容忍；失败路径有明确 warn/error。
+- autodeploy 重新部署后只重建对应 doc 索引，且运行期索引重建为纯只读扫描。
+- 142 项测试覆盖索引、前缀树、gzip 门控、`clean`、配置校验与 `ResourceUri` 语义。
+
+### 更快速
+
+- 发布期文件索引（共享 `FileIndex` 段树）：请求期存在性 / 目录折叠 / `try-file` 回退 0 stat。
+- `WwwDocTree` 前缀树：doc 匹配 O(路径段数)，断链回退最长 doc 前缀。
+- `gzSize` 随索引同趟登记：gzip 命中请求期同样 0 stat。
+- 压测（vs 索引前基线 `490a455`，四场景 RPS +10.8% ~ +87.5%）：最坏路径 / 文件命中 / gzip 命中 / 404 提升见下方「性能数据」。
+- 热路径优化：`segmentPath` 单趟扫描、索引命中路径直接拼接，不再重复 `buildPath`。
+
 ---
 
 ## 亮点总结

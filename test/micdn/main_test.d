@@ -11,6 +11,8 @@ module micdn.main_test;
 import std.file;
 import std.path : buildPath;
 
+import micdn.asset : AssetRepo;
+import micdn.config : parseFile;
 import micdn.main : runClean;
 
 @("clean removes www/static deploy dirs but keeps maven/npm caches and blob")
@@ -91,4 +93,34 @@ unittest {
   auto rc = runClean(["-f", xmlPath, "clean", "--yes"]);
   assert(rc == 0, "clean must succeed with absent deploy dirs");
   assert(exists(blob), "blob data must not be cleaned");
+}
+
+@("clean removes dir bundle symlink but keeps real source files")
+unittest {
+  auto home = absolutePath(buildPath(tempDir, "micdn-clean-dir-bundle"));
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  auto srcDir = buildPath(home, "src");
+  mkdirRecurse(buildPath(srcDir, "sub"));
+  auto realFile = buildPath(srcDir, "sub", "a.js");
+  write(realFile, "var a = 1;");
+  auto assetBase = buildPath(home, "static");
+  auto xmlPath = buildPath(home, "micdn.xml");
+  write(xmlPath, `<?xml version="1.0"?><micdn>
+  <maven/><npm/>
+  <static base="` ~ assetBase ~ `">
+    <bundle name="local"><dir location="` ~ srcDir ~ `"/></bundle>
+  </static>
+</micdn>`);
+
+  AssetRepo.build(parseFile(xmlPath));
+  auto linkPath = buildPath(assetBase, "local");
+  assert(isSymlink(linkPath), "dir bundle must be deployed as a symlink");
+
+  auto rc = runClean(["-f", xmlPath, "clean", "--yes"]);
+  assert(rc == 0, "clean must succeed");
+  assert(!exists(assetBase), "clean must remove the asset deploy dir");
+  assert(!exists(linkPath), "clean must remove the dir bundle symlink");
+  assert(exists(realFile), "clean must not delete real files behind dir bundle");
 }
