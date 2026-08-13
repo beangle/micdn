@@ -27,8 +27,12 @@ import std.string : split, strip, toLower, indexOf, splitLines, startsWith;
 import vibe.core.core : Timer, setTimer;
 import vibe.core.log;
 
+/// 内置 GC 单块 pool 上限（`core.gc.config.config.maxPoolSize`）。经 1M / 8M / 4M 同日 A/B 压测选定：
+/// 4M 比 8M 运行 RSS 各阶段低 5–8MB、四场景吞吐无回退，启动后 RSS 19.6MB（见 docs/stress_report.md「内存池对比」）。
+/// druntime 在 main 之前读取，不能由 micdn.xml 修改。
 enum gcMaxPoolSizeMb = 4;
 
+/// druntime 启动前读取的 GC 选项；`heapSizeFactor:1.2` 预留少量堆余量，减少运行期页池扩容。
 extern (C) __gshared string[] rt_options = ["gcopt=maxPoolSize:4M heapSizeFactor:1.2"];
 
 /** HTTP 服务启动时调用，记录内置 GC 配置（druntime 在 main 之前已读 rt_options）。 */
@@ -165,6 +169,9 @@ bool isProcFdEntryName(string name) pure @safe {
   return name.length && name.all!isDigit;
 }
 
+/// 一次完整回收：`GC.collect`（标记-清扫，收拢仍被引用的对象）+ `GC.minimize`（把空闲页池归还 OS）
+/// + Linux glibc 下 `malloc_trim(0)`（归还 C 堆 arena 空闲内存；musl 无此符号，dlsym 探测为 null 时跳过）。
+/// 调用点：启动期重活后一次（main）、`PeriodicGcReclaimer` 周期、`/admin/reclaim` 按需。
 GcMinimizeResult runGcMinimize() {
   GcMinimizeResult ret;
   ret.before = snapshotMem();
@@ -180,8 +187,9 @@ GcMinimizeResult runGcMinimize() {
 }
 
 /// 周期回收间隔：固定周期执行 `GC.collect + minimize + malloc_trim`，让不再需要的内存尽快归还 OS。
-/// micdn 的 GC 堆很小（压测中 gcUsed 仅数 MB），collect 的 STW 代价可忽略，无需 RSS 门控。
-private enum Duration reclaimInterval = 20.minutes;
+/// micdn 的 GC 堆很小（压测中 gcUsed 仅数 MB），collect 的 STW 代价可忽略，无需 RSS 门控；
+/// 10 分钟在「回收时效」与「STW 频率」之间折中（启动期重活后另有即时回收，见 main）。
+private enum Duration reclaimInterval = 10.minutes;
 
 /// 周期 GC 回收器：固定周期执行 `GC.collect + minimize + malloc_trim`（glibc 下经 dlsym 生效，musl 自动降级），
 /// 空闲时尽早归还内存、负载后回落。不读取请求计数，负载期同样执行（堆小、STW 可忽略）。
