@@ -7,6 +7,8 @@
 | `build_rpm.sh` | 构建二进制 `.rpm`（需 `rpmbuild`、`fakeroot`；先 `dub clean` 再 release 构建） |
 | `build_srpm.sh` | 构建源代码 `.src.rpm`（需 `rpmbuild`、`tar`；可用 `rpmbuild --rebuild` 在目标机重编） |
 | `build_common.sh` | 打包共用：`dub clean`、清空 `target/`、`dub build --build=release-nobounds` |
+| `stress_bench.sh` | 四场景吞吐压测（目录/文件/404/gzip，预热 + 多轮取中位，见 `docs/stress_test.md`） |
+| `stress_mem.sh` | 多文件内存压测（自生成样例，c=50 多路径 + c=200 heavy，可选 `/admin/reclaim`） |
 | `setup-windows.ps1` | Windows 下 dub / 依赖补丁 |
 | `container/` | **仅镜像**：默认 `micdn.xml`、`entrypoint.sh`；可选本地 `host-dub-cache/`（见 `.gitignore`） |
 | `package/` | **仅 deb/rpm**：面向 systemd 安装的 `micdn.xml`（与容器版不同）、`micdn.service` |

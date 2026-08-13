@@ -103,8 +103,8 @@ kill <pid>          # 停止
 
 | 场景 | URL | 命令 | 预期 stat 次数 |
 |------|-----|------|----------------|
-| 最坏路径（目录 → index.html） | `/manual/` | `./scripts/stress_http.sh 'http://127.0.0.1:8899/manual/'` | 0（索引：目录折叠 index.html 查表） |
-| 文件命中 | `/manual/app.js` | `./scripts/stress_http.sh 'http://127.0.0.1:8899/manual/app.js'` | 0（索引命中） |
+| 最坏路径（目录 → index.html） | `/manual/` | `ab -k -r -n 10000 -c 100 'http://127.0.0.1:8899/manual/'` | 0（索引：目录折叠 index.html 查表） |
+| 文件命中 | `/manual/app.js` | `ab -k -r -n 10000 -c 100 'http://127.0.0.1:8899/manual/app.js'` | 0（索引命中） |
 | 404 未命中 | `/manual/nope.js` | `ab -r -n 10000 -c 100 'http://127.0.0.1:8899/manual/nope.js'` | 0（索引断链，静态资产不回退） |
 | gzip 命中 | `/manual/app.js` | `ab -k -r -n 10000 -c 100 -H 'Accept-Encoding: gzip' 'http://127.0.0.1:8899/manual/app.js'` | 0（索引命中即带 `gzSize`，无需二次 stat） |
 
@@ -148,7 +148,23 @@ ab 摘要关键行：`Requests per second`、`Time per request (mean)`、`Percen
 - 最坏路径的 stat 次数取决于 `WwwRepo.get`（`src/micdn/www/package.d`）与 `sendFileImpl`（`src/micdn/web/file.d`）的实现，代码重构后按第 5 节表格核对预期值是否变化。
 - 对比不同 commit 的结果时，记录被测 commit（第 1 节环境表）。
 
+## 8. 脚本一键压测
+
+仓库内提供两个脚本，封装了本指南的复现方法（含历次踩坑修正：ab 的 URL 必须是最后一个参数、解析用 awk 而非 `grep -oP`、404 场景不带 `-k`、记录 CPU 频率与 load）：
+
+```bash
+# 吞吐四场景（目录 / 文件命中 / 404 / gzip）：预热 5 轮 + 3 轮取中位，输出到 /tmp/stress-bench.txt
+./scripts/stress_bench.sh -p 8899 -c 100 -n 10000
+
+# 多文件内存压测：自生成样例（默认 2000 small + 150 medium + 24 big），
+# c=50 多路径 + c=200 heavy，逐阶段输出 RSS/HWM；--reclaim 在 heavy 后调用 /admin/reclaim
+./scripts/stress_mem.sh --reclaim
+```
+
+两个脚本都自带 `-h` 帮助与「坑」注释；`stress_mem.sh` 每次运行会重建 `/tmp/micdn-stress-many` 样例目录。
+
 ## 相关
 
 - [docs/stress_report.md](./stress_report.md)：2026-08-13 终版报告（含基线至 `8f6d182` 全部轮次对比）
-- [scripts/stress_http.sh](../scripts/stress_http.sh)：`ab` 包装脚本
+- [scripts/stress_bench.sh](../scripts/stress_bench.sh)：四场景吞吐一键压测（keep-alive / 404 不带 `-k` / 记录 CPU 频率与 load）
+- [scripts/stress_mem.sh](../scripts/stress_mem.sh)：多文件内存压测（自生成样例，可选 `/admin/reclaim`）
