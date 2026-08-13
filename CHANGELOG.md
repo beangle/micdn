@@ -1,9 +1,9 @@
 # Changelog
 
-## v0.3.1 (2026-08-14)
+## v0.3.1
 
 - 内存：文件响应改为 `FileStream` 流式写出（`maxWholeFileMemSend=0`），大文件不再整读入 GC 堆，降低堆峰值与分配抖动
-- 内存：内置主动回收 `runGcMinimize`（`GC.collect` + minimize + glibc `malloc_trim`，musl 下 dlsym 探测自动跳过）：启动期重活后回收一次 + 每 20 分钟周期回收；内存快照与回收逻辑集中于 `micdn.runtime`
+- 内存：内置主动回收 `runGcMinimize`（`GC.collect` + minimize + glibc `malloc_trim`，musl 下 dlsym 探测自动跳过）：启动期重活后回收一次 + 每 10 分钟周期回收；内存快照与回收逻辑集中于 `micdn.runtime`
 - 内存：GC `maxPoolSize` 调至 4M（同日 A/B：RSS 各阶段较 8M 低 5–8MB，四场景吞吐无回退）
 - 运维：新增 `/admin/reclaim`（仅 localhost）按需回收，返回回收前后 RSS/HWM、GC used/free 与 `mallocTrim`
 - 修复：`version (Linux)` 守卫改为 `version (linux)`，inotify watch、www auto-deploy、SIGHUP reload 在 Linux 真正编译启用；SIGHUP 经 eventcore 跨线程事件派发到事件循环执行
