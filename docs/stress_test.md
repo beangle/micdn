@@ -22,6 +22,8 @@
 2026-08-13 索引版：同机 · micdn 0.3.0（commit `8ddfd47` + 发布期文件索引，未提交）· ab 2.3 · 无后台负载 · 同方法。
 2026-08-13 提交前复测：同机 · 索引版（本提交）· ab 2.3 · `performance` 调速器（负载核 ~4.4 GHz）· 无后台负载 · 同方法。
 2026-08-13 最新版复测：同机 · micdn 0.3.0（commit `2f0a386`，部署期预压缩 + `gzSize` 索引）· ab 2.3 · `performance` 调速器（负载核 ~4.49 GHz）· 无后台负载 · 同方法。
+2026-08-13 最终版复测：同机 · micdn 0.3.0（commit `8f6d182`，热路径去 `buildPath` + `segmentPath` 单趟扫描）· ab 2.3 · `performance` 调速器（负载核 ~4.45 GHz）· load 0.62/0.84/0.75 · 同方法。
+2026-08-13 索引版复测：同机 · micdn 0.3.0（commit `59c8320`，发布期文件索引，gzip 仍请求期 `getFileInfo`）· ab 2.3 · `performance` 调速器（负载核 ~4.42 GHz）· 同方法。
 
 > 同机多次运行也会有波动（实测预热后 3 轮：最坏路径 16.0k–20.7k RPS，CPU 频率 scaling 与页面缓存冷热所致）。比较时应记录负载与频率，按「预热 + 多轮取中位」执行，不要单次定论。
 
@@ -148,5 +150,5 @@ ab 摘要关键行：`Requests per second`、`Time per request (mean)`、`Percen
 
 ## 相关
 
-- [docs/stress_report.md](./stress_report.md)：2026-08-13 基线报告
+- [docs/stress_report.md](./stress_report.md)：2026-08-13 终版报告（含基线至 `8f6d182` 全部轮次对比）
 - [scripts/stress_http.sh](../scripts/stress_http.sh)：`ab` 包装脚本
