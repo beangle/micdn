@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3.1 (2026-08-14)
+
+- 内存：文件响应改为 `FileStream` 流式写出（`maxWholeFileMemSend=0`），大文件不再整读入 GC 堆，降低堆峰值与分配抖动
+- 内存：内置主动回收 `runGcMinimize`（`GC.collect` + minimize + glibc `malloc_trim`，musl 下 dlsym 探测自动跳过）：启动期重活后回收一次 + 每 20 分钟周期回收；内存快照与回收逻辑集中于 `micdn.runtime`
+- 内存：GC `maxPoolSize` 调至 4M（同日 A/B：RSS 各阶段较 8M 低 5–8MB，四场景吞吐无回退）
+- 运维：新增 `/admin/reclaim`（仅 localhost）按需回收，返回回收前后 RSS/HWM、GC used/free 与 `mallocTrim`
+- 修复：`version (Linux)` 守卫改为 `version (linux)`，inotify watch、www auto-deploy、SIGHUP reload 在 Linux 真正编译启用；SIGHUP 经 eventcore 跨线程事件派发到事件循环执行
+- 修复：`clean` 后重启不再为自建空目录输出 `Removing` 日志（部署可写性探测不创建目标目录）
+- 工程：压测脚本化——`scripts/stress_bench.sh`（四场景吞吐：目录/文件/404/gzip，预热 + 多轮取中位，记录 CPU 频率与 load）、`scripts/stress_mem.sh`（多文件内存，可选 `/admin/reclaim`）；移除旧 `scripts/stress_http.sh`
+
+完整说明见 docs/release-v0.3.1.md
+
 ## v0.3.0 (2026-08-13)
 
 - **Breaking**：www 移除 `<dir>` 挂载；`www.base` 下未挂 `<doc>` 的物理文件不再对外服务（404）；重复 doc name 配置报错
