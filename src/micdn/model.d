@@ -30,7 +30,6 @@ import std.string;
 import std.uni;
 
 import micdn.config;
-import micdn.fs.file : isSafePathSegments;
 import micdn.routes;
 
 /** 根配置类，聚合静态资源、Maven 仓库、NPM 仓库、Blob 存储、WWW 文档等子配置。
@@ -462,9 +461,11 @@ class WwwConfig {
 class WwwDocConfig {
   /// doc 路径名（如 `manual`、`mobile/student`），对应 HTTP `/name`
   const string name;
+  /// `name` 切段结果（如 `a/b` → `["a","b"]`），构造时预计算，供 doc 树与发布期索引复用
+  const string[] segments;
   /// 资源提供者（NpmProvider 或 ZipProvider）
   const BundleProvider provider;
-  /// SPA 等场景：$uri / $uri/ 均未命中时，回退到 doc 根下该相对路径（如 `index.html`）。
+  /// SPA 等场景：$uri / $uri/ 均未命中时，回退到 doc 根下该文件（仅单个文件名，不能含路径分隔符，如 `index.html`）。
   const string tryFile;
   /// zip doc 是否在运行期监听源 zip 变更并自动 deploy（仅 zip provider 有效；Linux）。
   const bool autoDeploy;
@@ -476,13 +477,14 @@ class WwwDocConfig {
     assert(isValidDocName(name),
         "www doc name must not start with '/' and must not contain '.' or '..' segments (e.g. manual or a/b)");
     assert(provider !is null, "www doc provider must not be null");
-    assert(tryFile.length == 0 || isSafePathSegments(tryFile),
-        "www doc try-file must not contain '.' or '..' path segments");
+    assert(tryFile.length == 0 || !tryFile.canFind("/"),
+        "www doc try-file must be a single file name without path separators (e.g. index.html)");
     this.name = name;
     this.provider = provider;
     this.tryFile = tryFile;
     this.autoDeploy = autoDeploy;
     this.autoGzip = autoGzip;
+    this.segments = name.split("/");
   }
 
   /// HTTP 访问路径（`/` ~ `name`）。

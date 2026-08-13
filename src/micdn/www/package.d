@@ -18,6 +18,8 @@ module micdn.www;
 /// WWW 静态内容：构建时按 `<doc>` 挂载到 `www.base` 下同名路径，运行时 `base ~ httpPath` 直接读盘。
 
 import std.algorithm;
+import std.datetime : SysTime, UTC;
+import std.datetime.stopwatch : AutoStart, StopWatch;
 import std.exception;
 import std.file;
 import std.path : absolutePath, baseName, buildPath, dirName, expandTilde;
@@ -25,6 +27,7 @@ import std.string;
 
 import vibe.core.file;
 import vibe.core.log;
+import vibe.core.path;
 
 import micdn.fs.file;
 import micdn.model;
@@ -32,6 +35,105 @@ import micdn.npm;
 import micdn.web.file;
 import micdn.web;
 import micdn.web.ext;
+
+/// www 文件索引条目：发布期 stat 的轻量快照（路径由段树节点隐含，不重复存储）。
+/// 仅保留 HTTP 服务所需字段：类型标志、大小与修改时间（ETag/Last-Modified/Content-Length）。
+struct IndexedFileInfo {
+  enum : ubyte { dirFlag = 0x01, fileFlag = 0x02, symlinkFlag = 0x04 }
+
+  ulong size;
+  long modified; // stdTime（UTC，2000-01-01 起 hnsecs）
+  ubyte flags;
+
+  /// 展开为 vibe `FileInfo`（name/directory 由给定物理路径切片派生，零分配）。
+  FileInfo toFileInfo(string path) const @safe {
+    FileInfo fi;
+    fi.name = baseName(path);
+    fi.directory = NativePath(dirName(path));
+    fi.size = size;
+    fi.timeModified = SysTime(modified, UTC());
+    fi.isSymlink = (flags & symlinkFlag) != 0;
+    fi.isDirectory = (flags & dirFlag) != 0;
+    fi.isFile = (flags & fileFlag) != 0;
+    return fi;
+  }
+
+  bool isDirectory() const @safe pure nothrow {
+    return (flags & dirFlag) != 0;
+  }
+
+  bool isFile() const @safe pure nothrow {
+    return (flags & fileFlag) != 0;
+  }
+}
+
+/// 单 doc 的发布期文件索引：按相对 doc 根的段组织的树（段名共享，无路径冗余）。
+/// 请求期沿段遍历判定存在性：命中叶子 = 存在，断链 = 缺失，全程 0 stat。
+private final class WwwFileIndex {
+  private static final class Node {
+    IndexedFileInfo info;
+    bool hasInfo;
+    Node[string] children;
+  }
+
+  private Node root_;
+  private size_t fileCount_;
+  private size_t dirCount_;
+  private size_t symlinkCount_;
+
+  /// 遍历 docDir 构建（发布期一次；autodeploy 后重建）。
+  this(string docDir) {
+    root_ = buildDir(docDir, fileCount_, dirCount_, symlinkCount_);
+  }
+
+  /// 索引内文件数（不含被跳过的 `*.gz` sidecar）。
+  size_t fileCount() const @property { return fileCount_; }
+  /// 索引内目录数（含 doc 根）。
+  size_t dirCount() const @property { return dirCount_; }
+  /// 索引内符号链接数（只计数，不建条目；请求期按缺失处理）。
+  size_t symlinkCount() const @property { return symlinkCount_; }
+
+  /// 按相对 doc 根段查：命中（文件或目录）返回 info 引用；断链返回 null。
+  const(IndexedFileInfo)* find(scope const(string)[] segments) const {
+    auto node = &root_;
+    foreach (seg; segments) {
+      auto next = seg in node.children;
+      if (next is null)
+        return null;
+      node = next;
+    }
+    return node.hasInfo ? &node.info : null;
+  }
+
+  private static Node buildDir(string dir, ref size_t files, ref size_t dirs, ref size_t symlinks) {
+    auto node = new Node();
+    node.hasInfo = true;
+    node.info.flags = IndexedFileInfo.dirFlag;
+    node.info.modified = DirEntry(dir).timeLastModified.stdTime;
+    dirs++;
+    foreach (entry; dirEntries(dir, SpanMode.shallow)) {
+      auto name = baseName(entry.name);
+      // 跳过运行期 sidecar `*.gz`：非部署内容，且 gz 服务由 web 层直接 `getFileInfo` 现查，
+      // 不依赖索引；排除后反复启停也不会把遗留 gz 的元数据预扫进 page cache。
+      if (entry.isFile && name.endsWith(".gz"))
+        continue;
+      if (entry.isDir) {
+        node.children[name] = buildDir(entry.name, files, dirs, symlinks);
+      } else if (entry.isFile) {
+        files++;
+        auto child = new Node();
+        child.hasInfo = true;
+        child.info.flags = IndexedFileInfo.fileFlag;
+        child.info.size = entry.size;
+        child.info.modified = entry.timeLastModified.stdTime;
+        node.children[name] = child;
+      } else {
+        symlinks++;
+      }
+    }
+    return node;
+  }
+}
 
 /// 按 doc endpoint 段组织的查找树：URI 段逐级匹配，返回最长前缀命中的 doc。
 /// 不做规范化；调用方须保证传入段已规范化（如由 `resolveRepositoryPath` 归一后剥离 baseAbs 前缀）。
@@ -52,7 +154,7 @@ class WwwDocTree {
   /** 将 doc 按 endpoint 段挂到树中（如 `manual/getting-started` → manual → getting-started）；endpoint 重复时抛异常。 */
   private void add(const(WwwDocConfig) doc) {
     auto node = root_;
-    foreach (seg; segments(doc.endpoint())) {
+    foreach (seg; doc.segments) {
       auto next = seg in node.children;
       if (next is null) {
         auto child = new Node();
@@ -81,15 +183,6 @@ class WwwDocTree {
     auto deeper = findNode(*child, segments[1 .. $]);
     return deeper !is null ? deeper : node.doc;
   }
-
-  private static string[] segments(string endpoint) {
-    string[] segs;
-    foreach (part; endpoint.split("/")) {
-      if (part.length > 0)
-        segs ~= part;
-    }
-    return segs;
-  }
 }
 
 /// `WwwRepo.get` 命中结果：最终文件路径、所属 doc 与命中文件的 `FileInfo`
@@ -108,6 +201,7 @@ class WwwRepo {
   const WwwDocConfig[] docs;
 
   private WwwDocTree docTree;
+  private WwwFileIndex[string] docIndexes;
 
   this(string base, const WwwDocConfig[] docs = null) {
     enforce(base.length > 0, "repo base must not be empty");
@@ -125,7 +219,37 @@ class WwwRepo {
       deployDoc(config, doc);
       docs ~= servingDoc(wwwBase, doc);
     }
-    return new WwwRepo(wwwBase, docs);
+    auto repo = new WwwRepo(wwwBase, docs);
+    repo.buildIndexes();
+    return repo;
+  }
+
+  /** 为全部 doc 构建发布期文件索引（deploy 完成后调用，启动期一次目录遍历）。 */
+  private void buildIndexes() {
+    foreach (doc; docs)
+      buildDocIndex(doc);
+  }
+
+  /// autodeploy 重新部署某 doc 后重建其索引（供 `WwwAutoDeployer` 调用）。
+  void rebuildIndex(string docName) {
+    foreach (doc; docs) {
+      if (doc.name != docName)
+        continue;
+      buildDocIndex(doc);
+      return;
+    }
+  }
+
+  /** 构建单个 doc 的发布期索引并输出汇总日志（文件/目录/符号链接数与构建耗时）。 */
+  private void buildDocIndex(const(WwwDocConfig) doc) {
+    auto docDir = resolveRepositoryPath(base, doc.endpoint());
+    if (docDir is null)
+      return;
+    auto sw = StopWatch(AutoStart.yes);
+    auto idx = new WwwFileIndex(docDir);
+    docIndexes[doc.name] = idx;
+    logInfo("Built www file index for doc '%s': %s files, %s dirs, %s symlinks in %s ms",
+        doc.name, idx.fileCount, idx.dirCount, idx.symlinkCount, sw.peek.total!"msecs");
   }
 
   /** deploy 后校验 try-file 是否已落盘：缺失（`deployDoc` 已警告）则返回去除 try-file 的配置，
@@ -149,45 +273,104 @@ class WwwRepo {
     if (location is null)
       return WwwFile.init;
 
-    auto doc = docTree.find(relativeSegments(base, location));
+    auto segs = relativeSegments(base, location);
+    auto doc = docTree.find(segs);
     if (doc is null)
       return WwwFile.init;
 
-    // 单次异步 stat 区分文件/目录/缺失（不阻塞事件循环）；stat 与读盘之间文件可能变化，
-    // 由 sendFile 的读盘失败兜底。目录折叠 index.html 与 try-file 回退各自再 stat 一次。
-    try {
-      auto fi = getFileInfo(location);
-      if (fi.isDirectory) {
+  // 发布期索引路径：存在性/目录折叠/try-file 回退全部查表，0 stat；
+  // 断链即 404（索引由 deploy 构建并在 autodeploy 后重建，与磁盘保持一致）。
+  if (auto p = doc.name in docIndexes) {
+    auto rs = resolveFromIndex(doc, *p, uri, location, segs);
+    if (rs.path !is null)
+      return rs;
+    return WwwFile(null, doc);
+  }
+
+  // 无索引 doc（如直接 `new WwwRepo` 构造）走 stat 兜底解析。
+  return resolveByStat(doc, uri, location);
+}
+
+/** 无索引 doc 的兜底解析：异步 stat 区分文件/目录/缺失，目录折叠 index.html，断链按 try-file 回退。
+    stat 与读盘之间文件可能变化，由 sendFile 的读盘失败兜底。目录折叠 index.html 与 try-file 回退各自再 stat 一次。 */
+private WwwFile resolveByStat(const(WwwDocConfig) doc, string uri, string location) const {
+  try {
+    auto fi = getFileInfo(location);
+    if (fi.isDirectory) {
+      auto indexPath = buildPath(location, "index.html");
+      try {
+        auto indexFi = getFileInfo(indexPath);
+        if (indexFi.isFile)
+          return WwwFile(indexPath, doc, indexFi);
+      } catch (Exception) {
+      }
+      return WwwFile(null, doc);
+    }
+    if (fi.isFile)
+      return WwwFile(location, doc, fi);
+    // 特殊文件（fifo/socket 等）不对外服务
+    return WwwFile(null, doc);
+  } catch (Exception) {
+    // location 缺失 → 按 doc 的 try-file 回退
+  }
+
+  if (doc.tryFile.length > 0) {
+    if (isStaticAsset(uri))
+      return WwwFile(null, doc);
+    auto tryPath = resolveRepositoryPath(base, doc.endpoint() ~ "/" ~ doc.tryFile);
+    if (tryPath !is null) {
+      try {
+        auto tryFi = getFileInfo(tryPath);
+        if (tryFi.isFile)
+          return WwwFile(tryPath, doc, tryFi);
+      } catch (Exception) {
+      }
+    }
+    return WwwFile(null, doc);
+  }
+  return WwwFile(null, doc);
+}
+
+  /** 沿发布期索引解析相对 doc 根的段：命中文件或目录折叠 index.html 直接返回；
+      SPA try-file 回退同样查索引（0 stat）；断链返回 null（调用方转 404）。 */
+  private WwwFile resolveFromIndex(const(WwwDocConfig) doc, ref const(WwwFileIndex) idx,
+      string uri, string location, scope const(string)[] rel) const {
+    auto docSegs = doc.segments;
+    auto fileSegs = rel[docSegs.length .. $];
+
+    if (fileSegs.length == 0) {
+      // doc 根（`/manual` 或 `/manual/`）：折叠 index.html
+      auto ih = idx.find(["index.html"]);
+      if (ih !is null && ih.isFile) {
         auto indexPath = buildPath(location, "index.html");
-        try {
-          auto indexFi = getFileInfo(indexPath);
-          if (indexFi.isFile)
-            return WwwFile(indexPath, doc, indexFi);
-        } catch (Exception) {
+        return WwwFile(indexPath, doc, ih.toFileInfo(indexPath));
+      }
+      return WwwFile(null, doc);
+    }
+
+    auto hit = idx.find(fileSegs);
+    if (hit !is null) {
+      if (hit.isDirectory) {
+        auto ih = idx.find(fileSegs ~ ["index.html"]);
+        if (ih !is null && ih.isFile) {
+          auto indexPath = buildPath(location, "index.html");
+          return WwwFile(indexPath, doc, ih.toFileInfo(indexPath));
         }
         return WwwFile(null, doc);
       }
-      if (fi.isFile)
-        return WwwFile(location, doc, fi);
-      // 特殊文件（fifo/socket 等）不对外服务
-      return WwwFile(null, doc);
-    } catch (Exception) {
-      // location 缺失 → 按 doc 的 try-file 回退
+      return WwwFile(location, doc, hit.toFileInfo(location));
     }
 
+    // 断链：SPA try-file 回退（索引内查找，0 stat）；带静态扩展名不参与回退。
     if (doc.tryFile.length > 0) {
       if (isStaticAsset(uri))
         return WwwFile(null, doc);
-      auto tryPath = resolveRepositoryPath(base, doc.endpoint() ~ "/" ~ doc.tryFile);
-      if (tryPath !is null) {
-        try {
-          auto tryFi = getFileInfo(tryPath);
-          if (tryFi.isFile)
-            return WwwFile(tryPath, doc, tryFi);
-        } catch (Exception) {
-        }
+      auto th = idx.find([doc.tryFile]);
+      if (th !is null && th.isFile) {
+        auto tryPath = resolveRepositoryPath(base, doc.endpoint() ~ "/" ~ doc.tryFile);
+        if (tryPath !is null)
+          return WwwFile(tryPath, doc, th.toFileInfo(tryPath));
       }
-      return WwwFile(null, doc);
     }
     return WwwFile(null, doc);
   }

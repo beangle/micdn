@@ -183,6 +183,20 @@ unittest {
   assertThrown!Exception(parse("~/tmp", xml));
 }
 
+@("www doc rejects try-file with path separator")
+unittest {
+  import std.exception;
+
+  auto xml = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn>
+  <maven/><npm/>
+  <www base="~/tmp/www">
+    <doc name="manual" zip="~/m.zip" try-file="fallback/index.html" />
+  </www>
+</micdn>`;
+  assertThrown!Exception(parse("~/tmp", xml));
+}
+
 @("www doc parses npm zip attributes")
 unittest {
   auto xml = `<?xml version="1.0" encoding="UTF-8"?>

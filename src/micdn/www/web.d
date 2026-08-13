@@ -28,10 +28,18 @@ import micdn.www;
 
 /// 注册于 `/*` 的兜底 handler。
 class WwwService {
+  private static __gshared WwwService active;
   private WwwRepo repo;
 
   this(WwwRepo repo) {
     this.repo = repo;
+    active = this;
+  }
+
+  /// autodeploy 重新部署某 doc 后重建其发布期索引（单服务实例，reload 时由新实例接管）。
+  static void invalidateDoc(string docName) {
+    if (active !is null)
+      active.repo.rebuildIndex(docName);
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {

@@ -19,6 +19,8 @@
 
 2026-08-13 基线：Linux fc44 x86_64 · AMD Ryzen 7 7735HS（8C16T）· 59G · micdn 0.3.0（commit `490a455`）· ab 2.3 · 无后台负载 · 各场景预热 5 次后 3 轮取中位。
 2026-08-13 复测：同机 · micdn 0.3.0（commit `8ddfd47`）· ab 2.3 · 无后台负载（load 0.53/0.40/0.40，CPU scaling 37%）· 同方法（预热 5 次 + 3 轮取中位）。
+2026-08-13 索引版：同机 · micdn 0.3.0（commit `8ddfd47` + 发布期文件索引，未提交）· ab 2.3 · 无后台负载 · 同方法。
+2026-08-13 提交前复测：同机 · 索引版（本提交）· ab 2.3 · `performance` 调速器（负载核 ~4.4 GHz）· 无后台负载 · 同方法。
 
 > 同机多次运行也会有波动（实测预热后 3 轮：最坏路径 16.0k–20.7k RPS，CPU 频率 scaling 与页面缓存冷热所致）。比较时应记录负载与频率，按「预热 + 多轮取中位」执行，不要单次定论。
 
@@ -98,10 +100,12 @@ kill <pid>          # 停止
 
 | 场景 | URL | 命令 | 预期 stat 次数 |
 |------|-----|------|----------------|
-| 最坏路径（目录 → index.html） | `/manual/` | `./scripts/stress_http.sh 'http://127.0.0.1:8899/manual/'` | 2（get 异步：location + index.html；sendFile 0） |
-| 文件命中 | `/manual/app.js` | `./scripts/stress_http.sh 'http://127.0.0.1:8899/manual/app.js'` | 1（get 异步；sendFile 0） |
-| 404 未命中 | `/manual/nope.js` | `ab -r -n 10000 -c 100 'http://127.0.0.1:8899/manual/nope.js'` | 1（get 异步失败） |
-| gzip 命中 | `/manual/app.js` | 先预热（见下），再 `ab -k -r -n 10000 -c 100 -H 'Accept-Encoding: gzip' 'http://127.0.0.1:8899/manual/app.js'` | 2（get 源文件 + sendFile 单次 `getFileInfo(gz)`） |
+| 最坏路径（目录 → index.html） | `/manual/` | `./scripts/stress_http.sh 'http://127.0.0.1:8899/manual/'` | 0（索引：目录折叠 index.html 查表） |
+| 文件命中 | `/manual/app.js` | `./scripts/stress_http.sh 'http://127.0.0.1:8899/manual/app.js'` | 0（索引命中） |
+| 404 未命中 | `/manual/nope.js` | `ab -r -n 10000 -c 100 'http://127.0.0.1:8899/manual/nope.js'` | 0（索引断链，静态资产不回退） |
+| gzip 命中 | `/manual/app.js` | 先预热（见下），再 `ab -k -r -n 10000 -c 100 -H 'Accept-Encoding: gzip' 'http://127.0.0.1:8899/manual/app.js'` | 1（get 源文件 0 + sendFile 单次 `getFileInfo(gz)`） |
+
+> 索引版（发布期文件索引）：`WwwRepo.build` 在 deploy 后遍历 docDir 构建段树索引（`IndexedFileInfo` 轻量快照），请求期存在性/目录折叠/try-file 回退全部查表（0 stat）；autodeploy 重新部署后 `WwwService.invalidateDoc` 触发重建。索引构建跳过 `*.gz`（运行期 sidecar，非部署内容；gz 服务由请求线程直接 `getFileInfo` 现查），反复启停不会把遗留 gz 的元数据预扫进 page cache。非 `build()` 构造的仓库（如直接 `new WwwRepo`）仍走 stat 路径。
 
 **gzip 场景必须预热**：sidecar 由后台线程按需生成，首次请求只会入队并返回原版。
 
@@ -120,6 +124,8 @@ zcat /tmp/got.gz | cmp - /tmp/micdn-stress/www/manual/app.js              # 单�
 ```
 
 > **404 不要用 `-k`**：`ab -k` 对非 2xx 响应会计为 Length 失败并断开连接，数字虚高且服务端刷屏 `Connection closed while writing data` 错误日志（客户端主动断开所致，非服务异常）。
+
+> **跨场景比较口径**：各场景命令不同（keep-alive / 无 keep-alive），绝对 QPS 不可跨场景直接比较——实测同机同频率下，html 与 404 用相同无 `-k` 命令时吞吐几乎相等，报告中的差距主要来自命令口径而非服务行为。对比时应：同场景复测用相同命令；跨场景只比相对提升（如 stat 次数下降带来的增幅），不比绝对数字；同时记录 CPU 频率（`scaling_cur_freq`），频率不同时数值不可比。
 
 ## 6. 结果记录模板
 

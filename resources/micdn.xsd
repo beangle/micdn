@@ -181,7 +181,7 @@
     </xs:attribute>
     <xs:attribute name="try-file" type="xs:string" use="optional">
       <xs:annotation>
-        <xs:documentation> 未命中 $uri / $uri/ 时回退的单个文件（相对 doc 根，如 index.html） </xs:documentation>
+        <xs:documentation> 未命中 $uri / $uri/ 时回退的单个文件（doc 根下的文件名，不能含路径分隔符，如 index.html） </xs:documentation>
       </xs:annotation>
     </xs:attribute>
     <xs:attribute name="auto-gzip" type="xs:boolean" use="optional" default="true">

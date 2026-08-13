@@ -20,6 +20,7 @@ import vibe.core.log;
 
 import micdn.model;
 import micdn.www;
+import micdn.www.web;
 
 /** 判断 inotify 事件路径是否对应待监听的 zip 文件。 */
 bool matchesAutoDeployZip(string eventPath, string zipPath) {
@@ -161,9 +162,10 @@ final class WwwAutoDeployer {
           continue;
         if (!doc.autoDeploy)
           return;
-        if (WwwRepo.deployDoc(_config, doc, false))
+        if (WwwRepo.deployDoc(_config, doc, false)) {
+          WwwService.invalidateDoc(docName);
           logInfo("Auto-deploy www ok: %s", docName);
-        else
+        } else
           logError("Auto-deploy www %s failed", docName);
         return;
       }

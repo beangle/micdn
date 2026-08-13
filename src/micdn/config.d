@@ -381,8 +381,9 @@ WwwConfig parseWww(T)(string home, ref DOMEntity!T micdnDom) {
       throw new Exception("www <doc name=\"" ~ name ~ "\"> duplicated; doc name must be unique");
     seenNames[name] = true;
     string tryFile = stripLeadingSlash(docAttrs.get("try-file", "").strip());
-    if (tryFile.length > 0 && !isSafePathSegments(tryFile))
-      throw new Exception("www <doc name=\"" ~ name ~ "\"> try-file must not contain '.' or '..' path segments");
+    if (tryFile.length > 0 && tryFile.canFind("/"))
+      throw new Exception("www <doc name=\"" ~ name ~ "\"> try-file must be a single file name "
+          ~ "without path separators (e.g. index.html)");
     string zip = docAttrs.get("zip", "").strip();
     bool autoDeploy = parseBoolXmlAttr(docAttrs.get("auto-deploy", ""), false);
     bool autoGzip = parseBoolXmlAttr(docAttrs.get("auto-gzip", ""), true);

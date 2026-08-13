@@ -338,3 +338,106 @@ unittest {
   assert(miss.doc is doc);
   assert(repo.get("/other/x").doc is null);
 }
+
+@("WwwRepo build index serves file, dir fold, spa and 404 without stat")
+unittest {
+  auto home = buildPath(tempDir, "micdn-www-index-serve");
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  auto zipPath = buildPath(home, "site.zip");
+  mkdirRecurse(dirName(zipPath));
+  auto z = new ZipArchive();
+  auto add = (string name, string data) {
+    auto m = new ArchiveMember();
+    m.name = name;
+    m.expandedData(cast(ubyte[]) data);
+    z.addMember(m);
+  };
+  add("index.html", "spa");
+  add("assets/app.js", "js");
+  add("docs/index.html", "doc");
+  write(zipPath, z.build());
+
+  auto xml = `<?xml version="1.0"?><micdn>
+  <maven/><npm/>
+  <www base="` ~ home ~ `/www">
+    <doc name="manual" zip="` ~ zipPath ~ `" try-file="index.html" />
+  </www>
+</micdn>`;
+  auto repo = WwwRepo.build(parse(home, xml));
+
+  auto fileHit = repo.get("/manual/assets/app.js");
+  assert(fileHit.path !is null && fileHit.path.endsWith("app.js"));
+  assert(fileHit.info.isFile && fileHit.info.size == 2);
+  auto dirFold = repo.get("/manual/docs");
+  assert(dirFold.path !is null && dirFold.path.endsWith(buildPath("docs", "index.html")));
+  auto spa = repo.get("/manual/route/foo");
+  assert(spa.path !is null && spa.path.endsWith("index.html"));
+  assert(repo.get("/manual/assets/missing.js").path is null, "static asset must not fall back to try-file");
+  auto bin = repo.get("/manual/unknown.bin");
+  assert(bin.path !is null && bin.path.endsWith("index.html"), "non-static unknown path falls back to try-file");
+}
+
+@("WwwRepo index is authoritative until rebuildIndex refreshes it")
+unittest {
+  auto home = buildPath(tempDir, "micdn-www-index-rebuild");
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  auto zipPath = buildPath(home, "site.zip");
+  mkdirRecurse(dirName(zipPath));
+  auto m = new ArchiveMember();
+  m.name = "a.js";
+  m.expandedData(cast(ubyte[]) "a");
+  auto z = new ZipArchive();
+  z.addMember(m);
+  write(zipPath, z.build());
+
+  auto xml = `<?xml version="1.0"?><micdn>
+  <maven/><npm/>
+  <www base="` ~ home ~ `/www">
+    <doc name="manual" zip="` ~ zipPath ~ `" />
+  </www>
+</micdn>`;
+  auto repo = WwwRepo.build(parse(home, xml));
+  assert(repo.get("/manual/a.js").path !is null);
+  assert(repo.get("/manual/b.js").path is null, "files added outside deploy are not visible to the index");
+
+  write(buildPath(home, "www", "manual", "b.js"), "b");
+  assert(repo.get("/manual/b.js").path is null, "index is authoritative until rebuild");
+
+  repo.rebuildIndex("manual");
+  assert(repo.get("/manual/b.js").path !is null, "rebuildIndex must pick up redeployed files");
+}
+
+@("WwwRepo index ignores runtime gzip sidecars")
+unittest {
+  auto home = buildPath(tempDir, "micdn-www-index-gz");
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  auto zipPath = buildPath(home, "site.zip");
+  mkdirRecurse(dirName(zipPath));
+  auto m = new ArchiveMember();
+  m.name = "a.js";
+  m.expandedData(cast(ubyte[]) "a");
+  auto z = new ZipArchive();
+  z.addMember(m);
+  write(zipPath, z.build());
+
+  auto xml = `<?xml version="1.0"?><micdn>
+  <maven/><npm/>
+  <www base="` ~ home ~ `/www">
+    <doc name="manual" zip="` ~ zipPath ~ `" />
+  </www>
+</micdn>`;
+  auto repo = WwwRepo.build(parse(home, xml));
+
+  write(buildPath(home, "www", "manual", "a.js.gz"), "gz");
+  assert(repo.get("/manual/a.js.gz").path is null, "gz sidecar must not be indexed");
+  assert(repo.get("/manual/a.js").path !is null, "source file still served");
+
+  repo.rebuildIndex("manual");
+  assert(repo.get("/manual/a.js.gz").path is null, "rebuild must keep ignoring gz sidecars");
+}
