@@ -25,6 +25,7 @@ import micdn.web.gzip : gzipFile;
 import micdn.xml;
 import std.file;
 import std.path;
+import std.zip : ArchiveMember, ZipArchive;
 
 /// 测试辅助：uri 字符串 → `ResourceUri`（模拟入口 `getResourceUri` 的语义）。
 private ResourceUri segsOf(string uri) {
@@ -191,4 +192,46 @@ unittest {
   auto dom = parseXml(content);
   auto config = parseAsset("~/tmp", dom);
   assert(config.base == expandTilde("~/tmp/static"));
+}
+
+@("asset bundle redeploy skips precompression when deploy skipped via manifest")
+unittest {
+  auto home = absolutePath(buildPath(tempDir, "micdn-asset-redeploy-gzip"));
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  auto mavenBase = buildPath(home, "m2");
+  auto assetBase = buildPath(home, "assets");
+  auto jarPath = buildPath(mavenBase, "org", "beangle", "bui", "0.1", "bui-0.1.jar");
+  mkdirRecurse(dirName(jarPath));
+  string bigContent;
+  foreach (i; 0 .. 200)
+    bigContent ~= "var k = 1; console.log('x');\n";
+  auto m = new ArchiveMember();
+  m.name = "META-INF/resources/webjars/bui/0.1/a.js";
+  m.expandedData(cast(ubyte[]) bigContent);
+  auto z = new ZipArchive();
+  z.addMember(m);
+  write(jarPath, z.build());
+
+  auto xml = `<?xml version="1.0"?><micdn>
+  <maven base="` ~ mavenBase ~ `"/>
+  <npm/>
+  <static base="` ~ assetBase ~ `">
+    <bundle name="bui">
+      <jar gav="org.beangle:bui:0.1" dir="META-INF/resources/webjars"/>
+    </bundle>
+  </static>
+</micdn>`;
+  auto config = parse(home, xml);
+  AssetRepo.build(config);
+  auto jsPath = buildPath(assetBase, "bui", "0.1", "a.js");
+  assert(exists(jsPath), "jar must be deployed");
+  auto gzPath = jsPath ~ ".gz";
+  assert(exists(gzPath), "first deploy must precompress non-dir bundle");
+
+  // 已部署未变更：再次启动走 manifest 快路径跳过解压，不补齐缺失的 sidecar。
+  remove(gzPath);
+  AssetRepo.build(config);
+  assert(!exists(gzPath), "manifest-skipped redeploy must not re-precompress");
 }

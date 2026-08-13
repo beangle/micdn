@@ -142,8 +142,8 @@ class WwwRepo {
       dirCount += idx.dirCount;
       symlinkCount += idx.symlinkCount;
     }
-    logInfo("Built www file indexes: %s docs, %s files, %s dirs, %s symlinks in %s ms",
-        docCount, fileCount, dirCount, symlinkCount, sw.peek.total!"msecs");
+    logInfo("Built www file indexes: %s docs, %s files, %s dirs%s in %s ms",
+        docCount, fileCount, dirCount, symlinkSummaryPart(symlinkCount), sw.peek.total!"msecs");
   }
 
   /// autodeploy 重新部署某 doc 后重建其索引（供 `WwwAutoDeployer` 调用）。
@@ -162,8 +162,8 @@ class WwwRepo {
     auto sw = StopWatch(AutoStart.yes);
     auto idx = new FileIndex(docDir);
     docIndexes[doc.name] = idx;
-    logInfo("Rebuilt www file index for doc '%s': %s files, %s dirs, %s symlinks in %s ms",
-        doc.name, idx.fileCount, idx.dirCount, idx.symlinkCount, sw.peek.total!"msecs");
+    logInfo("Rebuilt www file index for doc '%s': %s files, %s dirs%s in %s ms",
+        doc.name, idx.fileCount, idx.dirCount, symlinkSummaryPart(idx.symlinkCount), sw.peek.total!"msecs");
   }
 
   /** deploy 后校验 try-file 是否已落盘：缺失（`deployDoc` 已警告）则返回去除 try-file 的配置，
@@ -329,19 +329,20 @@ private WwwFile attachGzByStat(const(WwwDocConfig) doc, WwwFile wf) const {
         return false;
       }
 
+      bool deployed;
       if (NpmProvider np = cast(NpmProvider) doc.provider) {
-        if (!deployDocNpm(config, np, docDir, force))
+        if (!deployDocNpm(config, np, docDir, force, deployed))
           return false;
       } else if (ZipProvider zp = cast(ZipProvider) doc.provider) {
-        if (!deployDocZip(zp, docDir, force))
+        if (!deployDocZip(zp, docDir, force, deployed))
           return false;
       } else {
         logError("Deploy www %s failed: unsupported provider (www only supports npm or zip)", doc.name);
         return false;
       }
 
-      // autoGzip：部署期预压缩全部可压缩文件（sidecar 已存在则跳过，幂等），索引构建时一并纳入。
-      if (doc.autoGzip)
+      // autoGzip：预压缩是实际解压部署的一环，manifest 快路径跳过解压时同样跳过（避免重复扫描）。
+      if (doc.autoGzip && deployed)
         precompressDir(docDir);
       warnMissingTryFile(config.www.base, doc);
       return true;
@@ -360,8 +361,10 @@ private WwwFile attachGzByStat(const(WwwDocConfig) doc, WwwFile wf) const {
       logWarn("www doc %s try-file %s not found at %s", doc.name, doc.tryFile, path);
   }
 
-  /// `<npm>`：拉取 tgz 并解压到 `docDir`。
-  private static bool deployDocNpm(MicdnConfig config, const NpmProvider np, string docDir, bool force) {
+  /// `<npm>`：拉取 tgz 并解压到 `docDir`；`deployed` 指示是否实际解压（manifest 快路径跳过时为 false）。
+  private static bool deployDocNpm(MicdnConfig config, const NpmProvider np, string docDir, bool force,
+      out bool deployed) {
+    deployed = false;
     string scopePart, namePart, versionPart;
     parsePackageSpec(np.packageSpec, scopePart, namePart, versionPart);
     if (namePart.length == 0 || versionPart.length == 0) {
@@ -374,6 +377,7 @@ private WwwFile attachGzByStat(const(WwwDocConfig) doc, WwwFile wf) const {
       return false;
     }
     auto tgzPath = npmRepo.localTarball(scopePart, namePart, versionPart);
+    deployed = force || !canSkipDeploy(tgzPath, docDir, "package/" ~ np.dir, np.packageSpec);
     if (!extractTgzToDocBase(tgzPath, docDir, "package/" ~ np.dir, np.packageSpec, force)) {
       logWarn("Failed to extract %s to %s", tgzPath, docDir);
       return false;
@@ -381,8 +385,9 @@ private WwwFile attachGzByStat(const(WwwDocConfig) doc, WwwFile wf) const {
     return true;
   }
 
-  /// `<zip>`：增量解压到 `docDir`。
-  private static bool deployDocZip(const ZipProvider zp, string docDir, bool force) {
+  /// `<zip>`：增量解压到 `docDir`；`deployed` 指示是否实际解压（manifest 快路径跳过时为 false）。
+  private static bool deployDocZip(const ZipProvider zp, string docDir, bool force, out bool deployed) {
+    deployed = force || !canSkipDeploy(zp.file, docDir, zp.dir, baseName(zp.file));
     if (refreshUnzip(zp.file, docDir, zp.dir, baseName(zp.file), force) == 0) {
       logWarn("Cannot find %s in %s", zp.dir, zp.file);
       return false;

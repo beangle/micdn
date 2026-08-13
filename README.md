@@ -26,6 +26,7 @@ dub build --build=release-nobounds --compiler=ldc2
 ./target/micdn -f /etc/micdn/micdn.xml resolve # 解析并部署全部 www/static（不启动 HTTP）
 ./target/micdn -f /etc/micdn/micdn.xml deploy www manual
 ./target/micdn -f /etc/micdn/micdn.xml deploy static bootstrap --force
+./target/micdn -f /etc/micdn/micdn.xml clean --yes # 清除 www/static 部署目录（交互终端下会逐项确认；maven/npm 缓存与 blob 数据不清理）
 ```
 
 `-f` 可为本地文件、目录（使用 `DIR/micdn.xml`）或 URL（下载到 `~/micdn.xml`）。
@@ -44,6 +45,9 @@ dub build --build=release-nobounds --compiler=ldc2
     <bundle name="bootstrap">
       <jar gav="org.webjars:bootstrap:4.6.1" />
     </bundle>
+    <bundle name="local">
+      <dir location="/srv/static/local" />
+    </bundle>
   </static>
   <www base="/var/cache/micdn/www">
     <doc name="manual" zip="${micdn.home}/releases/manual.zip"
@@ -55,13 +59,15 @@ dub build --build=release-nobounds --compiler=ldc2
 </micdn>
 ```
 
+`<static>` 的 bundle 支持两类 provider：`<jar>`/`<npm>` 解压部署并构建**发布期索引**（请求期 0 stat，强制 gzip 预压缩）；`<dir>` 以**符号链接**挂载源目录，**不构建索引**（请求期逐次 stat），gzip 完全忽略（不发送也不生成，避免把源目录中用户自带的 `.gz` 误当预压缩内容）。
+
 更完整的样例见 [`resources/micdn.xml`](resources/micdn.xml)。
 
 ## gzip 预压缩
 
 static / www 部署的文本类静态资源（`js`、`css`、`html`、`svg`、`json`、`xml`、`txt`、`map` 等）采用「**部署期预压缩**」的 sidecar 模式：
 
-- 压缩发生在部署期：www doc 默认参与（`auto-gzip` 开关），asset 非 `<dir>` bundle 强制启用；`precompressDir` 遍历目录生成 `path.gz`（sidecar 已存在则跳过），无后台压缩线程、无请求期竞争。
+- 压缩发生在部署期：www doc 默认参与（`auto-gzip` 开关），asset 非 `<dir>` bundle 强制启用；`precompressDir` 遍历目录生成 `path.gz`（sidecar 已存在则跳过），无后台压缩线程、无请求期竞争。预压缩只在**实际解压部署**时执行——manifest 快路径跳过解压（源未变）时同样跳过，重复启动不扫描、不补齐缺失的 sidecar。
 - 请求线程只读：客户端 `Accept-Encoding` 接受 gzip 且 `path.gz` 存在时直接发送预压缩内容（`Content-Encoding: gzip`、`Vary: Accept-Encoding`）；sidecar 大小随发布期索引同趟登记（`gzSize`），请求期 0 stat。
 - `Accept-Encoding` 判定为简化实现：面向现代浏览器，仅按子串识别 `gzip`（大小写不敏感），不处理 `q=0` 拒绝与 `*` 通配等完备语义。
 - 压缩写 `tmp` 后原子 `rename`；仅当压缩后确实更小才落盘，小于 1KB 或超过 8MB 的文件不压缩（小文件 gzip 固定开销使其不划算，超限文件避免大内存分配）。

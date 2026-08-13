@@ -6,6 +6,7 @@
 - **Breaking**：asset 移除逗号拼接 URI（`/a/b,c.js`）与 `sendFiles`；`AssetRepo.get` 返回 `AssetFile { bundle, path, info, isDir }`（非 `<dir>` bundle 走索引，dyna `<dir>` 走 stat）
 - **Breaking**：`try-file` 收窄为单个文件名（不能含路径分隔符）；doc 路径段预计算到 `WwwDocConfig.segments`
 - 新增：gzip 预压缩 sidecar 改为**部署期预压缩**（www doc `auto-gzip`、asset 非 `<dir>` bundle 强制，`path.gz` 原子落盘；移除后台压缩线程；`Accept-Encoding` 简化判定）
+- 新增：`clean` 命令清除 www/static 部署目录（交互终端逐项 `y/N` 确认、`--yes` 跳过；maven/npm 下载缓存与 blob 数据不清理）
 - WWW：doc 匹配改为 `WwwDocTree` 前缀树（O(段数) 查找，断链回退最长 doc 前缀）；`WwwRepo.get` 返回 `WwwFile { path, doc, info }`
 - WWW：`<doc auto-gzip="false">` 按 doc 关闭 gzip（不发送已有 `.gz` 也不生成）
 - **性能**：共享发布期文件索引（`FileIndex` 段树，www/asset 复用）：请求期存在性 / 目录折叠 / try-file 回退 0 stat；同一趟构建把 `path.gz` 大小挂到源文件节点（`gzSize`，gzip 请求期 0 stat）；autodeploy 重建；跳过 `*.gz`；索引构建汇总日志
@@ -13,7 +14,9 @@
 - 内部：HTTP 入口统一解析为 `ResourceUri{segs, slashEnded}`（`getPath` → `getResourceUri`；`segmentPath`/`repositoryUri`/`repositoryPath` 收敛）；`WwwRepo.get`/`AssetRepo.get` 引用接收（另设值重载供测试直构）；防穿越收敛到入口，移除 `resolveRepositoryPath`
 - 配置：仓库 base 解析即归一（`parseRepoBase`：空 base 报错，blob 补齐绝对路径）；`<bundle>`/`<bucket>` 名称校验（非空、无路径分隔符、非 `.`/`..`）
 - 工程：压测复测指南与对比报告（`docs/stress_test.md` / `docs/stress_report.md`）
+- 工程：移除 `vibe-d:web` 依赖（Diet 模板渲染由 `vibe-http` 提供 `render`）；清理 `dub.selections.json` 陈旧条目（`vibe-d`/`derelict-util`/`money`）
 - 内部：gzip 模块并入 `micdn.web`
+- 内部：gzip 预压缩是实际解压部署的一环——www `auto-gzip` 与 asset 非 `<dir>` bundle 在 manifest 快路径跳过解压时同样跳过预压缩（重复启动不扫描/补齐 sidecar）
 
 完整说明见 docs/release-v0.3.0.md
 

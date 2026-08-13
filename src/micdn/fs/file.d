@@ -297,7 +297,9 @@ private void writeDeployManifest(string base, string sourceFile, string innerDir
   rename(tmpPath, manifestPath);
 }
 
-private bool canSkipDeployManifest(string sourceFile, string base, string innerDir, string artifact) {
+/** 部署源是否可按 manifest 快路径跳过解压（源文件与上次部署一致）。
+    供部署调用方在跳过解压时同步跳过后续处理（如 gzip 预压缩）。 */
+bool canSkipDeploy(string sourceFile, string base, string innerDir, string artifact) {
   DeployManifest manifest;
   auto manifestPath = buildPath(base, deployManifestFileName);
   if (!readDeployManifest(manifestPath, manifest))
@@ -358,7 +360,7 @@ bool extractTgzToDocBase(string tgzFile, string docBase, string innerDir = null,
   if (!exists(tgzFile))
     return false;
 
-  if (!force && canSkipDeployManifest(tgzFile, docBase, innerDir, artifact)) {
+  if (!force && canSkipDeploy(tgzFile, docBase, innerDir, artifact)) {
     DeployManifest manifest;
     readDeployManifest(buildPath(docBase, deployManifestFileName), manifest);
     logInfo("Caching %s...", deploySkipLabel(tgzFile, artifact, manifest));
@@ -444,7 +446,7 @@ private string innerDirPrefix(string innerDir) {
 */
 uint refreshUnzip(string zipfile, string base, string innerDir = null, string artifact = null,
     bool force = false) {
-  if (!force && canSkipDeployManifest(zipfile, base, innerDir, artifact)) {
+  if (!force && canSkipDeploy(zipfile, base, innerDir, artifact)) {
     DeployManifest manifest;
     readDeployManifest(buildPath(base, deployManifestFileName), manifest);
     logInfo("Caching %s...", deploySkipLabel(zipfile, artifact, manifest));

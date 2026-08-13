@@ -22,11 +22,17 @@ module micdn.fs.index;
 
 import std.datetime : SysTime, UTC;
 import std.algorithm : endsWith;
+import std.conv : to;
 import std.file;
 import std.path : baseName, dirName;
 
 import vibe.core.file;
 import vibe.core.path;
+
+/// 索引汇总日志的 symlink 段：数量为 0 时省略（不输出无意义的 "0 symlinks"），大于 0 时输出 ", N symlinks"。
+string symlinkSummaryPart(size_t symlinkCount) {
+  return symlinkCount > 0 ? ", " ~ symlinkCount.to!string ~ " symlinks" : "";
+}
 
 /// 文件索引条目：发布期 stat 的轻量快照（路径由段树节点隐含，不重复存储）。
 /// 仅保留 HTTP 服务所需字段：类型标志、大小、修改时间（ETag/Last-Modified/Content-Length）

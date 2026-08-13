@@ -171,6 +171,12 @@ string resolveConfigFile(string defaultConfigFileName) {
   if (!hasConfig) {
     throw new Exception("-f is required. Use --help for usage.");
   }
+  return resolveConfigFile(defaultConfigFileName, config);
+}
+
+/** 由显式配置值（`-f` 后的参数）解析配置路径：URL 下载到 `~/micdn.xml`、目录补 `micdn.xml`、文件取原样。
+    供 `clean` 等从自有 args 数组提取 `-f` 的调用方使用（避免依赖全局 `readOption`）。 */
+string resolveConfigFile(string defaultConfigFileName, string config) {
   // URL：下载到 ~/micdn.xml
   if (config.startsWith("http://") || config.startsWith("https://")) {
     auto localPath = expandTilde("~/" ~ defaultConfigFileName);

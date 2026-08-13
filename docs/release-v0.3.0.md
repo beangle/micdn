@@ -13,7 +13,9 @@ v0.3.0 在 v0.2.6 基础上：新增 **gzip 预压缩 sidecar**（**部署期预
 
 HTTP 入口统一解析为 **`ResourceUri{segs, slashEnded}`**：切段 + 点段消解在入口完成（防穿越收敛），读盘经 `repositoryPath` 构造物理路径；config 阶段对仓库 `base`（归一）与 `<bundle>`/`<bucket>` 名称做校验。
 
-共 **18 个提交**，**45 个文件**变更（+2836 / −581 行）。
+新增 **`clean` 命令**（清除 www/static 部署目录，交互终端逐项确认），依赖层移除 **`vibe-d:web`**（Diet 模板渲染由 `vibe-http` 提供），gzip 预压缩收紧为只在**实际解压部署**时执行（manifest 快路径跳过解压时同样跳过预压缩）。
+
+共 **23 个提交**，**56 个文件**变更（+3191 / −609 行）。
 
 ---
 
@@ -31,6 +33,9 @@ HTTP 入口统一解析为 **`ResourceUri{segs, slashEnded}`**：切段 + 点段
 | **安全** | `www.base` 下未挂 `<doc>` 的物理文件不再服务（404，且不读盘）；重复 doc name 配置报错；URI 防穿越收敛到 HTTP 入口（`getResourceUri`/`segmentPath`，返回 `ResourceUri{segs, slashEnded}`），移除 `resolveRepositoryPath` |
 | **内部** | 仓库 `get` 引用接收 `ResourceUri`（值重载供测试直构）；仓库 base 统一绝对路径语义（config 解析归一校验 + 构造非空校验）；`<bundle>`/`<bucket>` 名称校验；gzip 模块并入 `micdn.web` |
 | **工程** | 压测基建：`scripts/stress_http.sh` + 复测指南与对比报告 |
+| **CLI** | 新增 `clean` 命令：清除 www/static 部署目录，交互终端逐项确认（`--yes` 跳过）；maven/npm 下载缓存与 blob 数据不清理 |
+| **工程** | 移除 `vibe-d:web` 依赖，收敛为 vibe-http / vibe-inet / vibe-stream:tls / dxml（Diet 渲染由 vibe-http 提供） |
+| **内部** | gzip 预压缩与实际解压部署绑定：manifest 快路径跳过解压时同样跳过预压缩（重复启动不再扫描/补齐 sidecar） |
 
 ---
 
@@ -46,6 +51,7 @@ static / www 部署的文本类静态资源（`js`、`css`、`html`、`svg`、`j
 - 仅当压缩后确实更小才落盘；小于 1KB 或超过 8MB 的文件不压缩（保护性区间，避免无收益生成与大内存分配）。
 - 已压缩格式（图片、字体、`.gz`/`.br` 等）不生成 sidecar；`Range` 请求不返回 gzip。
 - asset 的 `<dir>` dyna bundle 完全忽略 gzip（不发送也不生成）。
+- 预压缩与实际解压部署绑定：www `auto-gzip` 与 asset 非 `<dir>` bundle 仅在**实际解压部署**时调用 `precompressDir`；manifest 快路径跳过解压（源未变）时同样跳过，重复启动不扫描、不补齐缺失的 sidecar（sidecar 随部署内容整体一致）。
 
 详见 README「gzip 预压缩」。
 
@@ -72,7 +78,7 @@ static / www 部署的文本类静态资源（`js`、`css`、`html`、`svg`、`j
 - `sendFile` 改收 `ref const(IndexedFileInfo) info`（含 `gzSize`），blob/npm/maven 等非索引调用方经 `IndexedFileInfo.fromFileInfo` 转换。
 - autodeploy 重新部署后经 `WwwService.invalidateDoc` 重建对应 doc 索引；运行期重建索引为纯只读扫描，不触发 gz 生成。
 - 非 `build()` 构造的仓库（直接 `new WwwRepo`）仍走 stat 兜底路径（`resolveByStat`），解析语义一致。
-- 启动日志输出**汇总**（非逐 doc/bundle）：`Built www file indexes: 1 docs, 6 files, 2 dirs, 0 symlinks in 0 ms`；asset 对应 `Built asset bundle indexes: 1 bundles, 6 files, 2 dirs, 0 symlinks in 0 ms`（autodeploy 单 doc 重建仍打单条 `Rebuilt www file index for doc 'xxx'`）。
+- 启动日志输出**汇总**（非逐 doc/bundle）：`Built www file indexes: 1 docs, 6 files, 2 dirs in 0 ms`；asset 对应 `Built asset bundle indexes: 1 bundles, 6 files, 2 dirs in 0 ms`（symlink 数为 0 时省略，大于 0 时显示 `, N symlinks`；autodeploy 单 doc 重建仍打单条 `Rebuilt www file index for doc 'xxx'`）。
 
 ### `try-file` 单文件约束
 
@@ -84,6 +90,17 @@ static / www 部署的文本类静态资源（`js`、`css`、`html`、`svg`、`j
 - `scripts/stress_http.sh`：ab 包装（keep-alive，并发/总数参数）。
 - `docs/stress_test.md`：复测指南（构建、样例、四场景命令、记录模板、方法论注意——跨场景命令口径不同，绝对 QPS 不可直接比较，需记录 CPU 频率）。
 - `docs/stress_report.md`：三次演进（`490a455` → `8ddfd47` → 索引版）四场景吞吐对比。
+
+### `clean` 命令
+
+```bash
+micdn -f micdn.xml clean          # 交互终端下逐目录 y/N 确认（默认否）
+micdn -f micdn.xml clean --yes    # 跳过确认（脚本 / CI / 非交互）
+```
+
+- 清除 **www/static 部署目录**（`www.base` / `asset.base` 下可再生成内容），下次启动 / `resolve` / `deploy` 自动重建。
+- **maven/npm 下载缓存与 blob 数据不清理**（blob 为用户数据）；缺失目录跳过。
+- 交互终端（stdin 为 TTY）下逐目录询问、默认否；非交互直接执行；符号链接目录仅删除链接本身。
 
 ### 性能数据（vs 基线 `490a455`，performance 调速器负载核 ~4.4 GHz）
 
@@ -129,6 +146,7 @@ static / www 部署的文本类静态资源（`js`、`css`、`html`、`svg`、`j
 - gzip 模块由 `micdn.gzip` 移入 `micdn.web.gzip`（纯内部重构，无配置影响）。
 - `WwwDocConfig` 新增预计算字段 `segments`（内部优化，无配置影响）。
 - `sendFile` 签名变更：`FileInfo + gzFileInfo` 合并为 `IndexedFileInfo`（引用传递）；非索引调用方（blob/npm/maven）以 `fromFileInfo` 转换，行为不变。
+- 依赖：移除 `vibe-d:web`（`vibe.http.server` 1.5+ 自带 Diet 模板 `render`，代码中 `vibe.web.web` 整包导入全部删除），`dub.selections.json` 清理 `vibe-d`/`derelict-util`/`money` 陈旧条目；`vibe-stream:tls` 维持 `notls`（不链接 OpenSSL）。
 
 ---
 
@@ -146,7 +164,7 @@ static / www 部署的文本类静态资源（`js`、`css`、`html`、`svg`、`j
 
 ## 测试
 
-`dub test --compiler=ldc2`：**137 passed, 0 failed**。
+`dub test --compiler=ldc2`：**142 passed, 0 failed**。
 
 新增/更新的覆盖：
 
@@ -158,3 +176,5 @@ static / www 部署的文本类静态资源（`js`、`css`、`html`、`svg`、`j
 - config：`try-file` 含路径分隔符拒绝
 - config：仓库 base 解析归一与空 base 拒绝；`<bundle>`/`<bucket>` 名称校验（非空、无路径分隔符、非 `.`/`..`）
 - web：`ResourceUri` 语义（`segmentPath` 切段 / `.`/`..` 消解 / 越界拒绝 / `slashEnded` 标记、`repositoryUri` 按 `slashEnded` 重建、`repositoryPath` 物理路径）；`WwwRepo.get`/`AssetRepo.get` 的 ref（lvalue）与值（rvalue）重载结果等价
+- clean：清除 www/static 部署目录且保留 maven/npm 下载缓存与 blob、无 www/static 时不动任何目录、缺失目录容忍
+- www/asset：deploy 预压缩门控——manifest 跳过解压的重复部署不补齐 sidecar（首次部署仍预压缩）

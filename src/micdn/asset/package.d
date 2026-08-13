@@ -169,8 +169,8 @@ class AssetRepo {
         }
       }
     }
-    logInfo("Built asset bundle indexes: %s bundles, %s files, %s dirs, %s symlinks in %s ms",
-        bundleCount, fileCount, dirCount, symlinkCount, sw.peek.total!"msecs");
+    logInfo("Built asset bundle indexes: %s bundles, %s files, %s dirs%s in %s ms",
+        bundleCount, fileCount, dirCount, symlinkSummaryPart(symlinkCount), sw.peek.total!"msecs");
     return new AssetRepo(base, dynaBundles.rehash(), indexes);
   }
 
@@ -247,6 +247,8 @@ class AssetRepo {
       logError("Deploy static %s failed: %s is not writable", gap.gav, docBase);
       return false;
     }
+    // manifest 快路径判断须在解压前求值：解压成功会写入新 manifest，事后判断恒为“可跳过”。
+    bool needDeploy = force || !canSkipDeploy(localJar, docBase, innerDir, gap.gav);
     bool deployed;
     if (exists(localJar)) {
       deployed = deployJar(localJar, docBase, innerDir, gap.gav, force);
@@ -270,8 +272,9 @@ class AssetRepo {
         return false;
       }
     }
-    // 非 `<dir>` bundle 强制启用 gzip：部署期预压缩全部可压缩文件（sidecar 已存在则跳过）。
-    if (deployed)
+    // 非 `<dir>` bundle 强制启用 gzip：预压缩是实际解压部署的一环，manifest 快路径跳过解压时同样跳过
+    //（已部署 bundle 再次启动不重复扫描；sidecar 已存在时 gzipFile 幂等跳过）。
+    if (deployed && needDeploy)
       precompressDir(docBase);
     return deployed;
   }
@@ -290,12 +293,15 @@ class AssetRepo {
       logError("Deploy static %s failed: %s is not writable", np.packageSpec, docBase);
       return false;
     }
+    // manifest 快路径判断须在解压前求值：解压成功会写入新 manifest，事后判断恒为“可跳过”。
+    bool needDeploy = force || !canSkipDeploy(tgzPath, docBase, "package/" ~ np.dir, np.packageSpec);
     if (!extractTgzToDocBase(tgzPath, docBase, "package/" ~ np.dir, np.packageSpec, force)) {
       logWarn("Failed to extract %s to %s", tgzPath, docBase);
       return false;
     }
-    // 非 `<dir>` bundle 强制启用 gzip：部署期预压缩全部可压缩文件（sidecar 已存在则跳过）。
-    precompressDir(docBase);
+    // 非 `<dir>` bundle 强制启用 gzip：预压缩是实际解压部署的一环，manifest 快路径跳过解压时同样跳过。
+    if (needDeploy)
+      precompressDir(docBase);
     return true;
   }
 

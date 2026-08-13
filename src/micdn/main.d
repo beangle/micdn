@@ -26,7 +26,7 @@ import std.typecons : tuple, Tuple;
 import std.file : getcwd, exists;
 import std.range : empty;
 import std.stdio;
-import std.string : startsWith, strip, lastIndexOf;
+import std.string : startsWith, strip, lastIndexOf, toLower;
 import std.path : absolutePath, buildPath, dirName, expandTilde;
 
 import vibe.core.args;
@@ -53,6 +53,7 @@ import micdn.web;
 import micdn.www;
 import micdn.www.web;
 import micdn.config;
+import micdn.fs.file : clearDeployDir;
 import micdn.web.gzip;
 import micdn.logging;
 import micdn.resolve;
@@ -205,6 +206,13 @@ version (unittest) {
     if (args.canFind("resolve")) {
       try {
         return runResolve(args);
+      } catch (Exception e) {
+        return reportStartupError(e.msg);
+      }
+    }
+    if (args.canFind("clean")) {
+      try {
+        return runClean(args);
       } catch (Exception e) {
         return reportStartupError(e.msg);
       }
@@ -384,6 +392,94 @@ int runResolve(string[] args) {
   return 0;
 }
 
+/// `clean`：清除 www/static 部署目录（可再生成内容）；maven/npm 下载缓存与 blob 数据不清理。
+/// 交互终端（stdin 为 TTY）下逐目录询问确认（默认否）；`--yes`/`-y` 跳过确认。
+int runClean(string[] args) {
+  auto configValue = cleanConfigArg(args);
+  if (configValue is null)
+    throw new Exception("-f is required for clean");
+  auto yes = args.canFind("--yes") || args.canFind("-y");
+
+  auto configPath = resolveConfigFile("micdn.xml", configValue);
+  auto expanded = expandTilde(configPath);
+  if (!exists(expanded))
+    throw new Exception("Config file[" ~ expanded ~ "] not exists!");
+
+  fetchRemoteIfNeeded(expanded);
+  auto config = parseFile(expanded);
+  applyMicdnCliLogging();
+
+  bool ok = true;
+  bool[string] seen;
+  foreach (dir; collectCleanDirs(config)) {
+    auto key = absolutePath(dir);
+    if (key in seen)
+      continue;
+    seen[key] = true;
+
+    if (!exists(dir)) {
+      logInfo("clean: nothing to remove: %s", dir);
+      continue;
+    }
+    if (!yes && stdinInteractive() && !confirmClean(dir)) {
+      logInfo("clean: skipped: %s", dir);
+      continue;
+    }
+    try {
+      clearDeployDir(dir);
+      logInfo("clean ok: %s", dir);
+    } catch (Exception e) {
+      logError("clean %s failed: %s", dir, e.msg);
+      ok = false;
+    }
+  }
+  return ok ? 0 : 1;
+}
+
+/// 从 args 数组提取 `-f` 后的配置值（不依赖全局 vibe args，供 clean 测试/复用）。
+private string cleanConfigArg(string[] args) {
+  foreach (i, a; args) {
+    if (a == "-f" && i + 1 < args.length)
+      return args[i + 1];
+  }
+  return null;
+}
+
+/** 待清理目录：www/static 部署目录（配置中存在才清理）；maven/npm 下载缓存与 blob 数据不清理。 */
+private string[] collectCleanDirs(MicdnConfig config) {
+  string[] dirs;
+  if (config.www !is null)
+    dirs ~= config.www.base;
+  if (config.asset !is null)
+    dirs ~= config.asset.base;
+  return dirs;
+}
+
+/** 交互终端下逐目录询问；非交互（管道/重定向）由调用方直接跳过询问。默认否，仅 y/yes 确认。 */
+private bool confirmClean(string dir) {
+  stderr.writef("Remove cache dir %s? [y/N] ", dir);
+  stderr.flush();
+  auto line = stdin.readln();
+  if (line is null)
+    return false;
+  auto a = line.strip().toLower();
+  return a == "y" || a == "yes";
+}
+
+/// stdin 是否为交互终端。
+private bool stdinInteractive() {
+  version (Posix) {
+    import core.sys.posix.unistd : isatty;
+    import core.stdc.stdio : fileno;
+    return isatty(fileno(stdin.getFP)) != 0;
+  } else version (Windows) {
+    import core.sys.windows.stdio : _isatty, _fileno;
+    return _isatty(_fileno(stdin.getFP)) != 0;
+  } else {
+    return false;
+  }
+}
+
 private bool deployForceArg(string[] args) {
   foreach (i, a; args) {
     if (a != "deploy" || i + 1 >= args.length)
@@ -492,6 +588,8 @@ Commands:
   deploy www [NAME]      离线部署 <www> doc（NAME 如 manual 或 a/b；省略则全部）；日志输出到控制台
   deploy static [BUNDLE] 离线部署 <static> bundle（省略则全部）
                          --force  删除已有部署目录后重新安装（忽略 manifest.json）
+  clean                  清除 www/static 部署目录；交互终端下逐项确认；maven/npm 下载缓存与 blob 数据不清理
+                         --yes  跳过确认（非交互/脚本）
 
 Help Options:
   --help      Show this help message and exit
@@ -504,6 +602,7 @@ Examples:
   micdn -f micdn.xml deploy static bootstrap
   micdn -f micdn.xml deploy www manual --force
   micdn -f micdn.xml deploy www
+  micdn -f micdn.xml clean
 `;
   writeln(strip(helpRaw));
 }

@@ -122,7 +122,8 @@ bool gzipFile(string path) {
 }
 
 /** 遍历目录，为每个可压缩且大小在区间内的普通文件生成 `path.gz`（sidecar 已存在则跳过）。
-    供部署期调用（www doc `auto-gzip`、asset 非 `<dir>` bundle）；返回本次生成的 sidecar 数。 */
+    供部署期调用（www doc `auto-gzip`、asset 非 `<dir>` bundle 实际解压部署时；
+    manifest 快路径跳过解压时调用方不触发）；返回本次生成的 sidecar 数。 */
 size_t precompressDir(string dir) {
   size_t n;
   foreach (entry; dirEntries(dir, SpanMode.depth)) {

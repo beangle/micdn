@@ -551,3 +551,38 @@ unittest {
   assert(!exists(buildPath(home, "www", "manual", "big.js.gz")), "auto-gzip=false must not precompress");
   assert(repo.get(segsOf("/manual/big.js")).info.gzSize == 0);
 }
+
+@("WwwRepo redeploy skips precompression when deploy skipped via manifest")
+unittest {
+  auto home = buildPath(tempDir, "micdn-www-redeploy-gzip");
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  auto zipPath = buildPath(home, "site.zip");
+  mkdirRecurse(dirName(zipPath));
+  string bigContent;
+  foreach (i; 0 .. 200)
+    bigContent ~= "var k = 1; console.log('x');\n";
+  auto m = new ArchiveMember();
+  m.name = "big.js";
+  m.expandedData(cast(ubyte[]) bigContent);
+  auto z = new ZipArchive();
+  z.addMember(m);
+  write(zipPath, z.build());
+
+  auto xml = `<?xml version="1.0"?><micdn>
+  <maven/><npm/>
+  <www base="` ~ home ~ `/www">
+    <doc name="manual" zip="` ~ zipPath ~ `" />
+  </www>
+</micdn>`;
+  auto config = parse(home, xml);
+  WwwRepo.build(config);
+  auto gzPath = buildPath(home, "www", "manual", "big.js.gz");
+  assert(exists(gzPath), "first deploy must precompress autoGzip doc");
+
+  // 已部署未变更：再次启动走 manifest 快路径跳过解压，不补齐缺失的 sidecar。
+  remove(gzPath);
+  WwwRepo.build(config);
+  assert(!exists(gzPath), "manifest-skipped redeploy must not re-precompress");
+}
