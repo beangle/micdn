@@ -241,6 +241,8 @@ void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
     fil.seek(rangeStart);
     fil.pipe(res.bodyWriter, rangeEnd - rangeStart + 1);
   } else if (gzip) {
+    // gzip 分支走原始写通道：bodyWriter 在 `Content-Encoding: gzip` 时会再包一层压缩流，
+    // 对预压缩 sidecar 造成二次压缩；writeRawBody 不做任何进一步编码。
     res.writeRawBody(fil);
   } else {
     fil.pipe(res.bodyWriter);
