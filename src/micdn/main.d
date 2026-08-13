@@ -225,6 +225,7 @@ version (unittest) {
     string configFile;
     ReloadableDispatcher dispatcher;
     auto wwwAutoDeploy = new WwwAutoDeployer();
+    auto gcReclaimer = new PeriodicGcReclaimer();
     HTTPListener listener;
 
     ReloadResult reloadAndSync() {
@@ -267,12 +268,21 @@ version (unittest) {
 
       listener = listenHTTP(settings, dispatcher);
       wwwAutoDeploy.start(config);
+      gcReclaimer.start();
+      // 启动期重活（www 索引构建、gzip 预压缩等）完成后立即回收一次，让 RSS 回到日常水平。
+      auto startupReclaim = runGcMinimize();
+      logInfo("Startup GC reclaim: RSS %.2f MB -> %.2f MB (gcUsed %.2f -> %.2f MB, heapTrim %s)",
+          startupReclaim.before.process.rssKb / 1024.0, startupReclaim.after.process.rssKb / 1024.0,
+          startupReclaim.before.gc.usedBytes / 1024.0 / 1024.0,
+          startupReclaim.after.gc.usedBytes / 1024.0 / 1024.0,
+          mallocTrimLabel(startupReclaim.mallocTrim));
     } catch (Exception e) {
       return reportStartupError(e.msg);
     }
 
     scope (exit) {
       wwwAutoDeploy.stop();
+      gcReclaimer.stop();
       listener.stopListening();
     }
 

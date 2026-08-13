@@ -31,7 +31,7 @@ import vibe.core.stream;
 import vibe.stream.memory : createMemoryStream;
 
 /// 无 Range 时整文件若不超过此大小则读入内存再写出，避免 `FileStream` 与 `bodyWriter` 组合在部分场景下的句柄/GC 告警。
-private enum maxWholeFileMemSend = 8u * 1024 * 1024;
+private enum maxWholeFileMemSend = 0u;
 import vibe.http.fileserver;
 import vibe.http.server;
 import vibe.inet.message;
