@@ -300,22 +300,33 @@ version (Posix) {
   void startSighupReloadThread(ReloadResult delegate() reload) {
     import core.thread;
 
-    version (Linux) {
+    version (linux) {
       import core.sys.posix.signal;
+      import eventcore.core : eventDriver;
+      import eventcore.driver : EventID;
 
       sigset_t mask;
       sigemptyset(&mask);
       sigaddset(&mask, SIGHUP);
       sigprocmask(SIG_BLOCK, &mask, null);
 
-      auto t = new Thread({
-        int sig;
-        while (sigwait(&mask, &sig) == 0 && sig == SIGHUP) {
-          runTask({
+      // runTask 只能在事件循环线程调度任务，信号线程通过 eventcore 跨线程事件唤醒事件循环。
+      auto reloadEvent = eventDriver.events.create();
+      eventDriver.events.wait(reloadEvent, (EventID) @trusted nothrow {
+        runTask(() nothrow @system {
+          try {
             auto r = reload();
             logInfo("Config reload (SIGHUP): %s", r.ok ? "ok" : ("failed: " ~ r.error));
-          });
-        }
+          } catch (Exception e) {
+            logError("Config reload (SIGHUP) failed: %s", e.msg);
+          }
+        });
+      });
+
+      auto t = new Thread({
+        int sig;
+        while (sigwait(&mask, &sig) == 0 && sig == SIGHUP)
+          () @trusted { return cast(shared) eventDriver; } ().events.trigger(reloadEvent, true);
       });
       t.isDaemon = true;
       t.start();
