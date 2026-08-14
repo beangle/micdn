@@ -19,6 +19,7 @@ module micdn.admin.web;
 
 import std.format : format;
 
+import vibe.core.log : logInfo;
 import vibe.http.router;
 import vibe.http.server;
 
@@ -63,6 +64,7 @@ class AdminService {
       requireLocalhostPeer(req);
       auto result = onReload();
       if (result.ok) {
+        logInfo("Config reload (HTTP): ok");
         res.statusCode = HTTPStatus.ok;
         res.headers["Content-Type"] = "text/plain; charset=utf-8";
         res.writeBody("reload ok");

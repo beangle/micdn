@@ -75,7 +75,7 @@ sudo chmod 2775 /var/log/micdn
    加入 **`beangle`** 组的用户即可用编辑器直接保存（仍建议通过 **`sudo systemctl reload micdn`** 或 **SIGHUP** 按你环境要求重载配置）。  
    **注意**：组可写会扩大能改配置的人的范围，请仅在可信管理员组内使用。
 
-修改配置后若服务支持热加载，可 **`systemctl reload micdn`**；否则 **`systemctl restart micdn`**。
+修改配置后若服务支持热加载，可 **`systemctl reload micdn`**（即 SIGHUP）；否则 **`systemctl restart micdn`**。reload 的触发方式、工作流程与生效边界见 **[reload.md](./reload.md)**。
 
 ---
 
