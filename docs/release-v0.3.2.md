@@ -7,10 +7,11 @@
 
 ## 概要
 
-v0.3.2 的主题是「内置解压、更干净的镜像」。
+v0.3.2 的主题是「内置解压、更干净的镜像、可移植的静态二进制」。
 
 - **tgz 解压内置**：npm 包部署不再依赖宿主 `tar` 命令，改为纯 D 实现（`src/micdn/fs/tar.d`）——`std.zlib` 流式解 gzip + 自实现 tar 解析，支持 ustar、GNU longname（`L`）、pax（`x`）扩展头、prefix 拼接、symlink/hardlink 与 mode 保留。运行时外部命令依赖收敛为**仅 `curl` 一个**（远端下载）。
-- **scratch 静态镜像**：新增 `Dockerfile.scratch` + `scripts/build_scratch.sh`，产出 LDC musl 全静态、无 shell / 无 apk / 无调试工具的镜像（约等于"一个二进制 + CA 证书 + curl"），镜像内仅携带 curl 及其动态依赖。
+- **下载双后端**：新增 `src/micdn/web/curl.d`——默认构建调用宿主 `curl` 命令；`executable-static` 配置静态链接 libcurl，下载不再依赖宿主 curl/openssl。
+- **scratch 静态镜像**：`Dockerfile.scratch` + `scripts/build_scratch.sh` 产出 LDC musl **全静态**二进制（自编最小静态 libcurl + CA 证书），无 shell / apk / 调试工具，**无任何动态依赖**（连 musl loader 都不带），可拷到任意 x86_64 Linux 直接运行；镜像约 21.2MB。
 - **容器可用性修复**：容器默认配置改监听 `0.0.0.0:8888`（admin 端点仍 localhost-only），并创建、`chown` `/var/log/micdn`，默认配置开箱即可写日志。
 - **xi:include 修复**：展开前先剥离 XML 注释，注释里的示例 include（如 `<!-- <xi:include href="blob.xml" /> -->`）不再被误当真实指令导致配置加载失败。
 
@@ -32,8 +33,17 @@ v0.3.2 的主题是「内置解压、更干净的镜像」。
 ### scratch 静态镜像
 
 - `scripts/build_scratch.sh`（挂载约定与 `build_image.sh` 相同：`~/.dub` → `/root/.dub`、`~/.cache/alpine-apk` → `/var/cache/apk`）构建 `micdn:<version>-scratch` 镜像。
-- builder 阶段 `DFLAGS="-link-defaultlib-shared=false -L-static"` 全静态链接（druntime/phobos/musl/zlib/gcc-unwind 全部静态）；scratch 根目录只组装 CA 证书、curl 及其动态依赖（musl 加载器放 `/lib`）、容器默认配置与 passwd/group。
+- builder 阶段**自编最小静态 libcurl**：Alpine 预编译的 `libcurl.a` 含 brotli/psl 等引用，`ld.lld` 链接报 undefined symbol，因此改为 `autoreconf -fi && ./configure`（`--disable-shared --enable-static --with-openssl`，剔除 brotli/zstd/nghttp2/idn2/psl/ares/ldap/rtsp/dict/telnet/tftp/pop3/imap/smtp/gssapi 等）后 `make -C lib`；curl 源码需自备 `.curl-src/`（git 树，构建时生成 configure，不随仓库分发，见 [build_static_portable.md](./build_static_portable.md)）。
+- 链接使用 `DFLAGS="-link-defaultlib-shared=false -L-static"` + `dub build --config=executable-static` 全静态（druntime/phobos/musl/libcurl/openssl/zlib 全部静态）；scratch 根目录只组装 CA 证书、容器默认配置与 passwd/group，**连 musl loader 都不需要**。
+- **可移植性**：`readelf -d` 无 NEEDED、`ldd` 输出 `statically linked`；镜像内未放 musl loader 仍正常运行、HTTPS 下载实测成功——产物可拷到任意 x86_64 Linux 直接运行（包括无 curl、无高版本 openssl 的老系统）。镜像约 21.2MB（`/micdn` 约 20.97MB 全静态 + CA 证书）。
 - 入口直接 `/micdn -f /etc/micdn/micdn.xml`（无 shell、无 entrypoint 脚本），`USER 100:101` 运行。
+
+### 下载双后端（curl.d）
+
+- 新增 `src/micdn/web/curl.d`，`curlDownload(url, local)` 签名不变，通过编译开关切换：
+  - 默认 `dub build`：调用宿主 `curl` 命令，行为与 v0.3.1 一致；
+  - `dub build -c executable-static`：`version(MicdnUseLibcurl)` 走 `etc.c.curl` 绑定**静态链接 libcurl**（非 `std.net.curl` 的 dlopen 动态加载），不依赖宿主 curl/openssl。
+- TLS 配置 `vibe-stream:tls` 从 `openssl-static` 回退为 `notls`：micdn 本身是 HTTP CDN 服务，TLS 由反向代理承担；全局静态 OpenSSL 会把二进制增大约 6MB，且 dub 包 `openssl-static` 的预编译 `.a` 针对较新 glibc 构建，CentOS 7 等老系统有兼容风险（configuration 内 `subConfigurations` 还触发过 dub 1.41 配置被忽略的问题）。静态库改为在 `dub.json` 的 `executable-static` 中**显式写库路径**。
 
 ### 容器可用性
 
@@ -50,16 +60,19 @@ v0.3.2 的主题是「内置解压、更干净的镜像」。
 
 - **无 Breaking**：配置、CLI、HTTP 接口均兼容 v0.3.1。
 - 宿主不再需要 `tar` 命令；已安装旧版本的系统在升级后可直接移除对 tar 的依赖声明。
+- 静态构建（`-c executable-static` / scratch 镜像）产物**不依赖宿主 curl**；默认构建与 AUR / deb / rpm 仍声明 `Depends: curl`。
 - 容器镜像标签：Alpine 版 `micdn:0.3.2`，scratch 版 `micdn:0.3.2-scratch`（均由构建脚本从 `dub.json` 读取，不接受命令行改 tag）。
 
 ---
 
 ## 提交统计
 
-v0.3.2 相对 v0.3.1 共 1 个提交 + 本次发布改动：
+v0.3.2 相对 v0.3.1 共 3 个提交（另含未提交的镜像优化）：
 
-- `75cb7e6` 容器启动修复与 xi:include 注释处理（`/var/log/micdn` 创建/chown、容器监听 `0.0.0.0`、剥离 XML 注释、回归测试）
-- 本次发布：tgz 解压内置（`src/micdn/fs/tar.d`，移除宿主 tar 依赖）、scratch 镜像（`Dockerfile.scratch` / `build_scratch.sh`）、文档更新、版本号提升至 0.3.2、changelog 与本文档定稿
+- `cd0b1ba` Release v0.3.2: built-in tgz extraction and scratch image（tgz 解压内置 `src/micdn/fs/tar.d`、scratch 镜像初版、容器启动修复与 xi:include 注释处理、版本号提升至 0.3.2）
+- `91b707a` Use openssl-static for TLS to avoid runtime OpenSSL dependency（后因静态库兼容性风险回退为 `notls`）
+- `c516222` Add curl.d download backends: system curl or static libcurl（`src/micdn/web/curl.d` 双后端 + `executable-static` 配置）
+- 未提交：`Dockerfile.scratch` 自编最小静态 libcurl 优化（镜像 25.4MB → 21.2MB，移除 curl 动态依赖与 musl loader）
 
 ---
 

@@ -103,6 +103,7 @@ micdn 自身**不内嵌** TLS 与下载实现，远端拉取委托给宿主环�
 |------|------|
 | [docs/build_linux.md](docs/build_linux.md) | Linux 编译、RPM / deb / SRPM 打包 |
 | [docs/container_build.md](docs/container_build.md) | Podman / OCI 镜像 |
+| [docs/build_static_portable.md](docs/build_static_portable.md) | 全静态构建与可移植性说明 |
 | [docs/build_aur.md](docs/build_aur.md) | Arch AUR |
 | [docs/maintenance.md](docs/maintenance.md) | systemd、`micdn`/`beangle` 权限、resolve/deploy、auto-deploy |
 | [docs/reverse_proxy.md](docs/reverse_proxy.md) | nginx / varnish 缓存、haproxy 压缩等协作部署 |
