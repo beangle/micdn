@@ -29,6 +29,8 @@ import std.algorithm;
 
 import vibe.core.log;
 
+import micdn.fs.tar : extractTgz;
+
 /// ZIP 文件魔数：PK\x03\x04 本地文件头、PK\x05\x06 空/结尾、PK\x07\x08 分卷
 enum zipSignature1 = "\x50\x4B\x03\x04"; // 最常见
 enum zipSignature2 = "\x50\x4B\x05\x06"; // 空 zip / 中央目录结尾
@@ -195,25 +197,6 @@ uint unzip(string zipfile, string base, string innerDir = null) {
     return 0;
   }
   return count;
-}
-
-/** 使用系统命令 tar -xzf 解压 tgz 到指定目录，解压后包内有一层 package/ 目录。
-
-    Params:
-        tgzFile = .tgz 文件路径
-        baseDir = 解压目标目录
-
-    Returns:
-        0 表示失败，1 表示成功（不统计文件数）
-*/
-bool doExtractTgz(string tgzFile, string baseDir) {
-  if (!exists(tgzFile))
-    return 0;
-  mkdirRecurse(baseDir);
-  import std.process;
-
-  auto result = execute(["tar", "-xzf", tgzFile, "-C", baseDir]);
-  return result.status == 0;
 }
 
 enum deployManifestFileName = "manifest.json";
@@ -387,7 +370,7 @@ private bool extractTgzToDocBaseImpl(string tgzFile, string docBase, string inne
   if (null == innerDir || innerDir.length == 0) {
     if (exists(docBase))
       rmdirRecurse(docBase);
-    return doExtractTgz(tgzFile, docBase);
+    return extractTgz(tgzFile, docBase);
   }
 
   auto extractDir = docBase ~ "_tgz_extract";
@@ -399,7 +382,7 @@ private bool extractTgzToDocBaseImpl(string tgzFile, string docBase, string inne
   if (exists(extractDir))
     rmdirRecurse(extractDir);
 
-  if (!doExtractTgz(tgzFile, extractDir))
+  if (!extractTgz(tgzFile, extractDir))
     return false;
 
   const extractAbs = absolutePath(extractDir);

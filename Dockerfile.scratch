@@ -1,0 +1,76 @@
+# syntax=docker/dockerfile:1
+# scratch 镜像（无 shell / 无包管理 / 无调试工具）。
+# micdn 本体：LDC musl 全静态构建；运行时依赖的系统命令仅 curl（远端下载），
+# 以 Alpine 动态 curl + 依赖库随镜像携带（无 apk、无 shell；tgz 解压已内置，见 src/micdn/fs/tar.d）。
+#
+# 构建：./scripts/build_scratch.sh（挂载约定与 scripts/build_image.sh 相同：
+#   ~/.dub -> /root/.dub；~/.cache/alpine-apk -> /var/cache/apk）
+
+FROM alpine:3.23 AS builder
+ENV DUB_HOME=/root/.dub
+
+# 静态链接额外需要 zlib-static；musl/gcc 静态库由 build-base/musl-dev 提供。
+RUN set -eux; \
+  sed -i \
+    -e 's|https://dl-cdn.alpinelinux.org/alpine|https://mirrors.huaweicloud.com/alpine|g' \
+    -e 's|http://dl-cdn.alpinelinux.org/alpine|https://mirrors.huaweicloud.com/alpine|g' \
+    /etc/apk/repositories; \
+  apk add --cache-packages \
+    ldc \
+    dub \
+    build-base \
+    binutils \
+    zlib-dev \
+    zlib-static \
+    openssl-dev \
+    ca-certificates \
+    git \
+    curl \
+    unzip \
+    bash
+
+WORKDIR /build
+
+COPY dub.json dub.selections.json ./
+COPY src ./src
+COPY views ./views
+
+# 全静态：-link-defaultlib-shared=false（druntime/phobos 静态）+ -L-static（musl/zlib/gcc/unwind 全静态）
+# dub 不接收 -- 传参，用 DFLAGS 环境变量透传给 ldc2。
+RUN DFLAGS="-link-defaultlib-shared=false -L-static" dub build --build=release-nobounds --compiler=ldc2 \
+    && strip --strip-unneeded target/micdn \
+    && file target/micdn
+
+# 组装 scratch 根目录（uid=100 micdn / gid=101 beangle，与 Alpine 版镜像一致）：
+# CA 证书 + curl 及其动态依赖（musl 加载器放 /lib）
+RUN set -eux; \
+  mkdir -p /rootfs/etc/ssl/certs /rootfs/etc/micdn /rootfs/lib /rootfs/usr/bin /rootfs/usr/lib \
+           /rootfs/var/cache/micdn/asset /rootfs/var/cache/micdn/www \
+           /rootfs/var/lib/micdn/maven /rootfs/var/lib/micdn/npm /rootfs/var/lib/micdn/local \
+           /rootfs/var/log/micdn; \
+  cp /etc/ssl/certs/ca-certificates.crt /rootfs/etc/ssl/certs/; \
+  cp /usr/bin/curl /rootfs/usr/bin/curl; \
+  for f in $(ldd /usr/bin/curl | awk '/=>/ {print $3}' | sort -u); do \
+    [ -f "$f" ] || continue; \
+    case "$f" in \
+      /lib/ld-musl-*) cp -L "$f" /rootfs/lib/ ;; \
+      *) cp -L "$f" /rootfs/usr/lib/ ;; \
+    esac; \
+  done; \
+  strip --strip-unneeded /rootfs/usr/lib/*.so* /rootfs/usr/bin/curl || true; \
+  printf 'micdn:x:100:101:Micdn CDN server:/var/lib/micdn:/sbin/nologin\n' > /rootfs/etc/passwd; \
+  printf 'beangle:x:101:\n' > /rootfs/etc/group; \
+  touch /rootfs/var/cache/micdn/.keep /rootfs/var/lib/micdn/.keep /rootfs/var/log/micdn/.keep
+
+FROM scratch
+COPY --from=builder /build/target/micdn /micdn
+# CA 证书：maven/npm 远端 HTTPS 拉取必需；passwd/group 供 getpwuid 等查询
+COPY --chown=100:101 --from=builder /rootfs/ /
+COPY --chown=100:101 scripts/container/micdn.xml /etc/micdn/micdn.xml
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV LD_LIBRARY_PATH=/usr/lib
+USER 100:101
+WORKDIR /var/lib/micdn
+EXPOSE 8888
+ENTRYPOINT ["/micdn"]
+CMD ["-f", "/etc/micdn/micdn.xml"]

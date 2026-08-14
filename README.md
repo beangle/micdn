@@ -2,7 +2,7 @@
 
 轻量 CDN / 静态资源服务：Maven、npm、WebJar/本地静态包、WWW 文档站点与 Blob 存储（含可选 S3 兼容 API）。配置驱动，单进程 HTTP。
 
-**License:** GPLv3 · **Version:** 0.3.1
+**License:** GPLv3 · **Version:** 0.3.2
 
 ## 功能
 
@@ -84,6 +84,18 @@ static / www 部署的文本类静态资源（`js`、`css`、`html`、`svg`、`j
 - 典型前端静态资源（JS/CSS/HTML 等）远小于 8MB、远大于 1KB，该区间不影响正常部署；如需调整，直接修改 `minGzipFileSize` / `maxGzipFileSize` 即可（当前为硬编码，未做配置化）。
 
 与上游中间件（nginx / varnish / haproxy）的缓存、压缩协作部署见 [docs/reverse_proxy.md](docs/reverse_proxy.md)。
+
+## 运行时系统命令依赖（curl）
+
+micdn 自身**不内嵌** TLS 与下载实现，远端拉取委托给宿主环境的 `curl`（`src/micdn/web/file.d` 的 `curlDownload`）。这是刻意的设计取舍：
+
+- **可移植性**：不绑定特定版本或来源的 OpenSSL / TLS 库（部分系统没有高版本 OpenSSL），TLS 能力随宿主 `curl` 走，跨发行版（老版本 RHEL/CentOS、Debian、Alpine 等）行为一致；
+- **体积与性能**：`curl` 单二进制小、依赖轻（相对 wget），且是几乎所有发行版的基础组件，无需随 micdn 分发 TLS 库；
+- **失败可观测**：下载失败按 curl 退出码记日志（`Download failed … (curl exit N)`）；先写 `.part` 临时文件、成功才 rename，避免残留半包。
+
+运行时外部命令依赖**仅 `curl` 一个**：远端下载（maven/npm/asset 及远程配置文件）委托宿主 `curl`；tgz（npm 包）解压已内置——`std.zlib` 解 gzip + 自实现 tar 解析（`src/micdn/fs/tar.d` 的 `extractTgz`），不再依赖宿主 `tar` 命令。打包侧相应声明 `Depends: curl` / `depends=('curl')`（见 [docs/build_linux.md](docs/build_linux.md)、[docs/build_aur.md](docs/build_aur.md)）。对外提供 HTTP 服务、读取本地缓存与已部署内容均不依赖 `curl`。
+
+注意区分：Arch 的 `pacman` 更新走 libalpm 内置的 libcurl / 自带下载器，**不依赖** `curl` 命令本身；但 micdn 的远端拉取需要系统里存在 `curl` 命令。
 
 ## 安装与运维
 
