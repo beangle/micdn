@@ -96,7 +96,9 @@ string readXml(const string xmlfile) {
 string expandXiIncludes(const string baseDir, const string content) {
   auto re = regex(`<xi:include\s[^>]*href\s*=\s*"([^"]+)"[^>]*/\s*>`, "s");
   string absBase = absolutePath(baseDir);
-  string cur = content;
+  // 先剥离 XML 注释（<!-- ... -->，可跨行），避免把注释里的示例 xi:include 当成真实指令；
+  // 未闭合的注释原样保留，交由后续 DOM 解析报错。
+  string cur = stripXmlComments(content);
 
   while (true) {
     auto m = matchFirst(cur, re);
@@ -139,6 +141,22 @@ private string stripXmlDeclaration(const string s) {
       return t[end + 2 .. $].strip();
   }
   return s;
+}
+
+private string stripXmlComments(const string s) {
+  string result;
+  size_t pos = 0;
+  while (true) {
+    size_t start = indexOf(s, "<!--", pos);
+    if (start == size_t.max)
+      break;
+    size_t end = indexOf(s, "-->", start + 4);
+    if (end == size_t.max)
+      break;
+    result ~= s[pos .. start];
+    pos = end + 3;
+  }
+  return result ~ s[pos .. $];
 }
 
 auto parseXml(string xml) {
