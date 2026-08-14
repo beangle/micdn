@@ -102,6 +102,7 @@ class ReloadableDispatcher : HTTPServerRequestHandler {
   }
 
   ReloadResult tryReload() {
+    logInfo("Config reload started: %s", _configFile);
     try {
       fetchRemoteIfNeeded(_configFile);
       auto config = parseFile(_configFile);
@@ -233,6 +234,14 @@ version (unittest) {
       if (r.ok) {
         setListenPort(r.listenPort);
         wwwAutoDeploy.restart(r.config);
+        // reload 重建了路由与服务树（www 索引构建等重活），旧对象成为垃圾；
+        // 与启动期重活后回收一致，立即回收一次让 RSS 回落。
+        auto reclaim = runGcMinimize();
+        logInfo("Reload GC reclaim: RSS %.2f MB -> %.2f MB (gcUsed %.2f -> %.2f MB, heapTrim %s)",
+            reclaim.before.process.rssKb / 1024.0, reclaim.after.process.rssKb / 1024.0,
+            reclaim.before.gc.usedBytes / 1024.0 / 1024.0,
+            reclaim.after.gc.usedBytes / 1024.0 / 1024.0,
+            mallocTrimLabel(reclaim.mallocTrim));
       }
       return r;
     }
