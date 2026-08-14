@@ -34,6 +34,6 @@
     }
   ],
   "subConfigurations": {
-    "vibe-stream:tls": "notls"
+    "vibe-stream:tls": "openssl-static"
   }
 }
