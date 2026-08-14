@@ -63,6 +63,43 @@ rpm/deb 包的 **`Requires` / `Depends` 目前仅声明 `curl`**；若你在动�
 
 ---
 
+## 交付前依赖体检（ldd / RPATH / libgcc_s）
+
+构建完成后、分发前，用 **`ldd target/micdn`** 体检一遍运行时依赖。常见解读：
+
+- **`libdruntime-ldc-shared.so` / `libphobos2-ldc-shared.so`**：动态链 ldc 运行时，目标机需安装对应 ldc 运行时包；
+- **glibc 系（`libc.so.6`、`libm`、`librt`、`libdl`、`libpthread`）**：目标机 glibc 版本需不低于构建机（CentOS 7 为 2.17，向下兼容，一般不用管）；
+- **`libz.so.1`**：gzip 预压缩与 tgz 内置解压的 D 代码已静态编入，但底层 deflate/inflate 走宿主 zlib（`std.zlib` 封装），目标机需有 `libz.so.1`（绝大多数发行版自带，可保持动态；要彻底静态可在构建机装 `zlib-static` 后以 `-L-Wl,-Bstatic -L-lz -L-Wl,-Bdynamic` 链入）；
+- **`libgcc_s.so.1` 指向自定义 gcc 安装目录（如 `/usr/local/gcc-9.5.0/lib64`）是主要风险**：D 异常/栈回溯（unwinding）依赖 `_Unwind_*` 符号，libgcc_s 不会消失，只能静态或动态二选一。
+
+排查步骤：
+
+```bash
+# 1) 是否硬编码了自定义 gcc 路径（有输出即需处理）
+readelf -d target/micdn | grep -E 'RPATH|RUNPATH'
+
+# 2) 需要的 libgcc_s 版本符号（CentOS 7 系统 libgcc 4.8.5 只提供 GCC_3.0 / GCC_4.2）
+objdump -T target/micdn | grep 'GCC_' | sort -u
+
+# 3) 最终判定：拷到干净目标机（无 /usr/local/gcc-9.5.0）实测
+./micdn --help
+```
+
+说明：
+
+- 第 1 步**无输出 = 未硬编码路径**：构建机上 `ldd` 解析到自定义 gcc 可能是 `LD_LIBRARY_PATH` 或 `/etc/ld.so.conf` 所致，目标机会退回系统 `/lib64/libgcc_s.so.1`；
+- 第 2 步若出现 **`GCC_4.4` 及以上**版本符号，系统 libgcc_s（4.8.5）带不动，需处理；
+- `ldd` 输出不带路径只说明链接器「此刻」能解析，不代表目标机可运行，务必做第 3 步实测。
+
+处理选项：
+
+- **去掉硬编码路径**：`patchelf --remove-rpath target/micdn`（需 `patchelf` 包）；
+- **链系统 libgcc_s**：链接环境确保搜索路径不含 `/usr/local/gcc-9.5.0/lib64`（移除 `LD_LIBRARY_PATH` 或调整 `/etc/ld.so.conf`）；
+- **静态链 libgcc_s**：`DFLAGS` 加 `-L-Wl,-Bstatic -L-lgcc_s -L-Wl,-Bdynamic`（与 zlib 静态同理）；
+- **随包分发**：把构建机 `libgcc_s.so.1`（gcc 9.5 版）放可执行文件同目录，配相对 `$ORIGIN` 的 RPATH 或 `LD_LIBRARY_PATH`。
+
+---
+
 ## 打包脚本与发行版对应关系
 
 | 脚本 | 产物 | 典型环境 |

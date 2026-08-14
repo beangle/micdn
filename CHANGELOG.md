@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.3.2 (2026-08-14)
+
+- **解压**：tgz 解压改为纯 D 实现（新模块 `src/micdn/fs/tar.d`，`std.zlib` 流式解 gzip + 自实现 tar 解析），不再依赖宿主 `tar` 命令；支持 ustar / GNU longname（`L`）/ pax（`x`）扩展头、prefix 拼接、symlink/hardlink、mode 保留；防护与 zip 侧同口径——gzip 魔数、解压总量 ≤2GiB、条目 ≤2 万、绝对路径/`..`/超深超长拒绝、防经包内 symlink 写穿
+- **下载**：`src/micdn/web/curl.d` 下载双后端，函数签名不变——默认调用宿主 `curl` 命令；`dub build -c executable-static` 走 `version(MicdnUseLibcurl)` 静态链接 libcurl（`etc.c.curl` 绑定，非 dlopen），不依赖宿主 curl/openssl
+- **镜像**：scratch 静态镜像 `Dockerfile.scratch` + `scripts/build_scratch.sh` 改为**自编最小静态 libcurl**（builder 内 `autoreconf` + `./configure` 仅保留 openssl/zlib，规避 Alpine 预编译 `libcurl.a` 的 lld 链接问题；curl 源码需自备 `.curl-src/`）：产物全静态、**无任何动态依赖（连 musl loader 都不带）**，可拷到任意 x86_64 Linux 直接运行；镜像约 21.2MB（`/micdn` 全静态 + CA 证书），无 shell / apk / 调试工具
+- 修复：`xi:include` 展开前先剥离 XML 注释，注释里的示例 include 不再误当真实指令导致配置加载失败
+- 镜像：容器默认配置监听 `0.0.0.0:8888`（admin 仍 localhost-only），创建并 `chown` `/var/log/micdn`，默认配置可直接写日志
+- 文档：README「运行时系统命令依赖」收敛为仅 `curl` 一个（静态构建则为零）；新增 `docs/build_static_portable.md` 静态构建与可移植性说明；`docs/build_linux.md` 补充交付前 `ldd` / RPATH / `libgcc_s` 依赖体检
+
+完整说明见 docs/release-v0.3.2.md
+
 ## v0.3.1 (2026-08-14)
 
 - 内存：文件响应改为 `FileStream` 流式写出（`maxWholeFileMemSend=0`），大文件不再整读入 GC 堆，降低堆峰值与分配抖动

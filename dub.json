@@ -1,6 +1,6 @@
 {
   "name": "beangle-micdn",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "A minimal CDN.",
   "authors": ["chaostone"],
   "license": "GPLv3",
@@ -22,6 +22,23 @@
       "targetPath": "target",
       "targetName": "micdn",
       "versions": ["EventCoreSilenceLeakWarnings"]
+    },
+    {
+      "name": "executable-static",
+      "targetType": "executable",
+      "targetPath": "target",
+      "targetName": "micdn",
+      "versions": ["EventCoreSilenceLeakWarnings", "MicdnUseLibcurl"],
+      "lflags": [
+        "/usr/local/lib64/libcurl.a",
+        "/usr/local/lib64/libssl.a",
+        "/usr/local/lib64/libcrypto.a",
+        "/usr/lib64/libz.a",
+        "-ldl",
+        "-lpthread",
+        "-lrt",
+        "-lm"
+      ]
     },
     {
       "name": "unittest",

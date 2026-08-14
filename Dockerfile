@@ -69,6 +69,7 @@ RUN set -eux; \
     && adduser -S -D -G beangle -h /var/lib/micdn -s /sbin/nologin micdn \
     && mkdir -p /var/cache/micdn/asset /var/cache/micdn/www \
        /var/lib/micdn/maven /var/lib/micdn/npm /var/lib/micdn/local \
+       /var/log/micdn \
        /etc/micdn
 
 COPY --from=builder /pack/ /usr/lib/micdn/
@@ -79,7 +80,7 @@ ENV LD_LIBRARY_PATH=/usr/lib/micdn
 COPY scripts/container/micdn.xml /etc/micdn/micdn.xml
 COPY scripts/container/entrypoint.sh /entrypoint.sh
 
-RUN chown -R micdn:beangle /var/cache/micdn /var/lib/micdn \
+RUN chown -R micdn:beangle /var/cache/micdn /var/lib/micdn /var/log/micdn \
     && chown micdn:beangle /etc/micdn/micdn.xml \
     && chmod 755 /usr/bin/micdn /entrypoint.sh
 

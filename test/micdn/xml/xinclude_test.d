@@ -99,6 +99,21 @@ unittest {
   assertThrown!MicdnXmlException(expandXiIncludes(dir, `<x><xi:include href="../evil.xml"/></x>`));
 }
 
+@("expandXiIncludes ignores xi:include inside XML comments")
+unittest {
+  string dir = buildPath(tempDir(), "micdn-xi-u6-" ~ randomUUID().toString);
+  mkdirRecurse(dir);
+  scope (exit)
+    rmdirRecurse(dir);
+
+  write(buildPath(dir, "part.xml"), `<inner id="1"/>`);
+  string expanded = expandXiIncludes(dir, `<!-- <xi:include href="missing.xml"/> -->
+<root><xi:include href="part.xml"/></root>`);
+  assert(expanded.indexOf(`<inner id="1"/>`) >= 0);
+  assert(expanded.indexOf("xi:include") < 0);
+  assert(expanded.indexOf("<!--") < 0);
+}
+
 @("parseDomRoot reports invalid XML with line context")
 unittest {
   import std.exception;

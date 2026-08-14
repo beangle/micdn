@@ -1,0 +1,83 @@
+# syntax=docker/dockerfile:1
+# scratch 镜像（无 shell / 无包管理 / 无调试工具）。
+# micdn 本体：LDC musl 全静态构建，内嵌静态 libcurl + OpenSSL（下载不依赖宿主 curl）。
+# libcurl 在 builder 内自编（最小化，仅 openssl+zlib 依赖），源码来自 .curl-src（curl git 树，需 autoreconf）。
+#
+# 构建：./scripts/build_scratch.sh（挂载约定与 scripts/build_image.sh 相同：
+#   ~/.dub -> /root/.dub；~/.cache/alpine-apk -> /var/cache/apk）
+
+FROM alpine:3.23 AS builder
+ENV DUB_HOME=/root/.dub
+
+RUN set -eux; \
+  sed -i \
+    -e 's|https://dl-cdn.alpinelinux.org/alpine|https://mirrors.huaweicloud.com/alpine|g' \
+    -e 's|http://dl-cdn.alpinelinux.org/alpine|https://mirrors.huaweicloud.com/alpine|g' \
+    /etc/apk/repositories; \
+  apk add --cache-packages \
+    ldc \
+    dub \
+    build-base \
+    binutils \
+    autoconf \
+    automake \
+    libtool \
+    pkgconf \
+    python3 \
+    zlib-dev \
+    zlib-static \
+    openssl-dev \
+    openssl-libs-static \
+    ca-certificates \
+    unzip \
+    bash
+
+WORKDIR /build
+
+COPY dub.json dub.selections.json ./
+COPY src ./src
+COPY views ./views
+
+# 自编最小静态 libcurl（仅 openssl+zlib 依赖，规避 Alpine 预编译 libcurl.a 的 lld 链接问题）
+COPY .curl-src /curl-src
+RUN set -eux; \
+  cd /curl-src; \
+  autoreconf -fi; \
+  ./configure --disable-shared --enable-static --with-openssl \
+    --without-brotli --without-zstd --without-nghttp2 --without-libidn2 --without-libpsl \
+    --without-libssh2 --without-librtmp --disable-ldap --disable-ldaps --disable-ares \
+    --disable-rtsp --disable-dict --disable-telnet --disable-tftp --disable-pop3 \
+    --disable-imap --disable-smtp --without-gssapi; \
+  make -C lib -j$(nproc); \
+  ls -la lib/.libs/libcurl.a
+
+# executable-static：静态 libcurl + openssl-libs-static + zlib-static
+# dub 不接收 -- 传参，用 DFLAGS 环境变量透传给 ldc2。
+RUN python3 -c 'import json; d=json.load(open("/build/dub.json")); [c.update(lflags=["/curl-src/lib/.libs/libcurl.a","/usr/lib/libssl.a","/usr/lib/libcrypto.a","/usr/lib/libz.a","-ldl","-lpthread","-lrt","-lm"]) for c in d["configurations"] if c["name"]=="executable-static"]; json.dump(d, open("/build/dub.json","w"), indent=1)'
+RUN set -eux; \
+  cd /build; \
+  DFLAGS="-link-defaultlib-shared=false -L-static" dub build --config=executable-static --build=release-nobounds --compiler=ldc2; \
+  strip --strip-unneeded target/micdn; \
+  file target/micdn
+
+# 组装 scratch 根目录（uid=100 micdn / gid=101 beangle，与 Alpine 版镜像一致）：
+# 仅 CA 证书 + 目录结构；无 curl（下载已内嵌）。
+RUN set -eux; \
+  mkdir -p /rootfs/etc/ssl/certs /rootfs/etc/micdn /rootfs/var/cache/micdn/asset \
+           /rootfs/var/cache/micdn/www /rootfs/var/lib/micdn/maven \
+           /rootfs/var/lib/micdn/npm /rootfs/var/lib/micdn/local /rootfs/var/log/micdn; \
+  cp /etc/ssl/certs/ca-certificates.crt /rootfs/etc/ssl/certs/; \
+  printf 'micdn:x:100:101:Micdn CDN server:/var/lib/micdn:/sbin/nologin\n' > /rootfs/etc/passwd; \
+  printf 'beangle:x:101:\n' > /rootfs/etc/group; \
+  touch /rootfs/var/cache/micdn/.keep /rootfs/var/lib/micdn/.keep /rootfs/var/log/micdn/.keep
+
+FROM scratch
+COPY --from=builder /build/target/micdn /micdn
+COPY --chown=100:101 --from=builder /rootfs/ /
+COPY --chown=100:101 scripts/container/micdn.xml /etc/micdn/micdn.xml
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+USER 100:101
+WORKDIR /var/lib/micdn
+EXPOSE 8888
+ENTRYPOINT ["/micdn"]
+CMD ["-f", "/etc/micdn/micdn.xml"]

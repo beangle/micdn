@@ -41,6 +41,7 @@ import micdn.web.gzip;
 import micdn.fs.index;
 import micdn.model;
 import micdn.web.cache;
+public import micdn.web.curl;
 
 /// 在写出响应体之前调用（如 CORS、`Content-Disposition`）；与缓存头无关。
 alias SendFileHook = void delegate(scope HTTPServerRequest req, scope HTTPServerResponse res);
@@ -52,53 +53,6 @@ string encodeAttachmentName(string name) @safe {
   auto filename = name.urlEncode();
   auto n = `attachment; filename="{filename}"; filename*=utf-8''{filename}`;
   return n.replace("{filename}", filename);
-}
-
-/**
- * Fetch url and store at local.
- * Downloads to a temp file in the same directory as target first (avoiding cross-device
- * rename), then renames on success. No target directory is created when download fails.
- *
- * 每次调用在 micdn 日志中固定打一条：成功 `Downloaded …`，失败 `Download failed …`（curl stderr 写入同条）。
- */
-bool curlDownload(string url, string local) {
-  import std.process : execute;
-  import std.file, std.path, std.conv, std.datetime, std.string;
-  import std.datetime.stopwatch : StopWatch, AutoStart;
-  import vibe.core.log;
-
-  mkdirRecurse(dirName(local));
-  auto tmpPath = dirName(local) ~ "/." ~ baseName(local) ~ ".part";
-  scope (exit) {
-    if (exists(tmpPath))
-      remove(tmpPath);
-  }
-
-  auto sw = StopWatch(AutoStart.yes);
-  auto cmd = execute(["curl", "--fail", "--silent", "--show-error", "-L",
-      "--connect-timeout", "10",
-      "--max-time", "300",
-      "--speed-time", "30",
-      "--speed-limit", "1024",
-      "-o", tmpPath, url]);
-  sw.stop();
-
-  if (cmd.status != 0) {
-    auto detail = cmd.output.strip();
-    if (detail.length)
-      logWarn("Download failed %s -> %s (curl exit %s): %s", url, local, cmd.status, detail);
-    else
-      logWarn("Download failed %s -> %s (curl exit %s)", url, local, cmd.status);
-    return false;
-  }
-  if (!exists(tmpPath)) {
-    logWarn("Download failed %s -> %s: temp file missing after curl", url, local);
-    return false;
-  }
-  rename(tmpPath, local);
-  logInfo("Downloaded %s -> %s (%s bytes, %.1fs)", url, local, getSize(local),
-      sw.peek.total!"seconds");
-  return true;
 }
 
 /**
