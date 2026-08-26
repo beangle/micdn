@@ -237,11 +237,7 @@ version (unittest) {
         // reload 重建了路由与服务树（www 索引构建等重活），旧对象成为垃圾；
         // 与启动期重活后回收一致，立即回收一次让 RSS 回落。
         auto reclaim = runGcMinimize();
-        logInfo("Reload GC reclaim: RSS %.2f MB -> %.2f MB (gcUsed %.2f -> %.2f MB, heapTrim %s)",
-            reclaim.before.process.rssKb / 1024.0, reclaim.after.process.rssKb / 1024.0,
-            reclaim.before.gc.usedBytes / 1024.0 / 1024.0,
-            reclaim.after.gc.usedBytes / 1024.0 / 1024.0,
-            mallocTrimLabel(reclaim.mallocTrim));
+        logGcReclaim("Reload", reclaim);
       }
       return r;
     }
@@ -280,11 +276,7 @@ version (unittest) {
       gcReclaimer.start();
       // 启动期重活（www 索引构建、gzip 预压缩等）完成后立即回收一次，让 RSS 回到日常水平。
       auto startupReclaim = runGcMinimize();
-      logInfo("Startup GC reclaim: RSS %.2f MB -> %.2f MB (gcUsed %.2f -> %.2f MB, heapTrim %s)",
-          startupReclaim.before.process.rssKb / 1024.0, startupReclaim.after.process.rssKb / 1024.0,
-          startupReclaim.before.gc.usedBytes / 1024.0 / 1024.0,
-          startupReclaim.after.gc.usedBytes / 1024.0 / 1024.0,
-          mallocTrimLabel(startupReclaim.mallocTrim));
+      logGcReclaim("Startup", startupReclaim);
     } catch (Exception e) {
       return reportStartupError(e.msg);
     }

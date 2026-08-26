@@ -186,6 +186,16 @@ GcMinimizeResult runGcMinimize() {
   return ret;
 }
 
+/// 统一回收结果日志：RSS 与 gcUsed 的前后对比（MB）及 `malloc_trim` 结果标签。
+/// 调用点：启动期重活后（Startup）、reload 成功后（Reload）。
+void logGcReclaim(string label, const ref GcMinimizeResult res) {
+  logInfo("%s GC reclaim: RSS %.2f MB -> %.2f MB (gcUsed %.2f -> %.2f MB, heapTrim %s)",
+      label,
+      res.before.process.rssKb / 1024.0, res.after.process.rssKb / 1024.0,
+      res.before.gc.usedBytes / 1024.0 / 1024.0, res.after.gc.usedBytes / 1024.0 / 1024.0,
+      mallocTrimLabel(res.mallocTrim));
+}
+
 /// 周期回收间隔：固定周期执行 `GC.collect + minimize + malloc_trim`，让不再需要的内存尽快归还 OS。
 /// micdn 的 GC 堆很小（压测中 gcUsed 仅数 MB），collect 的 STW 代价可忽略，无需 RSS 门控；
 /// 10 分钟在「回收时效」与「STW 频率」之间折中（启动期重活后另有即时回收，见 main）。
@@ -211,11 +221,7 @@ final class PeriodicGcReclaimer {
   }
 
   private void onTimer() @trusted {
-    auto res = runGcMinimize();
-    logInfo("Periodic GC reclaim: RSS %.2f MB -> %.2f MB (gcUsed %.2f -> %.2f MB, heapTrim %s)",
-        res.before.process.rssKb / 1024.0, res.after.process.rssKb / 1024.0,
-        res.before.gc.usedBytes / 1024.0 / 1024.0, res.after.gc.usedBytes / 1024.0 / 1024.0,
-        mallocTrimLabel(res.mallocTrim));
+    runGcMinimize();
   }
 }
 
