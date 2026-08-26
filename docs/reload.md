@@ -41,6 +41,7 @@
 
 - 专用线程 `sigprocmask(SIG_BLOCK, SIGHUP)` + `sigwait` 循环接收信号。
 - 信号线程**不直接执行 reload**（`runTask` 会落在不消费任务队列的线程），改为经 **eventcore 跨线程事件** `events.trigger` 唤醒事件循环，再在事件循环内 `runTask` 执行。
+- eventcore 事件回调为**一次性消费**（触发后即被移除）：回调内先重新挂载事件再派发 reload，`systemctl reload` 可持续触发（v0.3.3 修复，见 `startSighupReloadThread`）。
 
 ---
 

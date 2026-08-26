@@ -2,7 +2,7 @@
 
 轻量 CDN / 静态资源服务：Maven、npm、WebJar/本地静态包、WWW 文档站点与 Blob 存储（含可选 S3 兼容 API）。配置驱动，单进程 HTTP。
 
-**License:** GPLv3 · **Version:** 0.3.2
+**License:** GPLv3 · **Version:** 0.3.3
 
 ## 功能
 
@@ -108,7 +108,7 @@ micdn 自身**不内嵌** TLS 与下载实现，远端拉取委托给宿主环�
 | [docs/maintenance.md](docs/maintenance.md) | systemd、`micdn`/`beangle` 权限、resolve/deploy、auto-deploy |
 | [docs/reverse_proxy.md](docs/reverse_proxy.md) | nginx / varnish 缓存、haproxy 压缩等协作部署 |
 | [docs/stress_test.md](docs/stress_test.md) | 压测复测指南：环境、样例、场景与结果比较 |
-| [docs/release-v0.3.1.md](docs/release-v0.3.1.md) | 当前版本说明 |
+| [docs/release-v0.3.3.md](docs/release-v0.3.3.md) | 当前版本说明 |
 
 打包脚本（每次默认 `dub clean` + 清空 `target/` 后全量构建）：
 

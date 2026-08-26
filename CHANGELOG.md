@@ -1,8 +1,12 @@
 # Changelog
 
-## v0.3.3-snapshot (2026-08-14)
+## v0.3.3 (2026-08-26)
 
 - 修复：SIGHUP 热加载只生效一次——eventcore 事件回调为一次性消费（触发后即移除），`startSighupReloadThread` 改为在回调内重新挂载事件，`systemctl reload` 可持续触发（已本地连发两次 SIGHUP 冒烟验证）
+- 修复：默认 maven/npm 仓库 base（`~/maven` / `~/npm`）改用 `expandTilde` 展开——配置未显式给 `base` 时不再在工作目录创建字面 `~` 目录
+- 改进：www doc 未配置 `try-file` 时默认 `index.html`，SPA 深链接回退开箱即用；路径属性展开与 try-file 默认值均有单测覆盖
+
+完整说明见 docs/release-v0.3.3.md
 
 ## v0.3.2 (2026-08-14)
 
