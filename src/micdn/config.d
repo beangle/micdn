@@ -399,7 +399,7 @@ WwwConfig parseWww(T)(string home, ref DOMEntity!T micdnDom) {
     if (name in seenNames)
       throw new Exception("www <doc name=\"" ~ name ~ "\"> duplicated; doc name must be unique");
     seenNames[name] = true;
-    string tryFile = stripLeadingSlash(docAttrs.get("try-file", "").strip());
+    string tryFile = stripLeadingSlash(docAttrs.get("try-file", "index.html").strip());
     if (tryFile.length > 0 && tryFile.canFind("/"))
       throw new Exception("www <doc name=\"" ~ name ~ "\"> try-file must be a single file name "
           ~ "without path separators (e.g. index.html)");

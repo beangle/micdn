@@ -26,6 +26,7 @@ import std.array;
 import std.conv;
 import std.datetime.systime;
 import std.file;
+import std.path : expandTilde;
 import std.string;
 import std.uni;
 
@@ -204,7 +205,7 @@ class MavenRepoConfig {
   }
 
   static MavenRepoConfig defaultConfig() {
-    return new MavenRepoConfig("~/maven", [
+    return new MavenRepoConfig(expandTilde("~/maven"), [
       "https://repo1.maven.org/maven2"
     ]);
   }
@@ -259,7 +260,7 @@ class NpmRepoConfig {
   }
 
   static NpmRepoConfig defaultConfig() {
-    return new NpmRepoConfig("~/npm", ["https://registry.npmmirror.com"]);
+    return new NpmRepoConfig(expandTilde("~/npm"), ["https://registry.npmmirror.com"]);
   }
 
   /** 返回包规格对应的本地 tgz 路径。scopePart 无 scope 时传 "_"。

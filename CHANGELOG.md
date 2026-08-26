@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.3.3-snapshot (2026-08-14)
+
+- 修复：SIGHUP 热加载只生效一次——eventcore 事件回调为一次性消费（触发后即移除），`startSighupReloadThread` 改为在回调内重新挂载事件，`systemctl reload` 可持续触发（已本地连发两次 SIGHUP 冒烟验证）
+
 ## v0.3.2 (2026-08-14)
 
 - **解压**：tgz 解压改为纯 D 实现（新模块 `src/micdn/fs/tar.d`，`std.zlib` 流式解 gzip + 自实现 tar 解析），不再依赖宿主 `tar` 命令；支持 ustar / GNU longname（`L`）/ pax（`x`）扩展头、prefix 拼接、symlink/hardlink、mode 保留；防护与 zip 侧同口径——gzip 魔数、解压总量 ≤2GiB、条目 ≤2 万、绝对路径/`..`/超深超长拒绝、防经包内 symlink 写穿

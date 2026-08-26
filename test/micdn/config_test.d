@@ -29,6 +29,12 @@ import micdn.xml;
 
 auto CentralURL = "https://repo1.maven.org/maven2";
 
+@("default maven/npm repo bases expand tilde")
+unittest {
+  assert(MavenRepoConfig.defaultConfig().base == expandTilde("~/maven"));
+  assert(NpmRepoConfig.defaultConfig().base == expandTilde("~/npm"));
+}
+
 @("asset repo remote url")
 unittest{
   auto repo = new MavenRepoConfig("~/maven", ["https://repo1.maven.org/maven2"]);
@@ -164,6 +170,19 @@ unittest {
   <maven/><npm/>
   <www base="~/tmp/www">
     <doc name="m/edu/learning" zip="~/docs/spa.zip" try-file="index.html" />
+  </www>
+</micdn>`;
+  auto config = parse("~/tmp", xml);
+  assert(config.www.docs[0].tryFile == "index.html");
+}
+
+@("www doc defaults try-file to index.html")
+unittest {
+  auto xml = `<?xml version="1.0" encoding="UTF-8"?>
+<micdn>
+  <maven/><npm/>
+  <www base="~/tmp/www">
+    <doc name="manual" zip="~/docs/spa.zip" />
   </www>
 </micdn>`;
   auto config = parse("~/tmp", xml);

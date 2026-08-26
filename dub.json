@@ -1,6 +1,6 @@
 {
   "name": "beangle-micdn",
-  "version": "0.3.2",
+  "version": "0.3.3-snapshot",
   "description": "A minimal CDN.",
   "authors": ["chaostone"],
   "license": "GPLv3",

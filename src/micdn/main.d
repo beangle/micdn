@@ -321,7 +321,9 @@ version (Posix) {
 
       // runTask 只能在事件循环线程调度任务，信号线程通过 eventcore 跨线程事件唤醒事件循环。
       auto reloadEvent = eventDriver.events.create();
-      eventDriver.events.wait(reloadEvent, (EventID) @trusted nothrow {
+      void onReloadEvent(EventID) @trusted nothrow {
+        // eventcore 事件回调是一次性消费，触发后即被移除，须在此重新挂载才能响应后续 SIGHUP。
+        eventDriver.events.wait(reloadEvent, &onReloadEvent);
         runTask(() nothrow @system {
           try {
             auto r = reload();
@@ -330,7 +332,8 @@ version (Posix) {
             logError("Config reload (SIGHUP) failed: %s", e.msg);
           }
         });
-      });
+      }
+      eventDriver.events.wait(reloadEvent, &onReloadEvent);
 
       auto t = new Thread({
         int sig;
