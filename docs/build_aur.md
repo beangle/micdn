@@ -68,7 +68,7 @@ git ls-remote https://github.com/beangle/micdn.git refs/tags/v0.2.3
 
 至少更新：
 
-- `pkgver`（与 `dub.json` / GitHub tag 一致）
+- `pkgver`（与 GitHub tag 一致，如 `v0.3.3` → `0.3.3`）
 - `source` 中 git tag：`git+...#tag=v${pkgver}`
 - 若仅修复打包脚本、未改上游：`pkgrel` 加 1
 

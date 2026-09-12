@@ -206,5 +206,5 @@ Download is performed unsandboxed as root as file '.../target/micdn_....deb' cou
 ## 输出位置与版本号
 
 - 可执行文件默认在 **`target/micdn`**。
-- RPM/deb/SRPM 文件名中的版本来自根目录 **`dub.json`** 的 **`"version"`** 字段。
+- RPM/deb/SRPM 文件名中的版本来自**最近的 git tag**（如 `v0.3.3` → `0.3.3`；`dub.json` 不再写 `version`）。
 - 若脚本提示缺少 **`dpkg-deb` / `rpmbuild` / `strip`** 等，按上文补齐对应包后重试。

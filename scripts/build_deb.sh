@@ -34,7 +34,11 @@ fi
 micdn_prepare_release_build
 
 MAINTAINER="duantihua <duantihua@163.com>"
-VERSION=`awk -F'"' '/"version"/{print $4; exit}' $MICDN_HOME/dub.json`
+# 版本以 git tag 为唯一来源（如 v0.3.3 -> 0.3.3）。
+VERSION=`git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//'`
+if [ -z "$VERSION" ]; then
+  ferror "Could not determine version from git tag"
+fi
 REVISION="1"
 [[ -n "$1" ]] && REVISION="$1"
 DESTDIR="$MICDN_HOME/target"

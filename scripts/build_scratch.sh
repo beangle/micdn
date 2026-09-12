@@ -2,7 +2,7 @@
 # 使用 Podman 构建 micdn scratch 镜像：LDC musl 全静态二进制，无 shell / 无 apk / 无调试工具。
 # 构建前在仓库根目录执行 dub fetch，并挂载：~/.dub -> /root/.dub；~/.cache/alpine-apk -> /var/cache/apk。
 #
-# 镜像标签固定为 micdn:<dub.json 的 "version">-scratch。
+# 镜像标签固定为 micdn:<git 最近 tag>-scratch（tag 去掉前缀 v）。
 #
 # 用法：
 #   ./scripts/build_scratch.sh
@@ -27,9 +27,10 @@ else
   echo "build_scratch: SKIP_DUB_FETCH=1, skipping dub fetch"
 fi
 
-VERSION="$(awk -F'"' '/"version"/{print $4; exit}' dub.json)"
+# 版本以 git tag 为唯一来源（如 v0.3.3 -> 0.3.3）。
+VERSION="$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')"
 if [ -z "$VERSION" ]; then
-  echo "build_scratch: could not read version from dub.json" >&2
+  echo "build_scratch: could not determine version from git tag" >&2
   exit 1
 fi
 

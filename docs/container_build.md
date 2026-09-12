@@ -42,7 +42,7 @@ export NO_PROXY=localhost,127.0.0.1,::1
 ./scripts/build_image.sh
 ```
 
-脚本内已包含 **`podman build --squash`**，从 **`dub.json`** 读取 **`version`**，**仅**打上 **`micdn:<version>`**，不接受命令行改镜像名或 tag。需要 **`--no-cache`** 等时，可设置环境变量 **`PODMAN_BUILD_EXTRA`**（例如 **`PODMAN_BUILD_EXTRA=--no-cache ./scripts/build_image.sh`**）；推送到私有仓库请在构建后 **`podman tag`** / **`podman push`**。
+脚本内已包含 **`podman build --squash`**，从**最近的 git tag** 读取版本（如 `v0.3.3` → `0.3.3`），**仅**打上 **`micdn:<version>`**，不接受命令行改镜像名或 tag。需要 **`--no-cache`** 等时，可设置环境变量 **`PODMAN_BUILD_EXTRA`**（例如 **`PODMAN_BUILD_EXTRA=--no-cache ./scripts/build_image.sh`**）；推送到私有仓库请在构建后 **`podman tag`** / **`podman push`**。
 
 若手写 `podman build`，建议同样加上 **`--squash`**，并务必带上 **`~/.dub`** 与 **`/var/cache/apk`** 的挂载（见下文）。
 
@@ -91,7 +91,7 @@ podman run --rm -p 8888:8888 \
 
 **apk-tools v3（Alpine 3.23+）**：默认**只**在 **`/var/cache/apk`** 里保留仓库索引（**`APKINDEX.*.tar.gz`**），安装时下载的 **`.apk`** 默认**不**写入缓存。**`Dockerfile`** 已在 **`apk add`** 上加了 **`--cache-packages`**，才会把包副本写入挂载目录，供下次构建复用。
 
-- **手写**等价：`podman build --squash -v "$HOME/.dub:/root/.dub" -v "$HOME/.cache/alpine-apk:/var/cache/apk" -f Dockerfile -t micdn:0.2.0 .`（版本与 **`dub.json`** 一致）
+- **手写**等价：`podman build --squash -v "$HOME/.dub:/root/.dub" -v "$HOME/.cache/alpine-apk:/var/cache/apk" -f Dockerfile -t micdn:0.2.0 .`（版本与**最近的 git tag** 一致）
 - **构建若不加 `-v …:/var/cache/apk`**：`apk` 会把包装进**镜像层**或反复拉取，**请勿**无挂载构建。
 
 - 若每次仍大量重新下载 **apk** / **dub**：
@@ -166,4 +166,3 @@ podman run --rm -it micdn:0.2.0 sh
 | `scripts/build_deb.sh` | 构建 Debian **`.deb`**（需 `dpkg-deb`、`fakeroot`） |
 | `scripts/build_rpm.sh` | 构建 **`.rpm`**（需 `rpmbuild`、`fakeroot`） |
 | `docs/build_windows.md` | Windows 原生 dub 构建说明 |
-

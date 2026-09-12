@@ -47,7 +47,11 @@ fi
 micdn_prepare_release_build
 
 MAINTAINER="duantihua <duantihua@163.com>"
-VERSION_RAW=$(awk -F'"' '/"version"/{print $4; exit}' "$MICDN_HOME/dub.json")
+# 版本以 git tag 为唯一来源（如 v0.3.3 -> 0.3.3）。
+VERSION_RAW=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
+if [ -z "$VERSION_RAW" ]; then
+  ferror "Could not determine version from git tag"
+fi
 # 与 build_rpm.sh 一致：RPM Version 中预发布号用 ~（仅替换首段 -）
 VERSION_RPM=$(sed 's/-/~/' <<<"$VERSION_RAW")
 REVISION=""

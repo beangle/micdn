@@ -48,7 +48,11 @@ micdn_prepare_release_build
   # assign variables
   MAINTAINER="duantihua <duantihua@163.com>"
   VENDOR="Beangle"
-  VERSION=`awk -F'"' '/"version"/{print $4; exit}' $MICDN_HOME/dub.json`
+  # 版本以 git tag 为唯一来源（如 v0.3.3 -> 0.3.3）。
+  VERSION=`git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//'`
+  if [ -z "$VERSION" ]; then
+    ferror "Could not determine version from git tag"
+  fi
   MAJOR=$(awk -F. '{ print $1 +0 }' <<<$VERSION)
   MINOR=$(awk -F. '{ print $2 +0 }' <<<$VERSION)
   RELEASE=$(awk -F. '{ print $3 +0 }' <<<$VERSION)

@@ -2,7 +2,7 @@
 # 使用 Podman 构建 micdn 镜像（Alpine / musl），默认带 --squash；构建前在仓库根目录执行 dub fetch，
 # 并挂载：~/.dub → /root/.dub；~/.cache/alpine-apk → /var/cache/apk。
 #
-# 镜像标签固定为 micdn:<dub.json 的 "version">，不接受命令行改 tag。
+# 镜像标签固定为 micdn:<git 最近 tag>（去掉前缀 v），不接受命令行改 tag。
 #
 # 用法：
 #   ./scripts/build_image.sh
@@ -27,9 +27,10 @@ else
   echo "build_image: SKIP_DUB_FETCH=1, skipping dub fetch"
 fi
 
-VERSION="$(awk -F'"' '/"version"/{print $4; exit}' dub.json)"
+# 版本以 git tag 为唯一来源（如 v0.3.3 -> 0.3.3）。
+VERSION="$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')"
 if [ -z "$VERSION" ]; then
-  echo "build_image: could not read version from dub.json" >&2
+  echo "build_image: could not determine version from git tag" >&2
   exit 1
 fi
 
