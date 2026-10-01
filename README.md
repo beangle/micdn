@@ -21,8 +21,8 @@
 
 | 前缀 | 说明 |
 |------|------|
-| `/maven` | maven：本地缓存 + 上游 remote 拉取；SNAPSHOT 路径本地优先、缺失时按 `<snapshot remote>` 回源（版本元数据按 TTL 刷新），别名请求 302 到最新时间戳文件，本地快照版本并入 artifact 级元数据（声明了 `<maven>` 才挂载；未声明时仍有默认仓库，见下） |
-| `/npm` | npm registry（正式版与开发版共用）：packument（交付时替换 `{origin}` 占位符）与 tgz（声明了 `<npm>` 才挂载；未声明时仍有默认仓库，见下） |
+| `/maven` | maven：本地缓存 + 上游 remote 拉取；SNAPSHOT 路径本地优先、缺失时按 `<snapshot remote>` 回源（版本元数据按 TTL 刷新），别名请求 302 到最新时间戳文件，本地快照版本并入 artifact 级元数据；声明 `<publish>` 后可 PUT 上传（`mvn deploy`，见「发布端点」）。声明了 `<maven>` 才挂载；未声明时仍有默认仓库，见下 |
+| `/npm` | npm registry（正式版与开发版共用）：packument（交付时替换 `{origin}` 占位符）与 tgz；声明 `<publish>` 后可 PUT 上传（`npm publish`，见「发布端点」）。声明了 `<npm>` 才挂载；未声明时仍有默认仓库，见下 |
 | `/static` | 静态资源（配置了 `<static>` 时） |
 | `/blob`、`/s3` | 对象存储与 S3 兼容接口（配置了 `<blob>` 时） |
 | `/admin` | 本机只读指标 `/admin/metrics`、配置查看与 reload |
@@ -165,6 +165,68 @@ micdn -f /etc/micdn/micdn.xml install target/beangle-commons-5.0.0-20250803.1326
 正式版与 SNAPSHOT 为什么共用一个 `/maven` 与一个仓库根、artifact 级元数据如何合并，见
 [docs/merged_repo.md](docs/merged_repo.md)。
 
+## 发布端点（publish）
+
+不必先 `npm pack` 再手动入库、也不必复制 maven 构件：声明 `<publish token="…"/>` 后，`/npm`、`/maven` 同时
+接受 **HTTP PUT** 上传，把 `npm publish` / `mvn deploy` 指向 micdn 即可（本地开发、或带令牌推到远端实例）。
+**不声明 `<publish>` 就完全不挂 PUT**（只有 GET/HEAD），因此服务器上即使有反代也不会凭空多出写入口。
+
+上传以**令牌**为唯一凭据：
+
+- `Authorization: Bearer <token>`（npm 的 `_authToken`）、`Authorization: Basic <base64>`
+  （用户名或口令任一与令牌相同，Maven 的 `settings.xml` server 凭据走这条）或 `X-Micdn-Token: <token>`；
+- 缺失/不符返回 `401`，并带 `WWW-Authenticate: Basic` 挑战——Maven 收到挑战后会用 `settings.xml` 的凭据重试；
+- **不限制来源地址**：令牌本来就与来源无关，前端开发机可以带令牌直接推给远端 micdn，反之本机发布也不用额外配置。
+
+为什么不用「只接受本机」来兜底：本机反代（如 HAProxy 绑 `0.0.0.0:80` 转发到 `127.0.0.1:8080`，TCP 模式）会把
+远端请求以环回源地址转给 micdn，报文里没有任何可区分的标记，那种判断等于没锁。代价是**令牌就是写权限**：
+发布端点只应经 HTTPS（或反向代理的 HTTPS 终止）暴露，并选用足够长的随机令牌，避免 Bearer 凭据在明文链路上被读走。
+
+npm——把令牌写进项目 `.npmrc`（或用 `--registry`/`--//…:_authToken` 临时给）：
+
+```bash
+# .npmrc
+registry=http://127.0.0.1:8888/npm/
+//127.0.0.1:8888/npm/:_authToken=s3cret
+```
+```bash
+npm publish --tag dev        # PUT /npm/{pkg}
+```
+
+服务端按 npm publish 协议解析请求体（`_attachments` 内嵌 Base64 的 tgz），落盘并刷新 packument，逻辑与
+`micdn install` 完全一致：`dist.integrity`/`shasum` 由 tgz 字节算出，`latest` 与通道 tag 自动推导，`--tag` 的
+自定义 tag 写入 `dist-tags`，`dist.tarball` 写 `{origin}` 占位符、交付时替换。
+
+maven——`~/.m2/settings.xml` 里配一个 server（`id` 与部署参数一致），再用 `mvn deploy` / `deploy:deploy-file`：
+
+```xml
+<server>
+  <id>local</id>
+  <username>micdn</username>
+  <password>s3cret</password>
+</server>
+```
+```bash
+mvn deploy -DaltDeploymentRepository=local::default::http://127.0.0.1:8888/maven
+mvn deploy:deploy-file -Durl=http://127.0.0.1:8888/maven -DrepositoryId=local \
+  -Dfile=target/x-1.0.0-SNAPSHOT.jar -DgroupId=org.example -DartifactId=x \
+  -Dversion=1.0.0-SNAPSHOT -Dpackaging=jar -DgeneratePom=true
+```
+
+服务端不解析内容：客户端自行生成带时间戳的文件名与 `maven-metadata.xml`，原样写入 `<maven base>`，随后
+`/maven` 的读路径（快照别名 302、artifact 级元数据合并）即可照常服务。注意为某 SNAPSHOT 版本目录配置了
+`<snapshot remote>` 时，写入的 `maven-metadata.xml` 会在 TTL 到期后被上游刷新覆盖（本地发布场景通常不配上游客）。
+
+上限与状态码：单次上传体不超过 `<publish maxSize>`（默认 `64M`，同时也是未配置 `<blob>` 时服务器的
+`maxRequestSize`；配置了 `<blob>` 则沿用其 `maxSize`），超出 `413`，请求体不合法 `400`，未授权 `401`。
+PUT 只在声明了 `<maven>` / `<npm>` 的端点上注册。
+
+配置就一段：
+
+```xml
+<publish token="s3cret" maxSize="64M" />
+```
+
 ## 配置示例
 
 ```xml
@@ -192,6 +254,8 @@ micdn -f /etc/micdn/micdn.xml install target/beangle-commons-5.0.0-20250803.1326
   <blob base="${micdn.home}/blob" maxSize="50M">
     <bucket name="local" key="..." />
   </blob>
+  <!-- 发布端点（PUT 上传）：令牌必填；不写 <publish> 就完全不挂 PUT 端点 -->
+  <publish token="s3cret" maxSize="64M" />
 </micdn>
 ```
 

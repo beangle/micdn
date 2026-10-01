@@ -2,7 +2,7 @@
 
 ## v0.4.0 (2026-10-02)
 
-概要：正式版与开发版（maven SNAPSHOT / npm dev）合并为**一个入口、一个本地仓库根**，本地发布（`micdn install`）与上游代理共用同一份元数据；同时有一批修复、打包与文档更新。**Breaking**：`<repo>` 别名移除、未声明 `<maven>` / `<npm>` 不再挂载端点（v0.3.3 未声明时会挂默认仓库）、默认 base 由 `~/maven`、`~/npm` 改为 `${micdn.home}/maven`、`${micdn.home}/npm`。**新增（v0.3.3 没有）**：maven SNAPSHOT 支持（`<snapshot remote="..."/>`，与正式版共用 `/maven`）、npm dev 上游（`<dev remote="..."/>`）、npm packument 交付与本地发布。
+概要：正式版与开发版（maven SNAPSHOT / npm dev）合并为**一个入口、一个本地仓库根**，本地发布（`micdn install`）与上游代理共用同一份元数据；同时有一批修复、打包与文档更新。**Breaking**：`<repo>` 别名移除、未声明 `<maven>` / `<npm>` 不再挂载端点（v0.3.3 未声明时会挂默认仓库）、默认 base 由 `~/maven`、`~/npm` 改为 `${micdn.home}/maven`、`${micdn.home}/npm`。**新增（v0.3.3 没有）**：maven SNAPSHOT 支持（`<snapshot remote="..."/>`，与正式版共用 `/maven`）、npm dev 上游（`<dev remote="..."/>`）、npm packument 交付与本地发布、PUT 发布端点（`npm publish` / `mvn deploy`，需声明 `<publish token="..."/>`）。
 
 ### 配置
 
@@ -24,6 +24,14 @@
 - **maven SNAPSHOT（新增，v0.3.3 无此能力）**：正式版与 SNAPSHOT **共用** `/maven` 与 `<maven base>`（`{base}/{group 路径}/{artifact}/{version}/`），不设独立入口。`<maven><snapshot remote="..."/></maven>` 配置 SNAPSHOT 专用上游：**路径段以 `-SNAPSHOT` 结尾**（`GavRepo.isSnapshotUri`，而非全文包含 `SNAPSHOT`，artifactId 含 `SNAPSHOT` 的正式版不会被误判）的本地缺失构件与 `maven-metadata.xml` 按该上游回源（先 `.sha1` 再构件并校验，校验不过删除并 404），其余走 `<maven><remote>`，**两者互不回落**；省略 `<snapshot>` 时快照只发本地已装入的构件。`install` 子命令按扩展名分派：`.jar`/`.war`/`.pom` 装入 `<maven base>`，坐标取自 `META-INF/maven/**/pom.properties`（war 在 `WEB-INF/classes/` 下）→ 退 `MANIFEST.MF` 的 `Implementation-*`（`.pom` 直接解析 XML），写出 `.sha1` 并扫描版本目录重写 `maven-metadata.xml`；**只接受带时间戳的文件名**（`xxx-1.0.0-SNAPSHOT.jar` 这类未经 `mvn deploy` 的裸名拒绝），`--tag` 仅对 npm 有效
 - **maven SNAPSHOT 元数据保鲜**：版本目录的 `maven-metadata.xml` 按 TTL（`GavRepo.snapshotMetadataTtl`，默认 60 秒）从 `<snapshot remote>` 重新探测，上游新 deploy 的构建才能被客户端解析到；探测/校验失败保留本地旧副本（不因上游抖动删缓存）。不带时间戳的别名（`{artifact}-{version}-SNAPSHOT.{ext}[.sha1]`）取「元数据声明的最新构建」与「本地目录里最新的时间戳文件」中更新者：元数据刚指向上游新构建、文件尚未落入本地时，别名直接 `302` 到该时间戳路径，后续请求再回源；`HEAD` 以 `latest` 头返回实际文件名（对标 sashub `SnapshotWS`）
 - **maven artifact 级元数据合并**：本地有 `*-SNAPSHOT` 版本目录时，`{group}/{artifact}/maven-metadata.xml`（`SnapshotRepo.mergeArtifactMetadata`）把本地快照版本并进 `<versions>` 并重算 `<latest>`，让 `LATEST` / 版本范围也能看到 `micdn install` 装入的开发版；上游顺序保留、本地快照按版本序追加，`<release>` 沿用上游（缺失时取最大正式版），已经并入过则不重写以保持文件稳定。没有本地快照版本的 artifact 仍字节级透传上游元数据；上游也拿不到、但本地有快照目录时，可据此生成一份最小可用元数据
+
+### 发布端点（publish）
+
+- **发布端点（需显式声明 `<publish>`）**：声明 `<publish token="…"/>` 后 `/npm`、`/maven` 接受 HTTP PUT（`registerEndpointGetHeadPut`）——`npm publish` 与 `mvn deploy`（`-DaltDeploymentRepository` / `deploy:deploy-file`）可直接把产物推入仓库；**不声明则完全不挂 PUT**（只有 GET/HEAD），服务器上即便有反代也不会凭空多出写入口
+- **令牌是唯一写权限凭据**：`Authorization: Bearer`（npm `_authToken`）、`Authorization: Basic`（Maven `settings.xml` server 凭据；实测客户端直接预置该头）或 `X-Micdn-Token`；缺失/不符 401 并带 `WWW-Authenticate: Basic` 挑战供 Maven 重试。**不限制来源地址**：本机反代（HAProxy 绑 `0.0.0.0` → `127.0.0.1:8080`，TCP 模式）下「对端环回」根本区分不出远端请求，而令牌与来源无关，前端开发机可带令牌直接推到远端实例。令牌等同写权限，故发布端点只应经 HTTPS 暴露
+- **npm publish 协议**：`micdn.npm.publish.installPublishedPackument` 解析 npm 的 publish 文档（`_attachments` 内嵌 Base64 tgz），复用 `installTarball` 落盘并刷新 packument；`npm publish --tag` 的自定义 tag 写入 `dist-tags`，`latest` 与通道 tag 仍由 `refreshPackument` 推导。包名与 URI 不一致、非 JSON、缺附件、坏 Base64 一律 400
+- **maven 上传**：`micdn.maven.publish.storeUpload` 把 PUT 请求体原子写入 `<maven base>`（临时文件 + rename），**不解析内容**——客户端自带的带时间戳文件名与 `maven-metadata.xml` 原样落盘，`/maven` 读路径的快照别名 302 与 artifact 级元数据合并照常生效；目录路径/点段 400
+- **请求体上限**：上传体不超过 `<publish maxSize>`（默认 `64M`，`PublishConfig.maxSize`），非法请求体 400、超出 413；未配置 `<blob>` 时它同时作为服务器 `maxRequestSize`（vibe 默认 2 MiB 不够），配置了 `<blob>` 则沿用其 `maxSize`
 
 ### CLI 与交付
 

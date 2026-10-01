@@ -160,4 +160,7 @@
   `src/micdn/maven/web.d`（`MavenService`）
 - npm：`src/micdn/npm/package.d`（`NpmRepo.upstreamsFor` / `allUpstreams` / `resolveVersion` / `fetchNpmTarball`）、
   `src/micdn/npm/packument.d`（`installTarball` / `mergeUpstreamPackument` / `refreshPackument`）
+- 发布端点：`src/micdn/web/publish.d`（令牌校验）、`src/micdn/npm/publish.d`（`npm publish` 请求体）、
+  `src/micdn/maven/publish.d`（原样落盘）——上传与 CLI 走同一套落盘/合并逻辑；未声明 `<publish>` 不挂 PUT，
+  见 README「发布端点」
 - CLI：`micdn install`
