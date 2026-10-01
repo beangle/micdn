@@ -62,6 +62,8 @@ private bool checkServiceRoots(MicdnConfig config) {
 
   if (!checkRoot("maven", config.maven.base))
     ok = false;
+  if (!checkRoot("maven.snapshot", config.maven.snapshotBase))
+    ok = false;
   if (!checkRoot("npm", config.npm.base))
     ok = false;
   if (config.asset !is null && !checkRoot("static", config.asset.base))

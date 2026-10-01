@@ -46,6 +46,7 @@ import micdn.asset.web;
 import micdn.blob.s3;
 import micdn.blob.store;
 import micdn.blob.web;
+import micdn.maven.snapshot;
 import micdn.maven.web;
 import micdn.model;
 import micdn.npm;
@@ -144,6 +145,9 @@ URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
   auto mavenService = new MavenService(config);
   registerEndpointGetHead(router, mountMaven, &mavenService.service);
 
+  auto snapshotService = new SnapshotService(config);
+  registerEndpointGetHead(router, mountSnapshot, &snapshotService.service);
+
   auto npmService = new NpmService(config);
   registerEndpointGetHead(router, mountNpm, &npmService.service);
 
@@ -173,6 +177,7 @@ void logRegisteredEndpoints(MicdnConfig config) {
   if (config.asset !is null)
     parts ~= mountStatic;
   parts ~= mountMaven;
+  parts ~= mountSnapshot;
   parts ~= mountNpm;
   if (config.blob !is null) {
     parts ~= mountBlob;
@@ -477,10 +482,13 @@ int runClean(string[] args) {
   return ok ? 0 : 1;
 }
 
-/** `install <pkg.tgz>`：把本地 npm 包装入配置里的 `<npm base>`，并按目录内容刷新 packument。
+/** `install <FILE>`：把本地开发版构件装入配置里的仓库目录，并按目录内容刷新元数据。
 
-    `dist.tarball` 写 origin 占位符 `{origin}/npm/...`（见 `originPlaceholder`），交付时由 npm 服务
-    按请求 origin 替换，不在配置里写死对外地址。
+    - `.tgz` → npm：装入 `<npm base>`，`dist.tarball` 写 origin 占位符 `{origin}/npm/...`
+      （见 `originPlaceholder`），交付时由 npm 服务按请求 origin 替换；`--tag` 只对 npm 有效。
+    - `.jar` / `.war` / `.pom` → maven SNAPSHOT：坐标取自工件内部（`pom.properties`，退化到
+      `MANIFEST.MF` 的 `Implementation-*`；`.pom` 直接解析 XML），装入 `<snapshot base>`，
+      并重写 `maven-metadata.xml`。文件名须带 `mvn deploy` 生成的时间戳（不接受裸 `-SNAPSHOT.jar`）。
 */
 int runInstall(string[] args) {
   auto configValue = configArg(args);
@@ -488,7 +496,8 @@ int runInstall(string[] args) {
     throw new Exception("-f is required for install");
   auto pkg = installPackageArg(args);
   if (pkg is null)
-    throw new Exception("install requires a package tgz: micdn -f micdn.xml install PKG.tgz");
+    throw new Exception("install requires a file: micdn -f micdn.xml install "
+        ~ "PKG.tgz|ARTIFACT.jar|ARTIFACT.war|ARTIFACT.pom");
 
   auto configPath = resolveConfigFile("micdn.xml", configValue);
   auto expanded = expandTilde(configPath);
@@ -501,19 +510,33 @@ int runInstall(string[] args) {
   auto tag = optionArg(args, "--tag", "");
   auto lower = pkg.toLower;
 
-  if (!lower.endsWith(".tgz"))
-    throw new Exception("unsupported install file: " ~ pkg ~ " (expect .tgz for npm)");
+  if (lower.endsWith(".tgz")) {
+    auto repo = NpmRepo.build(config);
+    auto result = installTarball(repo.base, pkg, originPlaceholder ~ mountNpm, tag);
+    logInfo("install ok: %s@%s", result.name, result.ver);
+    logInfo("tarball: %s", result.tarball);
+    logInfo("packument: %s (versions: %s)", result.packument, result.versions.join(", "));
+    logInfo("url: %s", result.url);
+    return 0;
+  }
 
-  auto repo = NpmRepo.build(config);
-  auto result = installTarball(repo.base, pkg, originPlaceholder ~ mountNpm, tag);
-  logInfo("install ok: %s@%s", result.name, result.ver);
-  logInfo("tarball: %s", result.tarball);
-  logInfo("packument: %s (versions: %s)", result.packument, result.versions.join(", "));
-  logInfo("url: %s", result.url);
-  return 0;
+  if (lower.endsWith(".jar") || lower.endsWith(".war") || lower.endsWith(".pom")) {
+    if (tag.length > 0)
+      throw new Exception("--tag only applies to npm packages (.tgz)");
+    auto repo = SnapshotRepo.build(config);
+    auto result = installSnapshot(repo, pkg);
+    logInfo("install ok: %s:%s:%s", result.coords.group, result.coords.artifact, result.coords.ver);
+    logInfo("artifact: %s", result.file);
+    logInfo("metadata: %s", result.metadata);
+    logInfo("uri: %s%s", mountSnapshot, result.uri);
+    return 0;
+  }
+
+  throw new Exception("unsupported install file: " ~ pkg
+      ~ " (expect .tgz for npm or .jar/.war/.pom for maven SNAPSHOT)");
 }
 
-/// `install` 之后第一个非选项参数：待安装的 tgz 路径。
+/// `install` 之后第一个非选项参数：待安装的文件（npm `.tgz` 或 maven `.jar`/`.war`/`.pom`）。
 private string installPackageArg(string[] args) {
   auto i = commandIndex(args);
   if (i == size_t.max)
@@ -709,9 +732,12 @@ Commands:
                          --force  删除已有部署目录后重新安装（忽略 manifest.json）
   clean                  清除 www/static 部署目录；交互终端下逐项确认；maven/npm 下载缓存与 blob 数据不清理
                          --yes  跳过确认（非交互/脚本）
-  install PKG.tgz        把本地 npm 包装入 <npm base>，并按目录内容刷新 packument 元数据；日志输出到控制台
-                         --tag NAME  额外把本次版本挂到该 dist-tag（如 dev）
-                         （dist.tarball 写 {origin} 占位符，交付时按请求 origin 替换）
+  install FILE           把本地开发版构件装入配置的仓库目录，并按目录内容刷新元数据；日志输出到控制台
+                         FILE=PKG.tgz            装入 <npm base>，刷新 packument
+                                                 --tag NAME  额外把本次版本挂到该 dist-tag（如 dev）
+                                                 （dist.tarball 写 {origin} 占位符，交付时按请求 origin 替换）
+                         FILE=ARTIFACT.jar/war   装入 <snapshot base>，刷新 maven-metadata.xml
+                         FILE=pom.xml            同上（坐标取自 pom；文件名须是 mvn deploy 生成的时间戳形式）
 
 Help Options:
   --help      Show this help message and exit
@@ -726,6 +752,7 @@ Examples:
   micdn -f micdn.xml deploy www
   micdn -f micdn.xml clean
   micdn -f micdn.xml install ~/build/beangle-ems-app-0.0.2.tgz
+  micdn -f micdn.xml install ~/build/beangle-commons-5.0.0-20250803.132600-31.jar
 `;
   writeln(strip(helpRaw));
 }

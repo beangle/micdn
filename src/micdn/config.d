@@ -161,6 +161,8 @@ string toXml(const MicdnConfig config) {
     app.put(i`    <remote url="$(remote)"/>`.text);
     app.put("\n");
   }
+  app.put(i`    <snapshot base="$(config.maven.snapshotBase)"/>`.text);
+  app.put("\n");
   app.put("  </maven>\n");
 
   if (config.npm) {
@@ -232,7 +234,7 @@ string toXml(const MicdnConfig config) {
   return app.data;
 }
 
-/// 解析 Maven 仓库配置（本地路径、远程地址）。支持标签 maven 或 repo。
+/// 解析 Maven 仓库配置（本地路径、远程地址、SNAPSHOT 本地路径）。支持标签 maven 或 repo。
 MavenRepoConfig parseMaven(T)(string home, ref DOMEntity!T micdnDom) {
   auto mavenEntries = children(micdnDom, "maven");
   auto repoEntries = children(micdnDom, "repo");
@@ -240,6 +242,11 @@ MavenRepoConfig parseMaven(T)(string home, ref DOMEntity!T micdnDom) {
   auto attrs = getAttrs(dom);
 
   string base = parseRepoBase(home, attrs, "/maven");
+  // <snapshot> 可省略：省略时仍按默认路径建库并挂载 /snapshot，只是没有 `<snapshot>` 元素可配。
+  auto snapshotEntries = children(dom, "snapshot");
+  string[string] emptyAttrs;
+  string snapshotBase = parseRepoBase(home,
+      snapshotEntries.empty ? emptyAttrs : getAttrs(snapshotEntries.front), "/snapshots");
   string[] remoteRepos = [];
   auto remoteEntries = children(dom, "remote");
   foreach (remoteEntry; remoteEntries) {
@@ -248,7 +255,7 @@ MavenRepoConfig parseMaven(T)(string home, ref DOMEntity!T micdnDom) {
   if (remoteRepos.length == 0) {
     remoteRepos ~= "https://repo1.maven.org/maven2";
   }
-  return new MavenRepoConfig(base, remoteRepos);
+  return new MavenRepoConfig(base, remoteRepos, snapshotBase);
 }
 
 /// 解析 NPM 仓库配置（base、remotes）。根级 XML 标签为 npm。

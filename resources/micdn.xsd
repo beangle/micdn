@@ -194,17 +194,26 @@
   <!-- mavenType (Maven 仓库) -->
   <xs:complexType name="mavenType">
     <xs:annotation>
-      <xs:documentation> HTTP 前缀固定为 /maven。 </xs:documentation>
+      <xs:documentation> 正式版 HTTP 前缀固定为 /maven，SNAPSHOT 为 /snapshot。 </xs:documentation>
     </xs:annotation>
-    <xs:sequence>
-      <xs:element name="remote" minOccurs="0" maxOccurs="unbounded">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="remote">
         <xs:complexType>
           <xs:attribute name="url" type="xs:string" use="required" />
           <xs:attribute name="alias" type="xs:string" use="optional" />
         </xs:complexType>
       </xs:element>
-    </xs:sequence>
+      <xs:element name="snapshot" type="snapshotType" />
+    </xs:choice>
     <xs:attribute name="base" type="xs:string" default="~/maven" use="optional" />
+  </xs:complexType>
+
+  <!-- snapshotType：本地 SNAPSHOT 仓库（挂载 /snapshot）；即使不写 <snapshot>，也按默认 base 建库并挂载 -->
+  <xs:complexType name="snapshotType">
+    <xs:annotation>
+      <xs:documentation> 只读本地快照仓库：服务 install 装入的 {group}/{artifact}/{version} 布局，不含上游 remote。 </xs:documentation>
+    </xs:annotation>
+    <xs:attribute name="base" type="xs:string" default="${micdn.home}/snapshots" use="optional" />
   </xs:complexType>
 
   <!-- npmRepoType：根级 NPM 仓库（与 bundle 内的 npm 包引用 npmType 区分） -->

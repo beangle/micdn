@@ -10,6 +10,7 @@ module micdn.routes;
 /// 内置 HTTP 挂载路径（不在 micdn.xml 中配置）。www 的 `<doc location>` 由兜底路由 `/*` 在运行时匹配。
 
 immutable string mountMaven = "/maven";
+immutable string mountSnapshot = "/snapshot";
 immutable string mountNpm = "/npm";
 immutable string mountStatic = "/static";
 immutable string mountBlob = "/blob";

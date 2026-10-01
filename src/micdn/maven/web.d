@@ -29,6 +29,7 @@ import vibe.http.router;
 import vibe.http.server;
 
 import micdn.maven;
+import micdn.maven.snapshot;
 import micdn.model;
 import micdn.routes;
 import micdn.web;
@@ -55,6 +56,11 @@ class MavenService {
   void service(HTTPServerRequest req, HTTPServerResponse res) {
     const uri = getResourceUri(endpoint, req);
     const ruri = repositoryUri(uri);
+
+    // SNAPSHOT 只由 /snapshot 提供：/maven 既不代理上游，也不回本地缓存里的快照。
+    if (ruri.indexOf("SNAPSHOT") >= 0)
+      throw new HTTPStatusException(HTTPStatus.notFound);
+
     auto file = repositoryPath(repo.base, uri);
 
     FileInfo fi;
@@ -92,6 +98,68 @@ class MavenService {
         render!("index.dt", listData)(res);
       } else {
         auto pub = endpoint ~ ruri;
+        res.redirect(req.requestURI.replace(pub, pub ~ "/"));
+      }
+    } else {
+      auto info = IndexedFileInfo.fromFileInfo(fi);
+      sendFile(req, res, file, info, mavenArtifactCachePolicy(ruri));
+    }
+  }
+}
+
+/** 本地 Maven SNAPSHOT 仓库（只读，不访问上游）。
+
+    布局与 `/maven` 相同，差异有两点：
+    1. 不带时间戳的别名（`{artifact}-{version}-SNAPSHOT.{ext}`）重定向到同目录最新的时间戳文件，
+       `HEAD` 则以 `latest` 头回带实际文件名（GET 302 / HEAD 200）；
+    2. 元数据一律取自本地磁盘，缺失即 404，不向上游拉取。
+
+    没有上传/WEB 安装服务：构件由 `micdn install`（或运维手工按目录规范放入）落盘。
+    仓库根由 `<maven><snapshot base="..."/></maven>` 配置，默认 `${micdn.home}/snapshots`；
+    即使不写 `<snapshot>` 元素，本服务也会按默认路径建库并挂载（见 `buildRouter`）。
+
+    缓存策略沿用 `mavenArtifactCachePolicy`：`maven-metadata.xml*` 为 `public, no-cache`，
+    快照构件（路径含 SNAPSHOT）为 `no-store`——同一路径可能被重新发布覆盖。
+*/
+class SnapshotService {
+  private const SnapshotRepo repo;
+
+  this(MicdnConfig config) {
+    this.repo = SnapshotRepo.build(config);
+  }
+
+  void service(HTTPServerRequest req, HTTPServerResponse res) {
+    const uri = getResourceUri(mountSnapshot, req);
+    const ruri = repositoryUri(uri);
+
+    auto latest = repo.latestAlias(ruri);
+    if (latest !is null) {
+      res.headers["latest"] = baseName(latest);
+      if (req.method == HTTPMethod.HEAD) {
+        res.statusCode = HTTPStatus.ok;
+        res.writeVoidBody();
+        return;
+      }
+      res.redirect(mountSnapshot ~ latest);
+      return;
+    }
+
+    auto file = repositoryPath(repo.base, uri);
+    FileInfo fi;
+    try
+      fi = getFileInfo(file);
+    catch (Exception)
+      throw new HTTPStatusException(HTTPStatus.notFound);
+
+    if (fi.isDirectory) {
+      if (req.method == HTTPMethod.HEAD) {
+        throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
+      }
+      if (ruri.endsWith("/")) {
+        auto listData = genListContents(file, mountSnapshot, ruri);
+        render!("index.dt", listData)(res);
+      } else {
+        auto pub = mountSnapshot ~ ruri;
         res.redirect(req.requestURI.replace(pub, pub ~ "/"));
       }
     } else {

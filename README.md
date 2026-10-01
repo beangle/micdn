@@ -11,6 +11,7 @@
 | **static** | 从 Maven GAV（WebJar）、npm 包或本地目录部署前端资源，按 bundle 提供 |
 | **www** | SPA/文档站：npm / zip；支持 `try-file`；zip 可 `auto-deploy`（Linux inotify） |
 | **maven** / **npm** | 本地缓存 + 上游 remote 拉取 |
+| **snapshot** | 只读本地快照仓库（`/snapshot`），服务 `install` 装入的 maven SNAPSHOT，不访问上游 |
 | **blob** | 对象存储；可选 S3 兼容接口 |
 | **admin** | localhost 只读指标 `/admin/metrics`、配置查看与 reload |
 
@@ -20,7 +21,8 @@
 
 | 前缀 | 说明 |
 |------|------|
-| `/maven` | 本地缓存 + 上游 remote 拉取 |
+| `/maven` | 正式版：本地缓存 + 上游 remote 拉取；命中 SNAPSHOT 路径一律 404 |
+| `/snapshot` | 本地 SNAPSHOT（只读）：`micdn install` 装入后由它提供，别名请求 302 到最新时间戳文件 |
 | `/npm` | npm registry：packument（交付时替换 `{origin}` 占位符）与 tgz |
 | `/static` | 静态资源（配置了 `<static>` 时） |
 | `/blob`、`/s3` | 对象存储与 S3 兼容接口（配置了 `<blob>` 时） |
@@ -39,6 +41,7 @@ dub build --build=release-nobounds --compiler=ldc2
 ./target/micdn -f /etc/micdn/micdn.xml deploy static bootstrap --force
 ./target/micdn -f /etc/micdn/micdn.xml clean --yes # 清除 www/static 部署目录（交互终端下会逐项确认；maven/npm 缓存与 blob 数据不清理）
 ./target/micdn -f /etc/micdn/micdn.xml install build/xxx-0.0.2.tgz # 本地 npm 包入库并生成 packument
+./target/micdn -f /etc/micdn/micdn.xml install target/x-1.0.0-20250803.132600-31.jar # 本地 maven SNAPSHOT 入库
 ```
 
 `-f` 可为本地文件、目录（使用 `DIR/micdn.xml`）或 URL（下载到 `~/micdn.xml`）。
@@ -65,12 +68,46 @@ npm install @scope/xxx@dev --registry http://micdn:8888/npm/
 因此同一个 packument 对 `http://micdn:8888`、`https://cdn.example.com` 都能给出可用地址，不需要在配置里写死对外地址。
 从上游 registry 代理来的 packument（含 `https://registry.npmmirror.com/...` 绝对地址）不做替换，原样发送。
 
+## 本地发布 maven SNAPSHOT
+
+正式版走 `/maven`（本地缓存 + 上游 remote 拉取）；开发版 SNAPSHOT 不走上游，落在独立的本地仓库、由 **`/snapshot`**
+只读提供。仓库位置由 `<maven>` 的 `<snapshot base="..."/>` 配置（默认 `${micdn.home}/snapshots`）；**即使不写
+`<snapshot>` 元素也会建库并挂载 `/snapshot`**。
+
+把 `mvn deploy` 产出的带时间戳构件交给 **`micdn install`**：
+
+```bash
+micdn -f /etc/micdn/micdn.xml install target/beangle-commons-5.0.0-20250803.132600-31.jar
+```
+
+坐标（groupId / artifactId / version）取自工件内部：`META-INF/maven/{group}/{artifact}/pom.properties`（war 在
+`WEB-INF/classes/` 下），没有则退回 `MANIFEST.MF` 的 `Implementation-Vendor-Id` / `-Title` / `-Version`；`.pom`
+直接解析 XML。install 会复制构件、写 `.sha1`，并扫描版本目录重写 `maven-metadata.xml`（`<snapshot>` 取最新时间戳，
+`<snapshotVersions>` 列出最新构建的 jar/pom/classifier 等文件），元数据与构件一样由**写入方产出**，HTTP 侧只发文件。
+
+消费方在 POM 里声明这个仓库即可：
+
+```xml
+<repositories>
+  <repository>
+    <id>micdn-snapshot</id>
+    <url>http://micdn:8888/snapshot</url>
+    <snapshots><enabled>true</enabled></snapshots>
+    <releases><enabled>false</enabled></releases>
+  </repository>
+</repositories>
+```
+
+别名（不带时间戳）请求 `...-1.0.0-SNAPSHOT.jar` 会 `302` 到同目录最新的时间戳文件，`HEAD` 则以 `latest` 头返回实际
+文件名；`.sha1` 请求同样支持。`/maven` 不再服务任何 SNAPSHOT（命中即 404），避免与 `/snapshot` 语义混淆。
+
 ## 配置示例
 
 ```xml
 <micdn home="/var/lib/micdn" listen="127.0.0.1:8080">
   <maven base="${micdn.home}/maven">
     <remote url="https://repo1.maven.org/maven2/" />
+    <snapshot base="${micdn.home}/snapshots" />
   </maven>
   <npm base="${micdn.home}/npm">
     <remote url="https://registry.npmmirror.com" />

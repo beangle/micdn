@@ -38,6 +38,12 @@ micdn **不维护响应级的共享缓存**：每个请求都直接读磁盘返�
 - 从上游 registry 代理来的 packument 内容是绝对地址（如 `https://registry.npmmirror.com/...`），不做替换、原样发送。
 - packument 是 `public, no-cache`（每次回源校验）且带 ETag，按域名各自缓存、不会串。
 
+### maven SNAPSHOT（`/snapshot`）与缓存
+
+`/snapshot` 只发本地磁盘上的快照构件，不访问上游；不带时间戳的别名请求会回 `302` 到最新时间戳文件，属正常的缓存
+（反代按 302 处理即可，别名本身不产生响应体）。快照路径的构件响应一律 `Cache-Control: no-store`（`maven-metadata.xml`
+为 `public, no-cache`），因为同一路径可能被重新发布覆盖；若反代要缓存，按 no-store 语义跳过或极短 TTL 即可。
+
 ---
 
 ## 推荐拓扑

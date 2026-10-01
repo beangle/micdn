@@ -115,6 +115,41 @@ unittest
   assert(config.remotes[1] == CentralURL);
 }
 
+@("maven snapshot repo base: configured, defaulted and serialized")
+unittest {
+  auto dom = parseXml(`<?xml version="1.0"?><micdn><maven base="/srv/maven">
+    <snapshot base="${micdn.home}/sndev"/>
+  </maven></micdn>`);
+  assert(parseMaven("/srv/micdn", dom).snapshotBase == "/srv/micdn/sndev");
+
+  // 省略 <snapshot> 也按 ${micdn.home}/snapshots 建库（HTTP 侧 /snapshot 无条件注册）
+  auto bare = parseXml(`<?xml version="1.0"?><micdn><maven base="/srv/maven"/></micdn>`);
+  assert(parseMaven("/srv/micdn", bare).snapshotBase == "/srv/micdn/snapshots");
+
+  auto root = parse("/srv/micdn", `<?xml version="1.0"?><micdn><maven/></micdn>`);
+  assert(root.maven.base == "/srv/micdn/maven");
+  assert(root.maven.snapshotBase == "/srv/micdn/snapshots");
+
+  auto reserialized = toXml(root);
+  assert(reserialized.canFind("<snapshot base="));
+  assert(parse("/srv/micdn", reserialized).maven.snapshotBase == "/srv/micdn/snapshots");
+}
+
+@("snapshot repo base rejects an empty attribute and reserves /snapshot")
+unittest {
+  auto dom = parseXml(`<?xml version="1.0"?><micdn><maven><snapshot base=""/></maven></micdn>`);
+  assertThrown!Exception(parseMaven("/srv/micdn", dom));
+
+  // /snapshot 是内置挂载，www doc 不能同名占位（即使没写 <snapshot> 元素）
+  auto content = `<?xml version="1.0"?><micdn>
+  <maven/>
+  <www base="~/tmp/www">
+    <doc name="snapshot" zip="~/m.zip"/>
+  </www>
+</micdn>`;
+  assertThrown!Exception(parse("~/tmp", content), "snapshot mount vs www doc conflict");
+}
+
 @("blob config parse xml")
 unittest {
   auto content = `<?xml version="1.0"?>

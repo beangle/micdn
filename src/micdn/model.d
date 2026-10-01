@@ -85,6 +85,8 @@ class MicdnConfig {
     }
     names ~= "maven";
     endpoints ~= mountMaven;
+    names ~= "maven.snapshot";
+    endpoints ~= mountSnapshot;
     names ~= "npm";
     endpoints ~= mountNpm;
     if (blob !is null) {
@@ -197,11 +199,14 @@ class MavenRepoConfig {
   const string base;
   /// 远程仓库 URL 列表，按优先级排序
   const string[] remotes;
+  /// 本地 SNAPSHOT 仓库根路径（如 ~/snapshots）；HTTP 前缀固定为 `micdn.routes.mountSnapshot`
+  const string snapshotBase;
 
-  this(string base, string[] remotes) {
+  this(string base, string[] remotes, string snapshotBase = expandTilde("~/snapshots")) {
     assert(remotes.all!(r => !r.endsWith("/")), "Maven remote URL must not end with '/'");
     this.remotes = remotes.idup;
     this.base = base;
+    this.snapshotBase = snapshotBase;
   }
 
   static MavenRepoConfig defaultConfig() {

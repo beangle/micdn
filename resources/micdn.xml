@@ -8,6 +8,8 @@
   <maven base="/var/lib/micdn/maven">
     <remote url="https://maven.aliyun.com/repository/public" />
     <remote url="https://repo1.maven.org/maven2/" />
+    <!-- 本地 SNAPSHOT 仓库（挂载 /snapshot），由 `micdn install xxx-1.0.0-20250803.132600-31.jar` 装入 -->
+    <snapshot base="/var/lib/micdn/snapshots" />
   </maven>
 
   <npm base="/var/lib/micdn/npm">
