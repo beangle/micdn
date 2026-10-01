@@ -139,8 +139,8 @@ class NpmRepo {
   /** 包元数据（packument）：本地有 `{base}/{pkg}` 返回 true；
       否则按同一相对路径从 remotes 顺序拉取（与 maven 侧 `GavRepo.fetch` 同口径，只接受包名路径）。
 
-      元数据由发布方产出——本地发布走 `scripts/npm_add.sh` 写盘，代理场景直接取上游 registry 的
-      packument，micdn 不自行拼装。
+      元数据由发布方产出——本地发布走 `micdn install`（`micdn.npm.packument`）写盘，代理场景直接取
+      上游 registry 的 packument，micdn 不自行拼装。
   */
   bool fetchPackument(string ruri) const {
     if (!isPackageUri(ruri))

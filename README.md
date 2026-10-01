@@ -16,6 +16,17 @@
 
 路径属性支持 `${micdn.home}` 与 `~` 展开。
 
+## HTTP 端点
+
+| 前缀 | 说明 |
+|------|------|
+| `/maven` | 本地缓存 + 上游 remote 拉取 |
+| `/npm` | npm registry：packument（交付时替换 `{origin}` 占位符）与 tgz |
+| `/static` | 静态资源（配置了 `<static>` 时） |
+| `/blob`、`/s3` | 对象存储与 S3 兼容接口（配置了 `<blob>` 时） |
+| `/admin` | 本机只读指标 `/admin/metrics`、配置查看与 reload |
+| `/*` | www 兜底（配置了 `<www>` 时，按各 `<doc>` 名匹配） |
+
 ## 快速开始
 
 ```bash
@@ -47,8 +58,12 @@ npm install @scope/xxx@dev --registry http://micdn:8888/npm/
 
 元数据全部由目录内容推导：`dist.integrity` / `dist.shasum` 由 tgz 字节算出，`dist-tags.latest` 取最高**正式**版
 （预发布不会顶替 latest），预发布版本按 `dev` / `next` / `beta` / `rc` / `alpha` / `canary` 自动打通道 tag，
-`--tag` 可再挂一个自定义 tag。`--registry` 用于写入 `dist.tarball`，省略时按 `listen` 推导（通配地址回落 `127.0.0.1`）。
-删掉 `{npm base}/{包名}` 后再 `install` 一次即可重建元数据。
+`--tag` 可再挂一个自定义 tag。删掉 `{npm base}/{包名}` 后再 `install` 一次即可重建元数据。
+
+`dist.tarball` 不写死主机，而是写成占位符 `{origin}/npm/@scope/xxx/-/xxx-0.0.3-dev.1.tgz`，由 npm 服务在**交付时**
+替换成访问方看到的 origin，按请求推导（`Host` 与反代的 `X-Forwarded-Proto` / `X-Forwarded-Host` / `X-Forwarded-Port`）。
+因此同一个 packument 对 `http://micdn:8888`、`https://cdn.example.com` 都能给出可用地址，不需要在配置里写死对外地址。
+从上游 registry 代理来的 packument（含 `https://registry.npmmirror.com/...` 绝对地址）不做替换，原样发送。
 
 ## 配置示例
 

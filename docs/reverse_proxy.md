@@ -26,6 +26,18 @@ micdn **不维护响应级的共享缓存**：每个请求都直接读磁盘返�
 - 可压缩内容统一带 `Vary: Accept-Encoding`（见 [README gzip 预压缩](../README.md)），缓存层会按 `Accept-Encoding` 分别缓存「原版」与「gz 版」，gzip 客户端命中压缩版、其余客户端命中原版，不会错发。
 - 注意区分：maven/npm 的「本地缓存」是 micdn 把上游 remote 构件**落盘镜像**（避免重复回源下载），属于 micdn 内部行为，与 HTTP 响应缓存是两回事；后者才需要中间件。
 
+### npm packument 的 tarball 地址按请求 origin 生成
+
+`micdn install` 写出的 packument 里，`dist.tarball` 是占位符 `{origin}/npm/...`，交付时替换成：
+请求 origin（`X-Forwarded-Proto` / `X-Forwarded-Host` / `X-Forwarded-Port`，再退 `Host`）。
+
+- 反代按常规透传即可（nginx：`proxy_set_header Host $host; proxy_set_header X-Forwarded-Proto $scheme;`），
+  npm 客户端拿到的 tarball 地址就是它访问的那个域名与协议，不需要在配置里写死。
+- 若反代改写了 `Host` 且未透传 `X-Forwarded-*`，客户端拿到的 tarball 地址会是代理到 micdn 的那一段（可能不可达），
+  按上面的方式补上头即可。
+- 从上游 registry 代理来的 packument 内容是绝对地址（如 `https://registry.npmmirror.com/...`），不做替换、原样发送。
+- packument 是 `public, no-cache`（每次回源校验）且带 ETag，按域名各自缓存、不会串。
+
 ---
 
 ## 推荐拓扑

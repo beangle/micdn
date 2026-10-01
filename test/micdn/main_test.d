@@ -27,8 +27,6 @@ unittest {
   assert(commandArg(["micdn", "install", "-f", "x.xml", "pkg.tgz"]) == "install",
       "order of -f and the subcommand must not matter");
   assert(commandArg(["micdn", "-f", "x.xml", "deploy", "www", "manual", "--force"]) == "deploy");
-  assert(commandArg(["micdn", "-f", "x.xml", "install", "pkg.tgz", "--registry", "http://h/npm"])
-      == "install");
   // 带值选项的值（哪怕与子命令同形）不算子命令
   assert(commandArg(["micdn", "-f", "x.xml", "install", "pkg.tgz", "--tag", "clean"]) == "install");
   assert(commandArg(["micdn", "-f", "x.xml", "-y", "clean"]) == "clean");

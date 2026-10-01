@@ -39,6 +39,14 @@ import micdn.web : normalizeBasePath;
 /// tarball 内包清单的条目名（npm 打包格式固定 `package/` 前缀）。
 enum packageManifestEntry = "package/package.json";
 
+/** packument 里 `dist.tarball` 的 origin 占位符。
+
+    本地发布写入 `{origin}/npm/{pkg}/-/{name}-{version}.tgz`（而非写死某个主机），
+    交付时由 `micdn.npm.web` 换成请求实际 origin（`micdn.web.origin.getOrigin`）。
+    上游代理来的 packument 是绝对地址，不含占位符，交付时原样发送。
+*/
+enum originPlaceholder = "{origin}";
+
 /// 认得的预发布通道（`1.2.3-dev.4` 的 `dev`），与 `npm publish --tag` 的常见用法一致。
 immutable string[] prereleaseChannels = ["dev", "next", "beta", "rc", "alpha", "canary"];
 
@@ -66,7 +74,10 @@ struct InstallResult {
 }
 
 /** 把 `tgzFile` 按 npm 目录规范装入 `{base}/{scope|_}/{name}/{version}/{name}-{version}.tgz`，
-    并在 `{base}/{pkg}` 写出 packument（`dist.tarball` 用 `registryBase` 拼出）。
+    并在 `{base}/{pkg}` 写出 packument（`dist.tarball` = `registryBase` + npm 官方 URL 路径）。
+
+    CLI 传入的 `registryBase` 通常是 `{origin}/npm`（只写占位符，交付期替换成实际 origin，见 `originPlaceholder`）；
+    测试或特殊场景也可传绝对地址，写死到 packument 里。
 
     元数据一律从 tarball 内的 `package/package.json` 推导，与工件不分家：
 

@@ -26,7 +26,7 @@ import std.typecons : tuple, Tuple;
 import std.file : getcwd, exists;
 import std.range : empty;
 import std.stdio;
-import std.string : startsWith, strip, lastIndexOf, toLower;
+import std.string : endsWith, startsWith, strip, lastIndexOf, toLower;
 import std.path : absolutePath, buildPath, dirName, expandTilde;
 
 import vibe.core.args;
@@ -479,15 +479,15 @@ int runClean(string[] args) {
 
 /** `install <pkg.tgz>`：把本地 npm 包装入配置里的 `<npm base>`，并按目录内容刷新 packument。
 
-    元数据（`dist.tarball`）需要一个对外可访问的 registry 前缀：优先 `--registry`，
-    未给出时按 `listen` 推导（通配地址回落到 `127.0.0.1`）。
+    `dist.tarball` 写 origin 占位符 `{origin}/npm/...`（见 `originPlaceholder`），交付时由 npm 服务
+    按请求 origin 替换，不在配置里写死对外地址。
 */
 int runInstall(string[] args) {
   auto configValue = configArg(args);
   if (configValue is null)
     throw new Exception("-f is required for install");
-  auto tgz = installPackageArg(args);
-  if (tgz is null)
+  auto pkg = installPackageArg(args);
+  if (pkg is null)
     throw new Exception("install requires a package tgz: micdn -f micdn.xml install PKG.tgz");
 
   auto configPath = resolveConfigFile("micdn.xml", configValue);
@@ -497,14 +497,15 @@ int runInstall(string[] args) {
 
   auto config = parseFile(expanded);
   applyMicdnCliLogging();
-  auto repo = NpmRepo.build(config);
 
-  auto registry = optionArg(args, "--registry", "");
-  if (registry.length == 0)
-    registry = defaultRegistryBase(config.listen);
   auto tag = optionArg(args, "--tag", "");
+  auto lower = pkg.toLower;
 
-  auto result = installTarball(repo.base, tgz, registry, tag);
+  if (!lower.endsWith(".tgz"))
+    throw new Exception("unsupported install file: " ~ pkg ~ " (expect .tgz for npm)");
+
+  auto repo = NpmRepo.build(config);
+  auto result = installTarball(repo.base, pkg, originPlaceholder ~ mountNpm, tag);
   logInfo("install ok: %s@%s", result.name, result.ver);
   logInfo("tarball: %s", result.tarball);
   logInfo("packument: %s (versions: %s)", result.packument, result.versions.join(", "));
@@ -528,15 +529,6 @@ private string installPackageArg(string[] args) {
   return null;
 }
 
-/// 未给 `--registry` 时的默认前缀：`http://{listen host}:{port}/npm`（通配监听地址回落到 127.0.0.1）。
-private string defaultRegistryBase(string listen) {
-  auto pair = parseListen(listen);
-  auto host = pair[0];
-  if (host.length == 0 || host == "0.0.0.0" || host == "::" || host == "[::]" || host == "*")
-    host = "127.0.0.1";
-  return "http://" ~ host ~ ":" ~ pair[1].to!string ~ mountNpm;
-}
-
 /// 从 args 数组提取 `-f` 后的配置值（不依赖全局 vibe args，供各子命令与测试复用）。
 private string configArg(string[] args) {
   foreach (i, a; args) {
@@ -547,9 +539,9 @@ private string configArg(string[] args) {
 }
 
 /// 带值的选项：其后一个参数是它的值，不参与子命令识别。
-private immutable string[] valueOptions = ["-f", "--registry", "--tag"];
+private immutable string[] valueOptions = ["-f", "--tag"];
 
-/** 子命令在 args 中的下标：**第一个非选项参数**（`-f` / `--registry` / `--tag` 的值不算）。
+/** 子命令在 args 中的下标：**第一个非选项参数**（`-f` / `--tag` 的值不算）。
 
     `args[0]` 是程序名，不算子命令。没有再出现非选项参数时返回 `size_t.max`（默认启动 HTTP 服务）。
     这样 `-f` 指向的路径里含 "deploy"/"clean"/"install" 等字样不会被误判成子命令。
@@ -718,8 +710,8 @@ Commands:
   clean                  清除 www/static 部署目录；交互终端下逐项确认；maven/npm 下载缓存与 blob 数据不清理
                          --yes  跳过确认（非交互/脚本）
   install PKG.tgz        把本地 npm 包装入 <npm base>，并按目录内容刷新 packument 元数据；日志输出到控制台
-                         --registry URL  写入 dist.tarball 的对外 registry 前缀（省略则按 listen 推导）
-                         --tag NAME      额外把本次版本挂到该 dist-tag（如 dev）
+                         --tag NAME  额外把本次版本挂到该 dist-tag（如 dev）
+                         （dist.tarball 写 {origin} 占位符，交付时按请求 origin 替换）
 
 Help Options:
   --help      Show this help message and exit

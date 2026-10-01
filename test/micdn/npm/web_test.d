@@ -1,0 +1,161 @@
+/* Copyright (C) 2026 Beangle
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ */
+
+module micdn.npm.web_test;
+
+import std.algorithm : canFind;
+import std.conv : to;
+import std.file;
+import std.path : absolutePath, buildPath;
+import std.uuid : randomUUID;
+
+import vibe.http.common : HTTPMethod, HTTPStatus;
+import vibe.http.server : createTestHTTPServerRequest, createTestHTTPServerResponse, TestHTTPResponseMode;
+import vibe.inet.message : InetHeaderMap;
+import vibe.inet.url : URL;
+import vibe.stream.memory : createMemoryOutputStream;
+
+import micdn.config : parseFile;
+import micdn.npm.web : NpmService;
+
+private string npmHome() {
+  auto home = absolutePath(buildPath(tempDir, "micdn_npm_web_" ~ randomUUID().toString));
+  mkdirRecurse(buildPath(home, "npm", "@xurp"));
+  return home;
+}
+
+private string npmConfig(string home) {
+  auto xmlPath = buildPath(home, "micdn.xml");
+  write(xmlPath, `<?xml version="1.0"?><micdn listen="127.0.0.1:8888">
+  <maven/><npm base="` ~ buildPath(home, "npm") ~ `"/>
+</micdn>`);
+  return xmlPath;
+}
+
+private string packumentBody(string home, string body) {
+  auto path = buildPath(home, "npm", "@xurp", "manual");
+  write(path, body);
+  return path;
+}
+
+private string fetch(string xmlPath, string host) {
+  InetHeaderMap headers;
+  headers["Host"] = host;
+  auto service = new NpmService(parseFile(xmlPath));
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://" ~ host ~ "/npm/@xurp/manual"),
+      HTTPMethod.GET, headers, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  service.service(req, res);
+  return cast(string) output.data;
+}
+
+@("npm packument delivery substitutes {origin} with the request origin")
+unittest {
+  auto home = npmHome();
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  packumentBody(home, `{"name":"@xurp/manual","versions":{"0.0.4":{"dist":{` ~
+      `"tarball":"{origin}/npm/@xurp/manual/-/manual-0.0.4.tgz"}}}}`);
+  auto xmlPath = npmConfig(home);
+
+  auto body = fetch(xmlPath, "cdn.example.com:8443");
+  assert(body.canFind("http://cdn.example.com:8443/npm/@xurp/manual/-/manual-0.0.4.tgz"), body);
+  assert(!body.canFind("{origin}"), "placeholder must be gone: " ~ body);
+
+  InetHeaderMap headers;
+  headers["Host"] = "10.0.0.5:8888";
+  headers["X-Forwarded-Host"] = "cdn.example.com";
+  headers["X-Forwarded-Proto"] = "https";
+  auto service = new NpmService(parseFile(xmlPath));
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://10.0.0.5:8888/npm/@xurp/manual"),
+      HTTPMethod.GET, headers, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  service.service(req, res);
+  assert((cast(string) output.data).canFind("https://cdn.example.com/npm/@xurp/manual/-/manual-0.0.4.tgz"));
+  assert(res.headers["Content-Type"] == "application/json; charset=utf-8");
+  assert(res.headers["Cache-Control"] == "public, no-cache");
+  assert(res.headers["Etag"].length > 0, "packument keeps a validator");
+}
+
+@("npm packument delivery leaves upstream absolute tarball urls untouched")
+unittest {
+  auto home = npmHome();
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  packumentBody(home, `{"name":"@xurp/manual","versions":{"0.0.4":{"dist":{` ~
+      `"tarball":"https://registry.npmmirror.com/@xurp/manual/-/manual-0.0.4.tgz"}}}}`);
+  auto xmlPath = npmConfig(home);
+
+  auto body = fetch(xmlPath, "cdn.example.com");
+  assert(body.canFind("https://registry.npmmirror.com/@xurp/manual/-/manual-0.0.4.tgz"));
+  assert(!body.canFind("cdn.example.com"), "upstream metadata must not be rewritten: " ~ body);
+}
+
+@("npm packument delivery answers 304 for a matching If-None-Match")
+unittest {
+  auto home = npmHome();
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  packumentBody(home, `{"name":"@xurp/manual","versions":{}}`);
+  auto xmlPath = npmConfig(home);
+  auto service = new NpmService(parseFile(xmlPath));
+
+  InetHeaderMap headers;
+  headers["Host"] = "cdn.example.com";
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://cdn.example.com/npm/@xurp/manual"),
+      HTTPMethod.GET, headers, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  service.service(req, res);
+  auto etag = res.headers["Etag"];
+  assert(etag.length > 0);
+
+  InetHeaderMap conditional;
+  conditional["Host"] = "cdn.example.com";
+  conditional["If-None-Match"] = etag;
+  auto output2 = createMemoryOutputStream();
+  auto req2 = createTestHTTPServerRequest(URL("http://cdn.example.com/npm/@xurp/manual"),
+      HTTPMethod.GET, conditional, null);
+  auto res2 = createTestHTTPServerResponse(output2, null, TestHTTPResponseMode.bodyOnly);
+  service.service(req2, res2);
+  assert(res2.statusCode == HTTPStatus.notModified);
+  assert(output2.data.length == 0);
+}
+
+@("npm packument answers HEAD with the substituted body length")
+unittest {
+  auto home = npmHome();
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  packumentBody(home, `{"name":"@xurp/manual","versions":{"0.0.4":{"dist":{` ~
+      `"tarball":"{origin}/npm/@xurp/manual/-/manual-0.0.4.tgz"}}}}`);
+  auto xmlPath = npmConfig(home);
+  auto service = new NpmService(parseFile(xmlPath));
+
+  InetHeaderMap headers;
+  headers["Host"] = "cdn.example.com";
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://cdn.example.com/npm/@xurp/manual"),
+      HTTPMethod.HEAD, headers, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  service.service(req, res);
+
+  // 长度按替换后的正文计算（真实服务器对 HEAD 只发头部、不发正文；测试替身统一落到 sink）
+  immutable expected = `{"name":"@xurp/manual","versions":{"0.0.4":{"dist":{` ~
+    `"tarball":"http://cdn.example.com/npm/@xurp/manual/-/manual-0.0.4.tgz"}}}}`;
+  assert(res.statusCode == HTTPStatus.ok);
+  assert(res.headers["Content-Type"] == "application/json; charset=utf-8");
+  assert(res.headers["Content-Length"] == expected.length.to!string);
+  assert((cast(string) output.data) == expected);
+}
