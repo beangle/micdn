@@ -55,6 +55,18 @@ string encodeAttachmentName(string name) @safe {
   return n.replace("{filename}", filename);
 }
 
+/** 为**非文件**响应（目录列表、按需返回的 JSON 等）套用缓存策略。
+
+    与 `sendFile` 的 `handleCacheFile` 一致地写 `Cache-Control` 与 `Expires`（仅在策略带 max-age 时），
+    但不登记 ETag/Last-Modified，也不参与条件请求 —— 调用方如需 304 请自行协商。
+*/
+void applyCachePolicy(scope HTTPServerResponse res, immutable(CachePolicy) policy) {
+  if (policy.cacheControl.length == 0)
+    return;
+  res.headers["Cache-Control"] = policy.cacheControl;
+  if (policy.maxAge > Duration.zero)
+    res.headers["Expires"] = toRFC822DateTimeString(Clock.currTime(UTC()) + policy.maxAge);
+}
 /**
  * https://tools.ietf.org/html/rfc7233
  * Range can be in form "-\d", "\d-" or "\d-\d"

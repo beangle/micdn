@@ -135,4 +135,39 @@ class NpmRepo {
     }
     return false;
   }
+
+  /** 包元数据（packument）：本地有 `{base}/{pkg}` 返回 true；
+      否则按同一相对路径从 remotes 顺序拉取（与 maven 侧 `GavRepo.fetch` 同口径，只接受包名路径）。
+
+      元数据由发布方产出——本地发布走 `scripts/npm_add.sh` 写盘，代理场景直接取上游 registry 的
+      packument，micdn 不自行拼装。
+  */
+  bool fetchPackument(string ruri) const {
+    if (!isPackageUri(ruri))
+      return false;
+    auto local = base ~ ruri;
+    if (exists(local))
+      return true;
+    foreach (registryBase; remotes) {
+      string url = registryBase ~ ruri;
+      logInfo("Downloading %s", url);
+      if (curlDownload(url, local)) {
+        return true;
+      }
+    }
+    return false;
+  }
+}
+
+/** 包名路径：`/name`（unscoped）或 `/@scope/name`（scoped）——即 packument 的路径形态。
+    其余（根、目录、深路径、非 @ 的两段路径）都返回 false，避免把任意路径当包名去上游探测。 */
+bool isPackageUri(string ruri) {
+  if (ruri.length < 2 || ruri[$ - 1] == '/')
+    return false;
+  auto tail = ruri[1 .. $];
+  auto slash = tail.indexOf('/');
+  if (slash < 0)
+    return tail[0] != '@';
+  return tail.startsWith("@") && slash > 1 && slash < tail.length - 1
+    && tail[slash + 1 .. $].indexOf('/') < 0;
 }

@@ -7,7 +7,7 @@
  */
 
 module micdn.npm.web;
-/// NPM 仓库浏览 HTTP 服务，提供本地npm目录列表与文件下载。
+/// NPM 仓库 HTTP 服务：版本化 tarball 与 packument 元数据（本地文件，缺失时按同一路径从上游拉取）。
 
 import std.algorithm;
 import std.exception;
@@ -52,7 +52,7 @@ class NpmService {
           catch (Exception)
             throw new HTTPStatusException(HTTPStatus.notFound);
           auto info = IndexedFileInfo.fromFileInfo(tfi);
-          sendFile(req, res, local, info, npmArtifactCachePolicy());
+          sendFile(req, res, local, info, npmArtifactCachePolicy(ruri));
           return;
         }
         throw new HTTPStatusException(HTTPStatus.notFound);
@@ -60,17 +60,24 @@ class NpmService {
     }
 
     FileInfo fi;
-    try
+    try {
       fi = getFileInfo(path);
-    catch (Exception)
-      // 本地缺失（含 tgz 未命中缓存）直接 404，不做目录列表。
-      throw new HTTPStatusException(HTTPStatus.notFound);
+    } catch (Exception) {
+      // 本地缺失：包元数据（packument）按同一路径从上游拉取后发送；其余（含 tgz 未命中缓存）直接 404。
+      if (!repo.fetchPackument(ruri))
+        throw new HTTPStatusException(HTTPStatus.notFound);
+      try
+        fi = getFileInfo(path);
+      catch (Exception)
+        throw new HTTPStatusException(HTTPStatus.notFound);
+    }
 
     if (fi.isDirectory) {
       if (req.method == HTTPMethod.HEAD) {
         throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
       }
       if (ruri.endsWith("/")) {
+        applyCachePolicy(res, npmArtifactCachePolicy(ruri));
         auto listData = genListContents(path, endpoint, ruri);
         render!("index.dt", listData)(res);
       } else {
@@ -78,8 +85,11 @@ class NpmService {
         res.redirect(req.requestURI.replace(pub, pub ~ "/"));
       }
     } else {
+      // 包名路径按 registry 约定是 packument（JSON）；文件名无扩展名，需自行标注类型。
+      if (isPackageUri(ruri))
+        res.headers["Content-Type"] = "application/json; charset=utf-8";
       auto info = IndexedFileInfo.fromFileInfo(fi);
-      sendFile(req, res, path, info, npmArtifactCachePolicy());
+      sendFile(req, res, path, info, npmArtifactCachePolicy(ruri));
     }
   }
 }

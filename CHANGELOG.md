@@ -2,6 +2,8 @@
 
 ## 未发布
 
+- **npm**：包元数据（packument）由发布方产出、micdn 只负责交付——本地发布用新增的 `scripts/npm_add.sh` 把 tgz 装入 `{base}/{scope|_}/{name}/{version}/` 并写好 `{base}/{pkg}` 下的 packument（含 `dist.integrity`/`shasum`、`dist-tags`）；本地没有该文件时按同一相对路径从上游 registry 拉取后发送（与 maven 侧 `GavRepo.fetch` 同口径），micdn 不自行拼装元数据
+- **npm 缓存策略按路径细分**（`npmArtifactCachePolicy(uri)`）：正式版 tarball 仍 `public, max-age=31536000, immutable`；预发布/开发版 tarball（版本号含 `-`）与 packument、目录列表改 `public, no-cache`（同名版本可能被覆盖重发、元数据随时变）；`SNAPSHOT` 版本 `no-store`（与 maven 侧同口径）。用于非文件响应（目录列表）的 `applyCachePolicy` 一并补齐 `Cache-Control`/`Expires`
 - 文档：明确 `manifest.json` 是部署快路径的**唯一判据**（只比对源文件 `inner` / `size` / `mtime` / `artifact`，不看部署产物本身），以及部署产物被外部改动后不自愈的现象与手工恢复方式（`deploy … --force` + reload）。曾评估过“校验部署目录”（文件计数 / 目录指纹 / 目录 mtime）以自动重新部署，因复杂度和收益不成比例而放弃，详见 `docs/maintenance.md`
 
 ## v0.3.3 (2026-08-26)
