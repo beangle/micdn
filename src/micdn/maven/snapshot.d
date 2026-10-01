@@ -15,17 +15,17 @@
  */
 
 module micdn.maven.snapshot;
-/** 本地 Maven SNAPSHOT 仓库：目录布局、sha1 与 `maven-metadata.xml`（HTTP 侧见 `micdn.maven.web.SnapshotService`）。
+/** 本地 Maven SNAPSHOT 仓库：目录布局、sha1 与 `maven-metadata.xml`（HTTP 侧见 `micdn.maven.web.MavenService`）。
 
-    布局与正式版仓库（`GavRepo`）一致：`{base}/{group 路径}/{artifact}/{version}/{文件名}`，
+    布局与正式版仓库（`GavRepo`）一致、**共用同一个 base**：`{base}/{group 路径}/{artifact}/{version}/{文件名}`，
     只是 `version` 形如 `1.0.0-SNAPSHOT`、文件名带 `mvn deploy` 生成的时间戳
     （`{artifact}-{version-without-SNAPSHOT}-{timestamp}-{build}[-{classifier}].{ext}`）。
 
     与 npm 侧同口径：**元数据由写入方产出**——`micdn install` 复制构件、写 `.sha1` 并扫目录合成
-    `maven-metadata.xml`；HTTP 侧只负责发文件、解析「不带时间戳的别名」到最新构建，不访问上游、也不接受上传。
+    `maven-metadata.xml`；HTTP 侧负责发文件、解析「不带时间戳的别名」到最新构建，不接受上传。
 
-    正式版与快照彻底分开：`/maven` 命中 SNAPSHOT 路径一律 404（避免与 `/snapshot` 混用），
-    `/snapshot` 只读本地磁盘（见 `SnapshotRepo`）。
+    入口只有一个 `/maven`：正式版与 SNAPSHOT 共用同一目录树，按版本区分，回源时由 `GavRepo` 按
+    uri 是否含 `SNAPSHOT` 选择上游（见 `GavRepo.upstreamsFor`）。
 */
 
 import std.algorithm;
@@ -76,13 +76,18 @@ struct SnapshotResult {
   string file;
   /// 写出的 maven-metadata.xml 绝对路径
   string metadata;
-  /// 相对 `/snapshot` 的 uri（以 `/` 开头）
+  /// 相对 `/maven` 的 uri（以 `/` 开头）
   string uri;
 }
 
-/** 本地 SNAPSHOT 仓库根目录。与 `GavRepo` 不同：不访问上游，只服务本地已装入的构件。 */
+/** SNAPSHOT 本地仓库：目录布局与正式版共用 `base`（`config.maven.base`）。
+
+    - 构件由 `micdn install`（或运维按目录规范放入）落盘；
+    - 只负责本地布局与「不带时间戳的别名 → 最新时间戳文件」的解析；回源由 `GavRepo` 负责
+      （`/maven` 的 handler 同时持有两者）。
+*/
 class SnapshotRepo {
-  /// 仓库根目录（绝对路径）
+  /// 仓库根目录（绝对路径），与 `/maven` 共用
   const string base;
 
   this(string base) {
@@ -93,8 +98,8 @@ class SnapshotRepo {
   }
 
   static SnapshotRepo build(MicdnConfig config) {
-    mkdirRecurse(config.maven.snapshotBase);
-    return new SnapshotRepo(config.maven.snapshotBase);
+    mkdirRecurse(config.maven.base);
+    return new SnapshotRepo(config.maven.base);
   }
 
   /// 版本目录：`{base}/{group 路径}/{artifact}/{ver}`。
@@ -102,7 +107,7 @@ class SnapshotRepo {
     return base ~ "/" ~ group.replace(".", "/") ~ "/" ~ artifact ~ "/" ~ ver;
   }
 
-  /// `/snapshot` 之后的相对 uri（以 `/` 开头）。
+  /// `/maven` 之后的相对 uri（以 `/` 开头）。
   string uriOf(string group, string artifact, string ver, string fileName) const {
     return "/" ~ group.replace(".", "/") ~ "/" ~ artifact ~ "/" ~ ver ~ "/" ~ fileName;
   }
@@ -201,14 +206,14 @@ SnapshotCoordinates readSnapshotCoordinates(string artifactFile) {
 
     同名文件按覆盖处理（重复 install 同一构件是幂等的）；坐标与文件名不匹配时抛 Exception，
     消息面向使用者（CLI 直接打印）。版本非 `-SNAPSHOT`、或文件名不带时间戳（未经 `mvn deploy`）
-    都拒绝——`/snapshot` 不接受裸 `-SNAPSHOT.jar`。
+    都拒绝——`/maven` 不接受裸 `-SNAPSHOT.jar`。
 */
 SnapshotResult installSnapshot(SnapshotRepo repo, string file) {
   import std.exception : enforce;
 
   auto coords = readSnapshotCoordinates(file);
   enforce(coords.ver.endsWith("-SNAPSHOT"),
-      "not a SNAPSHOT version (" ~ coords.ver ~ "); only -SNAPSHOT artifacts go to /snapshot");
+      "not a SNAPSHOT version (" ~ coords.ver ~ "); only -SNAPSHOT artifacts can be installed");
 
   auto fileName = baseName(file);
   SnapshotFile parsed;

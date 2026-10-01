@@ -15,7 +15,7 @@
  */
 
 module micdn.maven.web;
-/// Maven 代理 HTTP 服务入口，转发并缓存上游 Maven 仓库。
+/// Maven 代理 HTTP 服务入口，转发并缓存上游 Maven 仓库（正式版与 SNAPSHOT 同一个入口）。
 
 import std.exception;
 import std.path;
@@ -48,18 +48,41 @@ private bool looksLikeMavenArtifactFile(string uri) {
 class MavenService {
   private enum string endpoint = mountMaven;
   private const GavRepo repo;
+  /** 本地快照布局与「不带时间戳的别名 → 最新时间戳文件」解析（与 `repo` 共用同一 base）。 */
+  private const SnapshotRepo snapshots;
 
   this(MicdnConfig config) {
     this.repo = GavRepo.build(config);
+    this.snapshots = SnapshotRepo.build(config);
   }
 
+  /** 单个 `/maven` 入口同时服务正式版与 SNAPSHOT，按版本目录区分：
+
+      1. 不带时间戳的快照别名（`{artifact}-{version}-SNAPSHOT.{ext}[.sha1]`）重定向到本地同目录
+         最新的时间戳文件，`HEAD` 以 `latest` 头回带实际文件名（对标 sashub `SnapshotWS`）——
+         本地没有带时间戳的构建时不拦截，按普通文件继续；
+      2. 本地已有则直接发文件；
+      3. 本地缺失时按 uri 选上游回源（`GavRepo.upstreamsFor`）：SNAPSHOT 只走 `<snapshot remote=...>`，
+         其余走 `<maven><remote>`；未配置对应上游即 404。只回源文件型路径，目录型 URL 不探测上游。
+
+      缓存策略沿用 `mavenArtifactCachePolicy`：`maven-metadata.xml*` 为 `public, no-cache`，
+      快照构件（路径含 SNAPSHOT）为 `no-store`——同一路径可能被重新发布覆盖。
+  */
   void service(HTTPServerRequest req, HTTPServerResponse res) {
     const uri = getResourceUri(endpoint, req);
     const ruri = repositoryUri(uri);
 
-    // SNAPSHOT 只由 /snapshot 提供：/maven 既不代理上游，也不回本地缓存里的快照。
-    if (ruri.indexOf("SNAPSHOT") >= 0)
-      throw new HTTPStatusException(HTTPStatus.notFound);
+    auto latest = snapshots.latestAlias(ruri);
+    if (latest !is null) {
+      res.headers["latest"] = baseName(latest);
+      if (req.method == HTTPMethod.HEAD) {
+        res.statusCode = HTTPStatus.ok;
+        res.writeVoidBody();
+        return;
+      }
+      res.redirect(endpoint ~ latest);
+      return;
+    }
 
     auto file = repositoryPath(repo.base, uri);
 
@@ -67,11 +90,11 @@ class MavenService {
     try
       fi = getFileInfo(file);
     catch (Exception) {
-      // 本地缺失：`.diff` 与目录型 URL 直接 404；文件型尝试从上游拉取后发送。
+      // 本地缺失：`.diff` 与目录型 URL 直接 404；文件型按 uri 选上游拉取后发送
+      // （SNAPSHOT 走 <snapshot remote>，其余走 <maven><remote>；未配置上游的列表为空，fetch 自然失败）。
       if (ruri.endsWith(".diff")) {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
-      // 目录型 URL：本地不存在则直接 404，不重定向（重定向后仍无列表内容）
       if (ruri.endsWith("/") || !looksLikeMavenArtifactFile(ruri)) {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
@@ -93,74 +116,12 @@ class MavenService {
       if (req.method == HTTPMethod.HEAD) {
         throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
       }
-      if (ruri.endsWith("/")) {
+      if (uri.slashEnded) {
         auto listData = genListContents(file, endpoint, ruri);
         render!("index.dt", listData)(res);
       } else {
-        auto pub = endpoint ~ ruri;
-        res.redirect(req.requestURI.replace(pub, pub ~ "/"));
-      }
-    } else {
-      auto info = IndexedFileInfo.fromFileInfo(fi);
-      sendFile(req, res, file, info, mavenArtifactCachePolicy(ruri));
-    }
-  }
-}
-
-/** 本地 Maven SNAPSHOT 仓库（只读，不访问上游）。
-
-    布局与 `/maven` 相同，差异有两点：
-    1. 不带时间戳的别名（`{artifact}-{version}-SNAPSHOT.{ext}`）重定向到同目录最新的时间戳文件，
-       `HEAD` 则以 `latest` 头回带实际文件名（GET 302 / HEAD 200）；
-    2. 元数据一律取自本地磁盘，缺失即 404，不向上游拉取。
-
-    没有上传/WEB 安装服务：构件由 `micdn install`（或运维手工按目录规范放入）落盘。
-    仓库根由 `<maven><snapshot base="..."/></maven>` 配置，默认 `${micdn.home}/snapshots`；
-    即使不写 `<snapshot>` 元素，本服务也会按默认路径建库并挂载（见 `buildRouter`）。
-
-    缓存策略沿用 `mavenArtifactCachePolicy`：`maven-metadata.xml*` 为 `public, no-cache`，
-    快照构件（路径含 SNAPSHOT）为 `no-store`——同一路径可能被重新发布覆盖。
-*/
-class SnapshotService {
-  private const SnapshotRepo repo;
-
-  this(MicdnConfig config) {
-    this.repo = SnapshotRepo.build(config);
-  }
-
-  void service(HTTPServerRequest req, HTTPServerResponse res) {
-    const uri = getResourceUri(mountSnapshot, req);
-    const ruri = repositoryUri(uri);
-
-    auto latest = repo.latestAlias(ruri);
-    if (latest !is null) {
-      res.headers["latest"] = baseName(latest);
-      if (req.method == HTTPMethod.HEAD) {
-        res.statusCode = HTTPStatus.ok;
-        res.writeVoidBody();
-        return;
-      }
-      res.redirect(mountSnapshot ~ latest);
-      return;
-    }
-
-    auto file = repositoryPath(repo.base, uri);
-    FileInfo fi;
-    try
-      fi = getFileInfo(file);
-    catch (Exception)
-      throw new HTTPStatusException(HTTPStatus.notFound);
-
-    if (fi.isDirectory) {
-      if (req.method == HTTPMethod.HEAD) {
-        throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
-      }
-      if (ruri.endsWith("/")) {
-        auto listData = genListContents(file, mountSnapshot, ruri);
-        render!("index.dt", listData)(res);
-      } else {
-        auto pub = mountSnapshot ~ ruri;
-        res.redirect(req.requestURI.replace(pub, pub ~ "/"));
+        // 缺尾斜杠的目录（含仓库根 `/maven`）：补 `/` 后重定向，保证列表页的相对链接不倒挂
+        res.redirect(directoryUri(endpoint, uri));
       }
     } else {
       auto info = IndexedFileInfo.fromFileInfo(fi);

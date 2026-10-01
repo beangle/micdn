@@ -38,20 +38,37 @@ import micdn.xml;
 class GavRepo {
   /** artifact 本地仓库根目录（绝对路径） */
   const string base;
-  /**candinates remote repos*/
+  /** 正式版上游仓库 URL 列表（按优先级） */
   const string[] remotes = [];
+  /** SNAPSHOT 专用上游；空串表示不代理 SNAPSHOT（只发本地已装入的构件） */
+  const string snapshotRemote = "";
 
   static Sha1Postfix = ".sha1";
 
-  this(const(string) base, const(string[]) remotes) {
+  this(const(string) base, const(string[]) remotes, const(string) snapshotRemote = "") {
     enforce(base.length > 0, "repo base must not be empty");
     this.base = normalizeBasePath(base);
     this.remotes = remotes;
+    this.snapshotRemote = snapshotRemote;
   }
 
   static GavRepo build(MicdnConfig config) {
     mkdirRecurse(config.maven.base);
-    return new GavRepo(config.maven.base, config.maven.remotes);
+    return new GavRepo(config.maven.base, config.maven.remotes, config.maven.snapshotRemote);
+  }
+
+  /// 相对 uri 是否为 SNAPSHOT 构件（版本号含 `SNAPSHOT`，maven 的约定）。
+  static bool isSnapshotUri(string uri) {
+    return uri.indexOf("SNAPSHOT") >= 0;
+  }
+
+  /** 该 uri 适用的上游列表：SNAPSHOT 只走 `<snapshot remote=...>`（未配置则空 = 不代理，
+      不回退正式版 `remotes`）；其余走 `remotes`。与 npm 侧 `NpmRepo.upstreamsFor` 同口径。
+  */
+  const(string[]) upstreamsFor(string uri) const {
+    if (isSnapshotUri(uri))
+      return snapshotRemote.length > 0 ? [snapshotRemote] : [];
+    return remotes;
   }
 
   bool fetch(string uri) const {
@@ -118,13 +135,13 @@ class GavRepo {
 
   /** try to download file
    * @return true if local exists
-   */
+  */
   private bool download(string uri) const {
     auto local = this.base ~ uri;
     if (exists(local)) {
       return true;
     }
-    foreach (r; this.remotes) {
+    foreach (r; upstreamsFor(uri)) {
       auto remote = r ~ uri;
       if (curlDownload(remote, local)) {
         break;

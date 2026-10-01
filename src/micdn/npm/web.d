@@ -31,6 +31,15 @@ import micdn.web.file;
 import micdn.web.origin;
 import micdn.fs.index;
 
+/** npm registry：版本化 tarball 与 packument（本地文件优先，缺失时按同一路径从上游拉取）。
+
+    只挂一个 `/npm`（`mountNpm`），正式版与开发版共用 `<npm base>`：
+    `{base}/{scope|_}/{name}/{version}/`，因而 `resolve` 装入的开发版 tgz 与代理缓存落在同一目录树。
+
+    回源时按版本选择上游（`NpmRepo.upstreamsFor`）：tarball URL 带版本，可直接判定——
+    开发版只走 `<npm><dev>`，未配置则不下上游（本地没有即 404）；packument URL 不带版本，
+    按正式版、再开发版顺序探测（见 `NpmRepo.fetchPackument`）。
+*/
 class NpmService {
   private enum string endpoint = mountNpm;
   private const NpmRepo repo;
@@ -80,13 +89,13 @@ class NpmService {
       if (req.method == HTTPMethod.HEAD) {
         throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
       }
-      if (ruri.endsWith("/")) {
+      if (uri.slashEnded) {
         applyCachePolicy(res, npmArtifactCachePolicy(ruri));
         auto listData = genListContents(path, endpoint, ruri);
         render!("index.dt", listData)(res);
       } else {
-        auto pub = endpoint ~ ruri;
-        res.redirect(req.requestURI.replace(pub, pub ~ "/"));
+        // 缺尾斜杠的目录（含仓库根 `/npm`）：补 `/` 后重定向，保证列表页的相对链接不倒挂
+        res.redirect(directoryUri(endpoint, uri));
       }
     } else {
       // 包名路径按 registry 约定是 packument（JSON），交付时把 `{origin}` 换成实际 origin；

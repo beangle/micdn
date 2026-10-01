@@ -13,7 +13,31 @@ import std.path : absolutePath, buildPath;
 
 import micdn.asset : AssetRepo;
 import micdn.config : parseFile;
-import micdn.main : commandArg, commandIndex, runClean;
+import micdn.main : commandArg, commandIndex, registeredEndpoints, runClean;
+
+@("only declared <maven>/<npm> sections register their endpoints")
+unittest {
+  auto home = buildPath(tempDir, "micdn-endpoints");
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  mkdirRecurse(home);
+
+  // 不写 <maven>/<npm>：既不建库也不挂端点，避免暴露空仓库
+  auto minimal = buildPath(home, "minimal.xml");
+  write(minimal, `<?xml version="1.0"?><micdn></micdn>`);
+  assert(registeredEndpoints(parseFile(minimal)) == ["/admin"],
+      "undeclared maven/npm must not register /maven or /npm");
+
+  // 写了元素（哪怕没有子元素）才注册端点
+  auto full = buildPath(home, "full.xml");
+  write(full, `<?xml version="1.0"?><micdn>
+  <static base="` ~ buildPath(home, "static") ~ `"/>
+  <maven base="` ~ buildPath(home, "m2") ~ `"/>
+  <npm base="` ~ buildPath(home, "npm") ~ `"/>
+</micdn>`);
+  assert(registeredEndpoints(parseFile(full)) == ["/admin", "/static", "/maven", "/npm"]);
+}
 
 @("commandArg takes the first non-option argument as the subcommand")
 unittest {

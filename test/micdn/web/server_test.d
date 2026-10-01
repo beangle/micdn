@@ -46,6 +46,14 @@ unittest {
   assert(extractRemoteUrl(`<micdn>`) is null);
   // remote 有空格
   assert(extractRemoteUrl(`<micdn remote = "http://x.com/c.xml">`) == "http://x.com/c.xml");
+  // 只认根元素的 remote：<snapshot>/<dev> 子元素也用 remote 属性，不能误当成本配置的远程地址
+  assert(extractRemoteUrl(`<?xml version="1.0"?><micdn listen="0:8888">
+  <maven><snapshot remote="file:///srv/up"/></maven>
+  <npm><dev remote="https://registry.example.com/dev"/></npm>
+</micdn>`) is null);
+  assert(extractRemoteUrl(`<micdn remote="https://cfg.example.com/m.xml">
+  <npm><dev remote="https://registry.example.com/dev"/></npm>
+</micdn>`) == "https://cfg.example.com/m.xml");
 }
 
 @("repository path builds absolute path from entry segments")
@@ -70,6 +78,12 @@ unittest {
   assert(segmentPath("/manual/").slashEnded);
   assert(segmentPath("/").segs.length == 0);
   assert(segmentPath("/").slashEnded);
+  // 仓库根（相对 uri 为空或 `/`）是合法解析结果，不能与点段越界（invalid）混淆。
+  // 否则 `/maven`、`/npm` 这类根路径会被 `getResourceUri` 当成解析失败，恒 404。
+  assert(segmentPath("").ok);
+  assert(segmentPath("").segs.length == 0);
+  assert(segmentPath("/").ok);
+  assert(segmentPath("/maven").ok);
   // `.` 与中间空段合并
   assert(segmentPath("/manual/./a.html").segs == ["manual", "a.html"]);
   assert(segmentPath("/manual//a.html").segs == ["manual", "a.html"]);
@@ -87,6 +101,15 @@ unittest {
   assert(repositoryUri(ResourceUri(["org", "beangle"], false)) == "/org/beangle");
   assert(repositoryUri(ResourceUri([], true)) == "/");
   assert(repositoryUri(ResourceUri([], false)) == "/");
+}
+
+@("directoryUri appends a trailing slash, including the repository root")
+unittest {
+  // 目录重定向目标：根路径不会再拼成 `/maven//`（`repositoryUri` 对根固定返回 `/`）
+  assert(directoryUri("/maven", segmentPath("")) == "/maven/");
+  assert(directoryUri("/maven", segmentPath("/")) == "/maven/");
+  assert(directoryUri("/maven", segmentPath("/org")) == "/maven/org/");
+  assert(directoryUri("/maven", segmentPath("/org/")) == "/maven/org/");
 }
 
 @("repositoryPath builds absolute path from normalized segments")

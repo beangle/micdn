@@ -38,11 +38,23 @@ micdn **不维护响应级的共享缓存**：每个请求都直接读磁盘返�
 - 从上游 registry 代理来的 packument 内容是绝对地址（如 `https://registry.npmmirror.com/...`），不做替换、原样发送。
 - packument 是 `public, no-cache`（每次回源校验）且带 ETag，按域名各自缓存、不会串。
 
-### maven SNAPSHOT（`/snapshot`）与缓存
+### maven SNAPSHOT（同一个 `/maven`）与缓存
 
-`/snapshot` 只发本地磁盘上的快照构件，不访问上游；不带时间戳的别名请求会回 `302` 到最新时间戳文件，属正常的缓存
-（反代按 302 处理即可，别名本身不产生响应体）。快照路径的构件响应一律 `Cache-Control: no-store`（`maven-metadata.xml`
-为 `public, no-cache`），因为同一路径可能被重新发布覆盖；若反代要缓存，按 no-store 语义跳过或极短 TTL 即可。
+正式版与 SNAPSHOT 共用 `/maven` 一个入口与同一仓库根（不需要对 `/snapshot` 单独反代），按版本路径区分：含
+`SNAPSHOT` 的路径本地优先，缺失且配了 `<snapshot remote="...">` 时才按该上游回源（仅 GET 触发的交付路径，
+反代视角与普通回源一致）。不带时间戳的别名请求会回 `302` 到本地最新时间戳文件，属正常的缓存（反代按 302 处理
+即可，别名本身不产生响应体）。快照路径的构件响应一律 `Cache-Control: no-store`（`maven-metadata.xml` 为
+`public, no-cache`），因为同一路径可能被重新发布覆盖；若反代要缓存，按 no-store 语义跳过或极短 TTL 即可。
+
+### 开发版 npm（`<npm><dev remote="..."/>`）与缓存
+
+开发版与正式版**共用 `/npm` 一个入口**（也共用 `<npm base>` 目录树），没有单独的 `/npm-dev` 需要反代。
+缓存策略按路径判定（`npmArtifactCachePolicy`）：预发布版本 tarball 与 packument 是 `public, no-cache`，
+正式版 tarball 是 `public, max-age=31536000, immutable`。
+
+`resolve` 侧不经过反代：开发版规格落到 `<npm base>`，本地没有时才按 `<dev remote>` 回源；没配 `<dev>` 时不下
+上游，缺失即失败（需要时先 `micdn install` 装入）。包在本地只有一份 packument，上游拉取或 install 落盘后都会
+把本地已装入的版本并回去，反代缓存刷新不影响 dev/latest 两个 tag 并存。
 
 ---
 

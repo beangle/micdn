@@ -194,7 +194,7 @@
   <!-- mavenType (Maven 仓库) -->
   <xs:complexType name="mavenType">
     <xs:annotation>
-      <xs:documentation> 正式版 HTTP 前缀固定为 /maven，SNAPSHOT 为 /snapshot。 </xs:documentation>
+      <xs:documentation> HTTP 前缀固定为 /maven：正式版与 SNAPSHOT 共用同一入口与同一 &lt;maven base&gt; 目录，按版本区分。不写 &lt;maven&gt; 则不挂载 /maven。 </xs:documentation>
     </xs:annotation>
     <xs:choice minOccurs="0" maxOccurs="unbounded">
       <xs:element name="remote">
@@ -203,33 +203,42 @@
           <xs:attribute name="alias" type="xs:string" use="optional" />
         </xs:complexType>
       </xs:element>
-      <xs:element name="snapshot" type="snapshotType" />
+      <xs:element name="snapshot" type="snapshotType" maxOccurs="1" />
     </xs:choice>
     <xs:attribute name="base" type="xs:string" default="~/maven" use="optional" />
   </xs:complexType>
 
-  <!-- snapshotType：本地 SNAPSHOT 仓库（挂载 /snapshot）；即使不写 <snapshot>，也按默认 base 建库并挂载 -->
+  <!-- snapshotType：SNAPSHOT 上游（挂在 /maven 下，与 <maven base> 共用目录）；省略则不代理 SNAPSHOT，只发本地已装入的构件 -->
   <xs:complexType name="snapshotType">
     <xs:annotation>
-      <xs:documentation> 只读本地快照仓库：服务 install 装入的 {group}/{artifact}/{version} 布局，不含上游 remote。 </xs:documentation>
+      <xs:documentation> SNAPSHOT 专用上游：/maven 下版本含 SNAPSHOT 的路径本地优先，缺失时按此回源并按 sha1 校验（正式版路径不会回落到这里）。 </xs:documentation>
     </xs:annotation>
-    <xs:attribute name="base" type="xs:string" default="${micdn.home}/snapshots" use="optional" />
+    <xs:attribute name="remote" type="xs:string" use="required" />
   </xs:complexType>
 
-  <!-- npmRepoType：根级 NPM 仓库（与 bundle 内的 npm 包引用 npmType 区分） -->
+  <!-- npmRepoType：根级 NPM 仓库，正式版与开发版共用 base（与 bundle 内的 npm 包引用 npmType 区分） -->
   <xs:complexType name="npmRepoType">
     <xs:annotation>
-      <xs:documentation> HTTP 前缀固定为 /npm。 </xs:documentation>
+      <xs:documentation> HTTP 前缀固定为 /npm；&lt;dev&gt; 只配置开发版（dev/预发布）的上游，本地目录同 &lt;npm base&gt;。不写 &lt;npm&gt; 则不挂载 /npm。 </xs:documentation>
     </xs:annotation>
-    <xs:sequence>
-      <xs:element name="remote" minOccurs="0" maxOccurs="unbounded">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="remote">
         <xs:complexType>
           <xs:attribute name="url" type="xs:string" use="required" />
           <xs:attribute name="alias" type="xs:string" use="optional" />
         </xs:complexType>
       </xs:element>
-    </xs:sequence>
+      <xs:element name="dev" type="npmDevType" />
+    </xs:choice>
     <xs:attribute name="base" type="xs:string" default="~/npm" use="optional" />
+  </xs:complexType>
+
+  <!-- npmDevType：开发版 npm 上游（至多一个）；省略 <dev> 时不代理开发版 -->
+  <xs:complexType name="npmDevType">
+    <xs:annotation>
+      <xs:documentation> 开发版（dev/预发布）专用 registry：dev 版本只从这里回源，不再走 &lt;npm&gt; 的 remote；省略则开发版只认本地。 </xs:documentation>
+    </xs:annotation>
+    <xs:attribute name="remote" type="xs:string" use="required" />
   </xs:complexType>
 
   <xs:complexType name="blobType">

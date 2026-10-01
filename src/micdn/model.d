@@ -50,9 +50,9 @@ class MicdnConfig {
   const string logLevel;
   /// 静态资源配置（bundles 等；HTTP 前缀见 `micdn.routes.mountStatic`）
   const AssetConfig asset;
-  /// Maven 仓库配置（远程镜像、本地路径等；HTTP 前缀见 `mountMaven`）
+  /// Maven 仓库配置（远程镜像、本地路径等；HTTP 前缀见 `mountMaven`）；未配置 `<maven>` 时为 null（不注册端点）
   const MavenRepoConfig maven;
-  /// NPM 仓库配置（base、remotes；HTTP 前缀见 `mountNpm`）
+  /// NPM 仓库配置（base、remotes；HTTP 前缀见 `mountNpm`）；未配置 `<npm>` 时为 null（不注册端点）
   const NpmRepoConfig npm;
   /// Blob 存储配置（profiles、上传限制等）
   const BlobConfig blob;
@@ -83,12 +83,14 @@ class MicdnConfig {
       names ~= "static";
       endpoints ~= mountStatic;
     }
-    names ~= "maven";
-    endpoints ~= mountMaven;
-    names ~= "maven.snapshot";
-    endpoints ~= mountSnapshot;
-    names ~= "npm";
-    endpoints ~= mountNpm;
+    if (maven !is null) {
+      names ~= "maven";
+      endpoints ~= mountMaven;
+    }
+    if (npm !is null) {
+      names ~= "npm";
+      endpoints ~= mountNpm;
+    }
     if (blob !is null) {
       names ~= "blob";
       endpoints ~= mountBlob;
@@ -195,25 +197,25 @@ class AssetConfig {
     通过 localFile 获取本地缓存路径。
 */
 class MavenRepoConfig {
-  /// 本地 Maven 仓库根路径（如 ~/maven）
+  /// 本地 Maven 仓库根路径（如 ~/maven）；正式版与 SNAPSHOT 共用（HTTP 前缀见 `mountMaven`）
   const string base;
-  /// 远程仓库 URL 列表，按优先级排序
+  /// 远程仓库 URL 列表，按优先级排序（服务正式版）
   const string[] remotes;
-  /// 本地 SNAPSHOT 仓库根路径（如 ~/snapshots）；HTTP 前缀固定为 `micdn.routes.mountSnapshot`
-  const string snapshotBase;
+  /** SNAPSHOT 专用上游（`<maven><snapshot remote="..."/>`）；空串表示未配置。
 
-  this(string base, string[] remotes, string snapshotBase = expandTilde("~/snapshots")) {
+      未配置时 SNAPSHOT 不代理上游，`/maven` 只发本地已装入的快照构件。
+  */
+  const string snapshotRemote;
+
+  this(string base, string[] remotes, string snapshotRemote = "") {
     assert(remotes.all!(r => !r.endsWith("/")), "Maven remote URL must not end with '/'");
+    assert(snapshotRemote.length == 0 || !snapshotRemote.endsWith("/"),
+        "Maven snapshot remote URL must not end with '/'");
     this.remotes = remotes.idup;
+    this.snapshotRemote = snapshotRemote;
     this.base = base;
-    this.snapshotBase = snapshotBase;
   }
 
-  static MavenRepoConfig defaultConfig() {
-    return new MavenRepoConfig(expandTilde("~/maven"), [
-      "https://repo1.maven.org/maven2"
-    ]);
-  }
   /// 将 GAV 转换为 Maven 目录路径，如 org.apache:commons:1.0 -> /org/apache/commons/1.0/commons-1.0.jar
   private string path(string gav) const {
     auto parts = split(gav, ":");
@@ -253,19 +255,24 @@ class MavenRepoConfig {
     本地路径规则：scope/包名/版本/xxx.tgz，无 scope 时用 "_" 作为目录名。
 */
 class NpmRepoConfig {
-  /// 本地 NPM 仓库根路径（如 ~/npm）
+  /// 本地 NPM 仓库根路径（如 ~/npm）；正式版与开发版共用（HTTP 前缀见 `mountNpm`）
   const string base;
-  /// 远程 registry 列表，默认含 registry.npmmirror.com
+  /// 远程 registry 列表，默认含 registry.npmmirror.com（服务正式版）
   const string[] remotes;
+  /** 开发版专用 registry（`<npm><dev remote="..."/>`）；空串表示未配置。
 
-  this(string base, string[] remotes) {
+      未配置时开发版不代理上游：dev/预发布版本只认本地（`resolve` 与 `/npm` 都不回源）；
+      有配置时，dev/预发布版本只从这个地址回源，不再走 `remotes`（见 `NpmRepo.upstreamsFor`）。
+  */
+  const string devRemote;
+
+  this(string base, string[] remotes, string devRemote = "") {
     assert(remotes.all!(r => !r.endsWith("/")), "NPM remote URL must not end with '/'");
+    assert(devRemote.length == 0 || !devRemote.endsWith("/"),
+        "NPM dev remote URL must not end with '/'");
     this.remotes = remotes.idup;
+    this.devRemote = devRemote;
     this.base = base;
-  }
-
-  static NpmRepoConfig defaultConfig() {
-    return new NpmRepoConfig(expandTilde("~/npm"), ["https://registry.npmmirror.com"]);
   }
 
   /** 返回包规格对应的本地 tgz 路径。scopePart 无 scope 时传 "_"。

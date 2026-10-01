@@ -36,20 +36,24 @@ import micdn.xml;
 
 /** HTTP 入口解析出的仓库资源 URI。
 
-    - `segs`：已消解的路径段（不含 `.`/`..`、中间空段已合并），**不含尾斜杠空段**；`segs is null` 表示解析失败；
+    - `segs`：已消解的路径段（不含 `.`/`..`、中间空段已合并），**不含尾斜杠空段**；空数组表示仓库根；
+    - `invalid`：点段越界（试图逃出根）等解析失败（见 `ok`）；
     - `slashEnded`：原始 uri 是否以 `/` 结尾（如 `/maven/` → `segs=[]`、`slashEnded=true`）。
 
     下游（仓库 `get`、`repositoryUri`、`repositoryPath`）直接读取字段，无需再截取末尾空段。
 */
 struct ResourceUri {
-  /// 已消解路径段；`null` 表示解析失败（点段越界等）
+  /// 已消解路径段；空数组表示仓库根
   const(string)[] segs;
   /// 原始 uri 是否以 `/` 结尾
   bool slashEnded;
+  /// 解析失败（点段越界试图逃出根）
+  private bool invalid;
 
-  /// 解析是否成功（`segs !is null`）。
+  /// 解析是否成功。**不能用 `segs is null` 判定**：D 的空数组字面量 `[]` 本身就是 null，
+  /// 与「仓库根」无法区分，因此失败单独用 `invalid` 记录。
   bool ok() const @safe pure nothrow {
-    return segs !is null;
+    return !invalid;
   }
 }
 
@@ -59,6 +63,8 @@ struct ResourceUri {
     `segmentPath`（切段 + 点段消解）。
 
     解码失败、点段越界（`..` 逃出根）或与 `contextPath` 不匹配时抛 404。
+    `slashEnded` 以剥掉挂载前缀后的**原始**相对 uri 为准（如 `/maven` → false、`/maven/` → true），
+    服务层据此区分「目录省略尾斜杠」与「目录列表」。
     读盘服务基于 `ResourceUri.segs` 构造路径或经 `repositoryUri` 重建 uri，均已在入口消解，无需再防穿越。
 */
 ResourceUri getResourceUri(string contextPath, HTTPServerRequest req) {
@@ -80,11 +86,15 @@ ResourceUri getResourceUri(string contextPath, HTTPServerRequest req) {
   auto rs = segmentPath(decoded);
   if (!rs.ok)
     throw new HTTPStatusException(HTTPStatus.notFound);
+  // 尾斜杠以原始请求为准：`decodeRepositoryUri` 会把空串补成 `/`，
+  // 否则 `/maven`（缺尾斜杠，应重定向）会被当成 `/maven/` 直接列表。
+  rs.slashEnded = uri.endsWith("/");
   return rs;
 }
 
 /** 将已解码路径切段并做点段消解（RFC 3986 remove_dot_segments）。
-    跳过中间空段与 `.`；`..` 抵消前一段，弹栈越界（试图逃出根）返回 null；
+    跳过中间空段与 `.`；`..` 抵消前一段，弹栈越界（试图逃出根）置 `invalid`；
+    全部段被消解时得到空段数组，因而仓库根（如 `/maven`、`/maven/`）是合法解析结果；
     原始路径以 `/` 结尾时 `slashEnded=true`（段数组本身不含末尾空段）。
     调用方须保证 `uri` 已由 `decodeRepositoryUri` 处理（拒绝 NUL/反斜杠）。
     实现为单次逐字节扫描：段为原始 `uri` 的切片（零拷贝），避免 `std.string.split`
@@ -102,7 +112,7 @@ ResourceUri segmentPath(string uri) {
       continue;
     if (part == "..") {
       if (segs.length == 0)
-        return ResourceUri.init;
+        return ResourceUri(null, slashEnded, true);
       segs.length--;
       continue;
     }
@@ -112,7 +122,7 @@ ResourceUri segmentPath(string uri) {
   if (tail.length > 0) {
     if (tail == "..") {
       if (segs.length == 0)
-        return ResourceUri.init;
+        return ResourceUri(null, slashEnded, true);
       segs.length--;
     } else if (tail != ".") {
       segs ~= tail;
@@ -127,6 +137,16 @@ string repositoryUri(const ResourceUri uri) {
     return "/";
   auto s = "/" ~ uri.segs.join("/");
   return uri.slashEnded ? s ~ "/" : s;
+}
+
+/** 拼出目录列表的绝对 URL 并保证以 `/` 结尾（目录重定向的目标）。
+
+    `repositoryUri` 对仓库根固定返回 `/`，直接与端点拼接即得 `/maven/`；其余路径按
+    `slashEnded` 补尾斜杠。传入缺失尾斜杠的 `uri` 亦可（根路径不会再拼成 `/maven//`）。
+*/
+string directoryUri(string endpoint, const ResourceUri uri) {
+  auto ruri = repositoryUri(uri);
+  return ruri.endsWith("/") ? endpoint ~ ruri : endpoint ~ ruri ~ "/";
 }
 
 /** 由 `ResourceUri` 的段构造绝对物理路径（须已由 `getResourceUri`/`segmentPath` 消解）。
@@ -199,11 +219,28 @@ string resolveConfigFile(string defaultConfigFileName, string config) {
   return config;
 }
 
-/** 从 XML 文本中提取 remote 属性值，用正则避免递归解析。未找到返回 null。
+/** 从 XML 文本的**根元素** `<micdn ...>` 开始标签里提取 remote 属性值，用正则避免递归解析。未找到返回 null。
+
+    只看根元素：`<maven><snapshot remote=.../></maven>`、`<npm><dev remote=.../></npm>` 也用 `remote`
+    属性，若在全文里找第一个 `remote=` 会把子元素的上游地址误当成本配置的远程地址。
  */
 string extractRemoteUrl(string content) {
-  auto m = matchFirst(content, regex(r"remote\s*=\s*[\x22\x27]([^\x22\x27]+)[\x22\x27]"));
+  auto start = content.indexOf("<micdn");
+  if (start < 0)
+    return null;
+  auto after = start + "<micdn".length;
+  if (after < content.length && !isTagBoundary(content[after]))
+    return null;
+  auto end = content.indexOf('>', after);
+  if (end < 0)
+    return null;
+  auto m = matchFirst(content[start .. end], regex(r"remote\s*=\s*[\x22\x27]([^\x22\x27]+)[\x22\x27]"));
   return (m && m.captures.length > 1) ? m.captures[1] : null;
+}
+
+/// `<micdn` 之后允许的字符：空白、`>`（`<micdn>`）、`/`（`<micdn/>`）。
+private bool isTagBoundary(char c) {
+  return c == '>' || c == '/' || c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
 
 /** 启动或 reload 前调用：若本地配置文件含 remote 属性，则下载覆盖。

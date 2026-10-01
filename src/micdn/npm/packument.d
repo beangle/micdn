@@ -79,10 +79,11 @@ struct InstallResult {
     CLI 传入的 `registryBase` 通常是 `{origin}/npm`（只写占位符，交付期替换成实际 origin，见 `originPlaceholder`）；
     测试或特殊场景也可传绝对地址，写死到 packument 里。
 
-    元数据一律从 tarball 内的 `package/package.json` 推导，与工件不分家：
+    元数据一律从 tarball 内的 `package/package.json` 推导，与工件不分家；已有 packument（例如上游
+    代理来的版本）会与本地版本合并，不会被覆盖丢失：
 
     - `dist.integrity` / `dist.shasum` 由 tgz 字节算出；
-    - `dist-tags.latest` 取最高正式版（只有预发布时退化为最高版本），预发布版本按
+    - `dist-tags.latest` 取合并后最高正式版（只有预发布时退化为最高版本），预发布版本按
       `dev` / `next` / `beta` / `rc` / `alpha` / `canary` 通道各生成一个 tag；
     - 已有 packument 里仍然指向现有版本的自定义 tag 会保留，`extraTag` 非空时再把本次版本挂上去；
     - `time` 取各版本 tgz 的 mtime。
@@ -119,7 +120,7 @@ InstallResult installTarball(string base, string tgzFile, string registryBase, s
     copy(tgzFile, dest);
 
   auto packument = root ~ "/" ~ (scoped ? "@" ~ scopePart ~ "/" ~ bare : bare);
-  auto versions = refreshPackument(root, name, scopePart, bare, registryBase, ver, extraTag);
+  auto versions = refreshPackument(root, name, registryBase, ver, extraTag);
   return InstallResult(name, ver, dest, packument, tarballUrl(registryBase, name, bare, ver),
       versions);
 }
@@ -145,29 +146,85 @@ private bool readManifest(string tgzFile, out JSONValue manifest) {
   return true;
 }
 
-/** 扫描版本目录，重算各版本 dist 与 dist-tags，写出 `{base}/{pkg}`。返回版本列表（升序）。 */
-private string[] refreshPackument(string root, string name, string scopePart, string bare,
-    string registryBase, string installedVer, string extraTag) {
+/** 代理场景的合并入口：把本地已装入的版本并入 `{base}/{pkg}`（`ruri` 为 `/name` 或 `/@scope/name`）。
+
+    从上游拿到的 packument 只含上游自己的版本；而正式版与开发版共用同一份 `{base}/{pkg}`，
+    一份文件里的 dist-tags 因此可能缺失另一个来源的 tag。每次 packument 落盘后调用本函数，
+    把本地 tgz 目录里的版本补回去，交付期（与 `resolveVersion`）就有完整的 dist-tags。
+
+    本地一个 tgz 都没有时不重写 packument。
+*/
+void mergeLocalVersions(string base, string ruri, string registryBase) {
+  if (ruri.length < 2 || ruri[0] != '/' || !isPackageName(ruri[1 .. $]))
+    return;
+  auto name = ruri[1 .. $];
+  auto segs = name.split("/");
+  auto scopePart = segs.length == 2 ? segs[0][1 .. $] : "_";
+  auto root = normalizeBasePath(base);
+  if (!exists(root ~ "/" ~ scopePart ~ "/" ~ segs[$ - 1]))
+    return;
+  try {
+    refreshPackument(root, name, registryBase, "", "");
+  } catch (Exception e) {
+    // 合并只是尽力而为：packument 已经拿到手，不能因为本地目录有杂音就让交付失败。
+    logWarn("npm packument merge skipped for %s - %s", ruri, e.msg);
+  }
+}
+
+/** 扫描本地版本目录，把 `{base}/{pkg}` 的 packument 刷新为「已有版本 + 本地版本」的合并结果，
+    返回合并后的版本列表（升序）。
+
+    - 以文件里已有的 packument 为基础：保留上游代理来的版本条目（含绝对 tarball 地址）、`time`
+      与其余顶层字段（`readme`、`maintainers` 等）；
+    - 本地 tgz 目录里的版本从 tarball 内清单重算并覆盖同名条目——本地工件是权威，
+      `dist.integrity`/`shasum` 取自本地字节，`tarball` = `registryBase` + npm 官方 URL 路径；
+    - `dist-tags.latest` 取合并后最高的正式版（只有预发布时退化为最高版本），预发布通道 tag 同理；
+      仍然指向现存版本的其它 tag 保留，`extraTag` 非空时挂到 `installedVer` 上；
+    - `time` 各版本取本地 tgz 的 mtime（非本地版本保持已有值），`created`/`modified` 取本地最早/最新一次装入。
+
+    `installedVer` 非空时必须能在合并结果里找到（`install` 刚复制过 tgz，必然满足）；
+    没有任何可读版本时抛 Exception。
+*/
+private string[] refreshPackument(string root, string name, string registryBase,
+    string installedVer, string extraTag) {
+  auto segs = name.split("/");
+  auto scoped = segs.length == 2;
+  auto scopePart = scoped ? segs[0][1 .. $] : "_";
+  auto bare = segs[$ - 1];
   auto versionsDir = root ~ "/" ~ scopePart ~ "/" ~ bare;
-  auto packumentFile = root ~ "/" ~ (scopePart == "_" ? bare : "@" ~ scopePart ~ "/" ~ bare);
+  auto packumentFile = root ~ "/" ~ (scoped ? "@" ~ scopePart ~ "/" ~ bare : bare);
 
   VersionHit[] hits;
-  foreach (entry; dirEntries(versionsDir, SpanMode.shallow)) {
-    if (!entry.isDir)
-      continue;
-    auto ver = baseName(entry.name);
-    auto file = entry.name ~ "/" ~ bare ~ "-" ~ ver ~ ".tgz";
-    if (!exists(file) || isDir(file))
-      continue;
-    hits ~= VersionHit(ver, file, getSize(file), timeLastModified(file));
-  }
+  if (exists(versionsDir) && isDir(versionsDir))
+    foreach (entry; dirEntries(versionsDir, SpanMode.shallow)) {
+      if (!entry.isDir)
+        continue;
+      auto ver = baseName(entry.name);
+      auto file = entry.name ~ "/" ~ bare ~ "-" ~ ver ~ ".tgz";
+      if (!exists(file) || isDir(file))
+        continue;
+      hits ~= VersionHit(ver, file, getSize(file), timeLastModified(file));
+    }
   hits.sort!((a, b) => compareVersions(a.ver, b.ver) < 0);
 
-  JSONValue versionsJson = JSONValue.emptyObject;
-  JSONValue timeJson = JSONValue.emptyObject;
-  JSONValue latestManifest;
-  auto latestTag = latestVersion(hits);
-  string[] versions;
+  // 以上游/上次 install 写下的 packument 为基础（读不出时按空处理）。
+  JSONValue doc = readPackument(packumentFile);
+  JSONValue[string] mergedVersions;
+  JSONValue[string] mergedTime;
+  JSONValue[string] tagValues;
+  if (auto existing = "versions" in doc.object)
+    if (existing.type == JSONType.object)
+      foreach (ver, entry; existing.object)
+        mergedVersions[ver] = entry;
+  if (auto existing = "time" in doc.object)
+    if (existing.type == JSONType.object)
+      foreach (key, entry; existing.object)
+        mergedTime[key] = entry;
+  foreach (tag, tagged; preservedTags(doc))
+    tagValues[tag] = JSONValue(tagged);
+
+  // 本地版本覆盖同名条目：dist 与清单都从本地 tgz 重算。
+  JSONValue[string] localManifests;
   foreach (hit; hits) {
     JSONValue manifest;
     if (!readManifest(hit.file, manifest))
@@ -184,23 +241,30 @@ private string[] refreshPackument(string root, string name, string scopePart, st
     dist["shasum"] = JSONValue(toHexString!(LetterCase.lower)(sha1Of(bytes)).idup);
     manifest["dist"] = dist;
 
-    versionsJson[hit.ver] = manifest;
-    timeJson[hit.ver] = JSONValue(isoTime(hit.modified));
-    versions ~= hit.ver;
-    if (hit.ver == latestTag)
-      latestManifest = manifest;
+    mergedVersions[hit.ver] = manifest;
+    mergedTime[hit.ver] = JSONValue(isoTime(hit.modified));
+    localManifests[hit.ver] = manifest;
   }
-  if (versions.length == 0)
+  if (mergedVersions.length == 0)
     throw new Exception("no readable npm version under " ~ versionsDir);
-  if (!(installedVer in versionsJson.object))
+  if (installedVer.length > 0 && !(installedVer in mergedVersions))
     throw new Exception("installed " ~ installedVer ~ " is unreadable in " ~ versionsDir);
 
+  string[] versions = mergedVersions.keys;
+  versions.sort!((a, b) => compareVersions(a, b) < 0);
+
+  // latest = 合并后最高的正式版；只有预发布时退化为最高版本。
+  string latestTag;
+  foreach (ver; versions)
+    if (prereleaseOf(ver).length == 0)
+      latestTag = ver;
+  if (latestTag.length == 0)
+    latestTag = versions[$ - 1];
+
   JSONValue tags = JSONValue.emptyObject;
-  foreach (tag, tagged; preservedTags(packumentFile)) {
-    // latest 与通道 tag 由目录内容重新推导；自定义 tag 只要版本还在就保留。
-    if (!isDerivedTag(tag) && (tagged in versionsJson.object))
-      tags[tag] = JSONValue(tagged);
-  }
+  foreach (tag, tagged; tagValues)
+    if (!isDerivedTag(tag) && tagged.str in mergedVersions)
+      tags[tag] = tagged;
   tags["latest"] = JSONValue(latestTag);
   foreach (channel; prereleaseChannels) {
     string best;
@@ -213,18 +277,41 @@ private string[] refreshPackument(string root, string name, string scopePart, st
   if (extraTag.length > 0)
     tags[extraTag] = JSONValue(installedVer);
 
-  timeJson["created"] = JSONValue(isoTime(hits[0].modified));
-  timeJson["modified"] = JSONValue(isoTime(hits[$ - 1].modified));
+  JSONValue timeJson = JSONValue.emptyObject;
+  foreach (key, entry; mergedTime)
+    timeJson[key] = entry;
+  if (hits.length > 0) {
+    timeJson["created"] = JSONValue(isoTime(hits[0].modified));
+    timeJson["modified"] = JSONValue(isoTime(hits[$ - 1].modified));
+  }
 
-  JSONValue doc = JSONValue.emptyObject;
+  JSONValue versionsJson = JSONValue.emptyObject;
+  foreach (ver, entry; mergedVersions)
+    versionsJson[ver] = entry;
+
   doc["_id"] = JSONValue(name);
   doc["name"] = JSONValue(name);
   doc["dist-tags"] = tags;
   doc["versions"] = versionsJson;
   doc["time"] = timeJson;
-  if (latestManifest.type == JSONType.object) {
+  // 顶层摘要字段：优先取本地 latest 版本（与旧行为一致）；latest 来自上游时只补空缺，不覆盖。
+  JSONValue topManifest;
+  bool fromLatest;
+  if (auto value = latestTag in localManifests) {
+    topManifest = *value;
+    fromLatest = true;
+  } else {
+    foreach (ver; versions)
+      if (auto value = ver in localManifests) {
+        topManifest = *value;
+        break;
+      }
+  }
+  if (topManifest.type == JSONType.object) {
     foreach (key; ["description", "license", "homepage", "repository", "bugs", "keywords"]) {
-      if (auto value = key in latestManifest.object)
+      if (!fromLatest && key in doc.object)
+        continue;
+      if (auto value = key in topManifest.object)
         doc[key] = *value;
     }
   }
@@ -234,30 +321,38 @@ private string[] refreshPackument(string root, string name, string scopePart, st
   return versions;
 }
 
-/// 已有 packument 的 dist-tags（读不出时返回空，不阻断发布）。
-private string[string] preservedTags(string packumentFile) {
-  string[string] tags;
+/// 读已有 packument（缺失/不可读时返回空对象，不阻断发布）。
+private JSONValue readPackument(string packumentFile) {
   if (!exists(packumentFile) || isDir(packumentFile))
-    return tags;
+    return JSONValue.emptyObject;
   try {
     auto doc = parseJSON(readText(packumentFile));
-    if (auto value = "dist-tags" in doc.object) {
+    if (doc.type == JSONType.object)
+      return doc;
+  } catch (Exception e) {
+    logWarn("npm install: ignoring unreadable packument %s - %s", packumentFile, e.msg);
+  }
+  return JSONValue.emptyObject;
+}
+
+/// 已有 packument 的 dist-tags（只保留字符串值）。
+private string[string] preservedTags(JSONValue doc) {
+  string[string] tags;
+  if (auto value = "dist-tags" in doc.object) {
+    if (value.type == JSONType.object)
       foreach (tag, tagged; value.object)
         if (tagged.type == JSONType.string)
           tags[tag] = tagged.str;
-    }
-  } catch (Exception e) {
-    logWarn("npm install: ignoring unreadable packument %s - %s", packumentFile, e.msg);
   }
   return tags;
 }
 
-/// 最高正式版（`hits` 已按版本升序）；只有预发布版本时退化为最高版本。
-private string latestVersion(const(VersionHit[]) hits) {
-  foreach_reverse (hit; hits)
-    if (prereleaseOf(hit.ver).length == 0)
-      return hit.ver;
-  return hits[$ - 1].ver;
+/// 包名形态（`name` 或 `@scope/name`）——用于把 packument 的 uri 还原成包名。
+private bool isPackageName(string name) {
+  auto segs = name.split("/");
+  if (segs.length == 1)
+    return segs[0].length > 0 && segs[0][0] != '@';
+  return segs.length == 2 && segs[0].length > 1 && segs[0][0] == '@' && segs[1].length > 0;
 }
 
 /// 由目录内容推导出来的 tag（每次刷新都会重算，不保留历史值）。

@@ -17,6 +17,7 @@
 module test.micdn.maven.snapshot_test;
 
 import std.algorithm : canFind;
+import std.conv : to;
 import std.digest : toHexString;
 import std.digest.sha : sha1Of;
 import std.exception : assertThrown, collectException;
@@ -35,7 +36,7 @@ import vibe.stream.memory : createMemoryOutputStream;
 
 import micdn.config : parseFile;
 import micdn.maven.snapshot;
-import micdn.maven.web : MavenService, SnapshotService;
+import micdn.maven.web : MavenService;
 
 // ---- 造工件 ----
 
@@ -113,13 +114,13 @@ private string makePom(string dir, string group, string artifact, string ver, st
   return file;
 }
 
-/// 写一份含 `<snapshot base>` 的配置，返回配置文件路径。
-private string writeConfig(string home) {
+/// 写一份 SNAPSHOT 与正式版共用 `<maven base>` 的配置（可选配 `<snapshot remote=...>`），返回配置文件路径。
+private string writeConfig(string home, string snapshotRemote = null) {
   auto xmlPath = buildPath(home, "micdn.xml");
+  auto snapshot = snapshotRemote is null
+    ? "" : "<snapshot remote=\"" ~ snapshotRemote ~ "\"/>";
   std.file.write(xmlPath, `<?xml version="1.0"?><micdn listen="127.0.0.1:8888">
-  <maven base="` ~ buildPath(home, "maven") ~ `">
-    <snapshot base="` ~ buildPath(home, "snapshots") ~ `"/>
-  </maven>
+  <maven base="` ~ buildPath(home, "maven") ~ `">` ~ snapshot ~ `</maven>
 </micdn>`);
   return xmlPath;
 }
@@ -246,14 +247,14 @@ unittest {
     if (exists(home))
       rmdirRecurse(home);
 
-  auto repo = new SnapshotRepo(buildPath(home, "snapshots"));
+  auto repo = new SnapshotRepo(buildPath(home, "maven"));
   auto jar = makeJar(buildPath(home, "in"), "org.beangle.commons", "beangle-commons",
       "5.0.0-SNAPSHOT", "20250803.132600-31");
   auto result = installSnapshot(repo, jar);
 
   assert(result.uri == "/org/beangle/commons/beangle-commons/5.0.0-SNAPSHOT/"
       ~ "beangle-commons-5.0.0-20250803.132600-31.jar");
-  assert(result.file == buildPath(home, "snapshots") ~ result.uri);
+  assert(result.file == buildPath(home, "maven") ~ result.uri);
   assert(exists(result.file));
   assert(exists(result.file ~ ".sha1"));
   assert(toUpper(readText(result.file ~ ".sha1")) == toHexString(sha1Of(cast(ubyte[]) read(result.file))));
@@ -287,7 +288,7 @@ unittest {
     if (exists(home))
       rmdirRecurse(home);
 
-  auto repo = new SnapshotRepo(buildPath(home, "snapshots"));
+  auto repo = new SnapshotRepo(buildPath(home, "maven"));
   auto inDir = buildPath(home, "in");
   auto jar = makeJar(inDir, "org.beangle", "tool", "1.0.0-SNAPSHOT", "20250803.132600-4");
   auto pom = makePom(inDir, "org.beangle", "tool", "1.0.0-SNAPSHOT", "20250803.132600-4");
@@ -318,7 +319,7 @@ unittest {
     if (exists(home))
       rmdirRecurse(home);
 
-  auto repo = new SnapshotRepo(buildPath(home, "snapshots"));
+  auto repo = new SnapshotRepo(buildPath(home, "maven"));
   auto inDir = buildPath(home, "in");
   installSnapshot(repo, makeJar(inDir, "org.beangle.commons", "beangle-commons", "5.0.0-SNAPSHOT",
       "20250802.120000-1"));
@@ -341,7 +342,7 @@ unittest {
   // 目录不存在
   assert(repo.latestAlias("/org/beangle/none/1.0-SNAPSHOT/none-1.0-SNAPSHOT.jar") is null);
 
-  auto metadata = readText(buildPath(home, "snapshots") ~ vdir ~ "/maven-metadata.xml");
+  auto metadata = readText(buildPath(home, "maven") ~ vdir ~ "/maven-metadata.xml");
   assert(metadata.canFind("<buildNumber>2</buildNumber>"));
   assert(metadata.canFind("<extension>jar</extension>"));
   assert(metadata.canFind("<classifier>sources</classifier>"));
@@ -349,7 +350,7 @@ unittest {
 
 // ---- HTTP 服务 ----
 
-@("snapshot service redirects aliases and serves timestamped files")
+@("MavenService redirects snapshot aliases and serves timestamped files")
 unittest {
   auto home = tempHome();
   scope (exit)
@@ -360,44 +361,73 @@ unittest {
   installSnapshot(SnapshotRepo.build(parseFile(xmlPath)),
       makeJar(buildPath(home, "in"), "org.beangle.commons", "beangle-commons",
           "5.0.0-SNAPSHOT", "20250803.132600-31"));
-  auto service = new SnapshotService(parseFile(xmlPath));
+  auto service = new MavenService(parseFile(xmlPath));
   auto vdir = "/org/beangle/commons/beangle-commons/5.0.0-SNAPSHOT";
   auto timestamped = "beangle-commons-5.0.0-20250803.132600-31.jar";
 
   HTTPStatusException err;
 
   // GET 别名 → 302 到时间戳文件，携带 latest 头
-  auto r = exchange(service, "/snapshot" ~ vdir ~ "/beangle-commons-5.0.0-SNAPSHOT.jar", HTTPMethod.GET, err);
+  auto r = exchange(service, "/maven" ~ vdir ~ "/beangle-commons-5.0.0-SNAPSHOT.jar", HTTPMethod.GET, err);
   assert(err is null);
   assert(r.res.statusCode == HTTPStatus.found);
   assert(r.res.headers["latest"] == timestamped);
-  assert(r.res.headers["Location"] == "/snapshot" ~ vdir ~ "/" ~ timestamped);
+  assert(r.res.headers["Location"] == "/maven" ~ vdir ~ "/" ~ timestamped);
 
   // HEAD 别名 → 200 + latest 头（sashub 语义）
-  auto h = exchange(service, "/snapshot" ~ vdir ~ "/beangle-commons-5.0.0-SNAPSHOT.jar", HTTPMethod.HEAD, err);
+  auto h = exchange(service, "/maven" ~ vdir ~ "/beangle-commons-5.0.0-SNAPSHOT.jar", HTTPMethod.HEAD, err);
   assert(err is null);
   assert(h.res.statusCode == HTTPStatus.ok);
   assert(h.res.headers["latest"] == timestamped);
 
   // 时间戳文件 → 200 且内容一致
-  auto f = exchange(service, "/snapshot" ~ vdir ~ "/" ~ timestamped, HTTPMethod.GET, err);
+  auto f = exchange(service, "/maven" ~ vdir ~ "/" ~ timestamped, HTTPMethod.GET, err);
   assert(err is null);
-  assert(f.body == cast(string) read(buildPath(home, "snapshots") ~ vdir ~ "/" ~ timestamped));
+  assert(f.body == cast(string) read(buildPath(home, "maven") ~ vdir ~ "/" ~ timestamped));
 
   // maven-metadata.xml → 200
-  auto m = exchange(service, "/snapshot" ~ vdir ~ "/maven-metadata.xml", HTTPMethod.GET, err);
+  auto m = exchange(service, "/maven" ~ vdir ~ "/maven-metadata.xml", HTTPMethod.GET, err);
   assert(err is null);
   assert(m.body.canFind("<artifactId>beangle-commons</artifactId>"));
 
   // 别名指向不存在的时间戳文件（未被装入）→ 404
-  exchange(service, "/snapshot" ~ vdir ~ "/beangle-commons-5.0.0-SNAPSHOT.pom", HTTPMethod.GET, err);
+  exchange(service, "/maven" ~ vdir ~ "/beangle-commons-5.0.0-SNAPSHOT.pom", HTTPMethod.GET, err);
   assert(err !is null && err.status == HTTPStatus.notFound);
   // 缺失文件 → 404
-  exchange(service, "/snapshot" ~ vdir ~ "/beangle-commons-5.0.0-20250803.132600-31.pom", HTTPMethod.GET, err);
+  exchange(service, "/maven" ~ vdir ~ "/beangle-commons-5.0.0-20250803.132600-31.pom", HTTPMethod.GET, err);
   assert(err !is null && err.status == HTTPStatus.notFound);
 }
 
-@("snapshot service applies snapshot cache policies and rejects client state files")
+@("MavenService serves the repository root at /maven")
+unittest {
+  auto home = tempHome();
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+
+  auto xmlPath = writeConfig(home);
+  installSnapshot(SnapshotRepo.build(parseFile(xmlPath)),
+      makeJar(buildPath(home, "in"), "org.beangle.commons", "beangle-commons", "5.0.0-SNAPSHOT",
+          "20250803.132600-41"));
+  auto service = new MavenService(parseFile(xmlPath));
+
+  HTTPStatusException err;
+
+  // 仓库根缺尾斜杠 → 302 补 `/`（列表页的相对链接依赖尾斜杠）
+  auto r = exchange(service, "/maven", HTTPMethod.GET, err);
+  assert(err is null);
+  assert(r.res.statusCode == HTTPStatus.found,
+      "GET /maven should redirect, got " ~ r.res.statusCode.to!string);
+  assert(r.res.headers["Location"] == "/maven/");
+
+  // 仓库根带尾斜杠 → 200 目录列表（空段此前被当成解析失败，根路径恒 404）
+  auto l = exchange(service, "/maven/", HTTPMethod.GET, err);
+  assert(err is null);
+  assert(l.res.statusCode == HTTPStatus.ok);
+  assert(l.body.canFind("org/"), "根目录列表应含一级子目录");
+}
+
+@("MavenService applies snapshot cache policies and rejects client state files")
 unittest {
   auto home = tempHome();
   scope (exit)
@@ -407,14 +437,14 @@ unittest {
   auto xmlPath = writeConfig(home);
   installSnapshot(SnapshotRepo.build(parseFile(xmlPath)),
       makeJar(buildPath(home, "in"), "org.beangle", "tool", "1.0.0-SNAPSHOT", "20250803.132600-4"));
-  auto service = new SnapshotService(parseFile(xmlPath));
+  auto service = new MavenService(parseFile(xmlPath));
   auto vdir = "/org/beangle/tool/1.0.0-SNAPSHOT";
-  auto jarUri = "/snapshot" ~ vdir ~ "/tool-1.0.0-20250803.132600-4.jar";
+  auto jarUri = "/maven" ~ vdir ~ "/tool-1.0.0-20250803.132600-4.jar";
 
   HTTPStatusException err;
 
   // 元数据：每次回源校验（元数据随时变）
-  auto meta = exchange(service, "/snapshot" ~ vdir ~ "/maven-metadata.xml", HTTPMethod.GET, err);
+  auto meta = exchange(service, "/maven" ~ vdir ~ "/maven-metadata.xml", HTTPMethod.GET, err);
   assert(err is null);
   assert(meta.res.headers["Cache-Control"] == "public, no-cache");
 
@@ -432,12 +462,53 @@ unittest {
 
   // maven 客户端写入的本地状态文件不作为构件提供
   foreach (name; ["resolver-status.properties", "tool-1.0.0-SNAPSHOT.jar.lastUpdated"]) {
-    exchange(service, "/snapshot" ~ vdir ~ "/" ~ name, HTTPMethod.GET, err);
+    exchange(service, "/maven" ~ vdir ~ "/" ~ name, HTTPMethod.GET, err);
     assert(err !is null && err.status == HTTPStatus.notFound, name);
   }
 }
 
-@("maven service no longer serves any SNAPSHOT path")
+@("MavenService proxies missing SNAPSHOT artifacts from the <snapshot> remote")
+unittest {
+  auto home = tempHome();
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+
+  // 上游用 file:// 模拟（curl 直接读本地路径），单测里不必真起一个 HTTP 服务；
+  // 校验文件按 GavRepo 口径一并准备好，回源要走 sha1 校验。
+  auto upstream = buildPath(home, "upstream");
+  auto vdir = "/org/beangle/tool/1.0.0-SNAPSHOT";
+  auto jarName = "tool-1.0.0-20250803.132600-4.jar";
+  auto jarBody = "upstream-jar";
+  auto metaBody = "<metadata/>";
+  mkdirRecurse(upstream ~ vdir);
+  std.file.write(upstream ~ vdir ~ "/" ~ jarName, jarBody);
+  std.file.write(upstream ~ vdir ~ "/" ~ jarName ~ ".sha1",
+      toHexString(sha1Of(cast(ubyte[]) jarBody)));
+  std.file.write(upstream ~ vdir ~ "/maven-metadata.xml", metaBody);
+  std.file.write(upstream ~ vdir ~ "/maven-metadata.xml.sha1",
+      toHexString(sha1Of(cast(ubyte[]) metaBody)));
+
+  auto xmlPath = writeConfig(home, "file://" ~ upstream);
+  auto service = new MavenService(parseFile(xmlPath));
+  HTTPStatusException err;
+
+  auto jar = exchange(service, "/maven" ~ vdir ~ "/" ~ jarName, HTTPMethod.GET, err);
+  assert(err is null);
+  assert(jar.body == jarBody);
+  assert(exists(buildPath(home, "maven") ~ vdir ~ "/" ~ jarName), "回源结果落在共用的 <maven base>");
+
+  // 元数据（maven-metadata.xml）同样本地优先、缺失回源
+  auto meta = exchange(service, "/maven" ~ vdir ~ "/maven-metadata.xml", HTTPMethod.GET, err);
+  assert(err is null);
+  assert(meta.body == metaBody);
+
+  // 上游也没有的文件不代理出 200
+  exchange(service, "/maven" ~ vdir ~ "/tool-1.0.0-20250803.132600-9.jar", HTTPMethod.GET, err);
+  assert(err !is null && err.status == HTTPStatus.notFound);
+}
+
+@("without a <snapshot> remote /maven serves only locally installed SNAPSHOTs")
 unittest {
   auto home = tempHome();
   scope (exit)
@@ -446,12 +517,71 @@ unittest {
 
   auto xmlPath = writeConfig(home);
   auto service = new MavenService(parseFile(xmlPath));
+  auto vdir = "/org/beangle/commons/beangle-commons/5.0.0-SNAPSHOT";
 
   HTTPStatusException err;
-  exchange(service, "/maven/org/beangle/commons/beangle-commons/5.0.0-SNAPSHOT/beangle-commons-5.0.0-SNAPSHOT.jar",
-      HTTPMethod.GET, err);
+  exchange(service, "/maven" ~ vdir ~ "/beangle-commons-5.0.0-SNAPSHOT.jar", HTTPMethod.GET, err);
   assert(err !is null && err.status == HTTPStatus.notFound);
-  exchange(service, "/maven/org/beangle/commons/beangle-commons/5.0.0-SNAPSHOT/maven-metadata.xml",
-      HTTPMethod.GET, err);
+  exchange(service, "/maven" ~ vdir ~ "/maven-metadata.xml", HTTPMethod.GET, err);
   assert(err !is null && err.status == HTTPStatus.notFound);
+
+  // 装入之后同一路径即可交付（不需要任何上游）
+  installSnapshot(SnapshotRepo.build(parseFile(xmlPath)),
+      makeJar(buildPath(home, "in"), "org.beangle.commons", "beangle-commons",
+          "5.0.0-SNAPSHOT", "20250803.132600-31"));
+  exchange(service, "/maven" ~ vdir ~ "/maven-metadata.xml", HTTPMethod.GET, err);
+  assert(err is null);
+}
+
+@("MavenService never mixes the release and SNAPSHOT upstreams")
+unittest {
+  auto home = tempHome();
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+
+  // 在一个上游目录里同时放正式版与快照构件：只有配了对应的 remote 才允许回源。
+  auto upstream = buildPath(home, "upstream");
+  auto rDir = "/org/beangle/tool/1.0.0";
+  auto sDir = "/org/beangle/tool/1.0.0-SNAPSHOT";
+  auto sJar = "tool-1.0.0-20250803.132600-4.jar";
+  mkdirRecurse(upstream ~ rDir);
+  mkdirRecurse(upstream ~ sDir);
+  writeUpstream(upstream, rDir ~ "/tool-1.0.0.jar", "release-jar");
+  writeUpstream(upstream, sDir ~ "/" ~ sJar, "snapshot-jar");
+
+  // 只配 <snapshot>：正式版路径不代理（即使构件就在同一台机器上）。
+  auto xmlPath = buildPath(home, "snapshot-only.xml");
+  std.file.write(xmlPath, `<?xml version="1.0"?><micdn listen="127.0.0.1:8888">
+  <maven base="` ~ buildPath(home, "maven") ~ `">
+    <snapshot remote="file://` ~ upstream ~ `"/>
+  </maven>
+</micdn>`);
+  auto service = new MavenService(parseFile(xmlPath));
+  HTTPStatusException err;
+
+  auto snap = exchange(service, "/maven" ~ sDir ~ "/" ~ sJar, HTTPMethod.GET, err);
+  assert(err is null && snap.body == "snapshot-jar", "快照构件走 <snapshot> 上游");
+  exchange(service, "/maven" ~ rDir ~ "/tool-1.0.0.jar", HTTPMethod.GET, err);
+  assert(err !is null && err.status == HTTPStatus.notFound, "正式版路径不得回落到 <snapshot> 上游");
+
+  // 只配 <maven><remote>：快照路径不代理。
+  // 换一个 base，避免上一个服务的回源结果留在本地把「不代理」掩盖掉。
+  auto releaseXml = buildPath(home, "release-only.xml");
+  std.file.write(releaseXml, `<?xml version="1.0"?><micdn listen="127.0.0.1:8888">
+  <maven base="` ~ buildPath(home, "maven-release") ~ `">
+    <remote url="file://` ~ upstream ~ `"/>
+  </maven>
+</micdn>`);
+  auto releaseService = new MavenService(parseFile(releaseXml));
+  auto rel = exchange(releaseService, "/maven" ~ rDir ~ "/tool-1.0.0.jar", HTTPMethod.GET, err);
+  assert(err is null && rel.body == "release-jar", "正式版构件走 <maven><remote> 上游");
+  exchange(releaseService, "/maven" ~ sDir ~ "/" ~ sJar, HTTPMethod.GET, err);
+  assert(err !is null && err.status == HTTPStatus.notFound, "快照路径不得回落到正式版上游");
+}
+
+/// 在上游仓库写一个构件及其 sha1（回源走 GavRepo 的 sha1 校验）。
+private void writeUpstream(string upstream, string uri, string body) {
+  std.file.write(upstream ~ uri, body);
+  std.file.write(upstream ~ uri ~ ".sha1", toHexString(sha1Of(cast(ubyte[]) body)));
 }

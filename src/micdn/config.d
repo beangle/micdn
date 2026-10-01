@@ -70,6 +70,34 @@ private string parseRepoBase(string home, string[string] attrs, string defaultSu
   return normalizeBasePath(base);
 }
 
+/** 解析 `<x remote="..."/>` 形式的单上游：元素缺失返回 `""`，出现多次或 remote 为空则报错。 */
+private string parseSingleRemote(T)(ref DOMEntity!T parent, string element) {
+  auto entries = children(parent, element).array;
+  if (entries.length > 1)
+    throw new Exception("<" ~ element ~ "> allows at most one element");
+  if (entries.length == 0)
+    return "";
+  auto url = getAttrs(entries[0]).get("remote", "").strip;
+  if (url.length == 0)
+    throw new Exception("<" ~ element ~ "> requires a non-empty remote attribute");
+  return stripTrailingSlash(url);
+}
+
+/** 解析节点下的 `<remote url="..."/>` 列表（按出现顺序即优先级），去掉 URL 末尾的 `/`。
+
+    空列表返回 `[]`——调用方按自己的语义决定是回落默认上游还是表示「不代理」。
+*/
+private string[] parseRemotes(T)(ref DOMEntity!T dom) {
+  string[] urls;
+  foreach (entry; children(dom, "remote")) {
+    auto attrs = getAttrs(entry);
+    auto url = attrs.get("url", "").strip;
+    if (url.length == 0)
+      throw new Exception("<remote> requires a non-empty url attribute");
+    urls ~= stripTrailingSlash(url);
+  }
+  return urls;
+}
 /** 从 XML 字符串解析 MicdnConfig。defaultHome 为 xml 所在目录，用于 home 属性为空时。
 */
 MicdnConfig parse(string defaultHome, string content, const string sourceFile = null) {
@@ -101,13 +129,9 @@ MicdnConfig parse(string defaultHome, string content, const string sourceFile = 
 
   if (dom.children.any!(c => c.name == "maven")) {
     maven = parseMaven(home, dom);
-  } else {
-    maven = MavenRepoConfig.defaultConfig();
   }
   if (dom.children.any!(c => c.name == "npm")) {
     npm = parseNpm(home, dom);
-  } else {
-    npm = NpmRepoConfig.defaultConfig();
   }
   if (dom.children.any!(c => c.name == "static")) {
     asset = parseAsset(home, dom);
@@ -155,15 +179,17 @@ string toXml(const MicdnConfig config) {
     app.put(i` log-level="$(config.logLevel)"`.text);
   app.put(">");
 
-  app.put(i`  <maven base="$(config.maven.base)">`.text);
-  app.put("\n");
-  foreach (remote; config.maven.remotes) {
-    app.put(i`    <remote url="$(remote)"/>`.text);
+  if (config.maven) {
+    app.put(i`  <maven base="$(config.maven.base)">`.text);
     app.put("\n");
+    foreach (remote; config.maven.remotes) {
+      app.put(i`    <remote url="$(remote)"/>`.text);
+      app.put("\n");
+    }
+    if (config.maven.snapshotRemote.length > 0)
+      app.put(i`    <snapshot remote="$(config.maven.snapshotRemote)"/>`.text ~ "\n");
+    app.put("  </maven>\n");
   }
-  app.put(i`    <snapshot base="$(config.maven.snapshotBase)"/>`.text);
-  app.put("\n");
-  app.put("  </maven>\n");
 
   if (config.npm) {
     app.put(i`  <npm base="$(config.npm.base)">`.text);
@@ -172,6 +198,8 @@ string toXml(const MicdnConfig config) {
       app.put(i`    <remote url="$(remote)"/>`.text);
       app.put("\n");
     }
+    if (config.npm.devRemote.length > 0)
+      app.put(i`    <dev remote="$(config.npm.devRemote)"/>`.text ~ "\n");
     app.put("  </npm>\n");
   }
 
@@ -234,45 +262,40 @@ string toXml(const MicdnConfig config) {
   return app.data;
 }
 
-/// 解析 Maven 仓库配置（本地路径、远程地址、SNAPSHOT 本地路径）。支持标签 maven 或 repo。
+/** 解析 Maven 仓库配置（本地路径、正式版 remote、可选的 SNAPSHOT remote）。标签固定为 `<maven>`。
+
+    正式版与 SNAPSHOT 共用 `base`；`<snapshot remote="..."/>` 只用来配置 SNAPSHOT 的上游，
+    省略时不代理 SNAPSHOT。
+*/
 MavenRepoConfig parseMaven(T)(string home, ref DOMEntity!T micdnDom) {
-  auto mavenEntries = children(micdnDom, "maven");
-  auto repoEntries = children(micdnDom, "repo");
-  auto dom = !mavenEntries.empty ? mavenEntries.front : repoEntries.front;
+  auto dom = children(micdnDom, "maven").front;
   auto attrs = getAttrs(dom);
 
   string base = parseRepoBase(home, attrs, "/maven");
-  // <snapshot> 可省略：省略时仍按默认路径建库并挂载 /snapshot，只是没有 `<snapshot>` 元素可配。
-  auto snapshotEntries = children(dom, "snapshot");
-  string[string] emptyAttrs;
-  string snapshotBase = parseRepoBase(home,
-      snapshotEntries.empty ? emptyAttrs : getAttrs(snapshotEntries.front), "/snapshots");
-  string[] remoteRepos = [];
-  auto remoteEntries = children(dom, "remote");
-  foreach (remoteEntry; remoteEntries) {
-    remoteRepos ~= stripTrailingSlash(getAttrs(remoteEntry)["url"]);
-  }
+  // <snapshot> 可省略：省略时不代理 SNAPSHOT，只发本地已装入的快照构件。
+  auto snapshotRemote = parseSingleRemote(dom, "snapshot");
+  string[] remoteRepos = parseRemotes(dom);
   if (remoteRepos.length == 0) {
     remoteRepos ~= "https://repo1.maven.org/maven2";
   }
-  return new MavenRepoConfig(base, remoteRepos, snapshotBase);
+  return new MavenRepoConfig(base, remoteRepos, snapshotRemote);
 }
 
-/// 解析 NPM 仓库配置（base、remotes）。根级 XML 标签为 npm。
+/** 解析 NPM 仓库配置（base、正式版 remotes、可选的开发版上游 `<dev remote="..."/>`）。支持标签 npm。
+
+    正式版与开发版共用 `base`；`<dev>` 只用来配置开发版（dev/预发布版本）的上游，
+    省略时不代理开发版。
+*/
 NpmRepoConfig parseNpm(T)(string home, ref DOMEntity!T micdnDom) {
   auto dom = children(micdnDom, "npm").front;
   auto attrs = getAttrs(dom);
 
   string base = parseRepoBase(home, attrs, "/npm");
-  string[] remoteRepos = [];
-  auto remoteEntries = children(dom, "remote");
-  foreach (remoteEntry; remoteEntries) {
-    remoteRepos ~= stripTrailingSlash(getAttrs(remoteEntry)["url"]);
-  }
+  string[] remoteRepos = parseRemotes(dom);
   if (remoteRepos.length == 0) {
     remoteRepos ~= "https://registry.npmmirror.com";
   }
-  return new NpmRepoConfig(base, remoteRepos);
+  return new NpmRepoConfig(base, remoteRepos, parseSingleRemote(dom, "dev"));
 }
 
 /// 从 DOM 节点解析静态资源配置（bundle 及 zip/dir/jar 等 provider）。

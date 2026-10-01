@@ -21,6 +21,7 @@ import vibe.inet.url : URL;
 import vibe.stream.memory : createMemoryOutputStream;
 
 import micdn.config : parseFile;
+import micdn.npm : NpmRepo;
 import micdn.npm.web : NpmService;
 
 private string npmHome() {
@@ -158,4 +159,32 @@ unittest {
   assert(res.headers["Content-Type"] == "application/json; charset=utf-8");
   assert(res.headers["Content-Length"] == expected.length.to!string);
   assert((cast(string) output.data) == expected);
+}
+
+@("npm serves dev versions from the same /npm mount, sharing the release base")
+unittest {
+  auto home = npmHome();
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  // 开发版 packument 与正式版一样落在 `<npm base>`（`micdn install` 的产物），/npm 是唯一入口
+  packumentBody(home, `{"name":"@xurp/manual","versions":{"0.0.4-dev.2":{"dist":{` ~
+      `"tarball":"{origin}/npm/@xurp/manual/-/manual-0.0.4-dev.2.tgz"}}}}`);
+  auto xmlPath = npmConfig(home);
+  auto config = parseFile(xmlPath);
+  auto repo = NpmRepo.build(config);
+  assert(repo.devRemote.length == 0, "没配 <dev remote=...> 时开发版不代理上游");
+
+  InetHeaderMap headers;
+  headers["Host"] = "cdn.example.com";
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://cdn.example.com/npm/@xurp/manual"),
+      HTTPMethod.GET, headers, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  new NpmService(config).service(req, res);
+
+  auto body = cast(string) output.data;
+  assert(body.canFind("http://cdn.example.com/npm/@xurp/manual/-/manual-0.0.4-dev.2.tgz"), body);
+  assert(!body.canFind("{origin}"), body);
+  assert(res.headers["Content-Type"] == "application/json; charset=utf-8");
 }

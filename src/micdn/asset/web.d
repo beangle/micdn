@@ -55,8 +55,7 @@ class AssetService {
         auto listData = genListContents(rs.path, endpoint, repositoryUri(uri));
         render!("index.dt", listData)(res);
       } else {
-        auto pub = endpoint ~ repositoryUri(uri);
-        res.redirect(req.requestURI.replace(pub, pub ~ "/"));
+        res.redirect(directoryUri(endpoint, uri));
       }
       return;
     }

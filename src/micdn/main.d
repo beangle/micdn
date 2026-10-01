@@ -142,14 +142,16 @@ URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
     registerEndpointGetHead(router, mountStatic, &assetService.service);
   }
 
-  auto mavenService = new MavenService(config);
-  registerEndpointGetHead(router, mountMaven, &mavenService.service);
+  // 未声明 <maven> / <npm> 就不注册对应端点（见 MicdnConfig.maven / npm 的 null 语义）
+  if (config.maven !is null) {
+    auto mavenService = new MavenService(config);
+    registerEndpointGetHead(router, mountMaven, &mavenService.service);
+  }
 
-  auto snapshotService = new SnapshotService(config);
-  registerEndpointGetHead(router, mountSnapshot, &snapshotService.service);
-
-  auto npmService = new NpmService(config);
-  registerEndpointGetHead(router, mountNpm, &npmService.service);
+  if (config.npm !is null) {
+    auto npmService = new NpmService(config);
+    registerEndpointGetHead(router, mountNpm, &npmService.service);
+  }
 
   if (config.blob !is null) {
     auto blobRepo = new BlobRepo(config.blob);
@@ -171,14 +173,18 @@ URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
   return router;
 }
 
-/// 打印已挂载的 HTTP 端点（与 `buildRouter` 中 `registerEndpoint` / `router.get` 一致）。
-void logRegisteredEndpoints(MicdnConfig config) {
+/** 已挂载的 HTTP 端点列表（与 `buildRouter` 中注册各服务的条件一致）。
+
+    未声明 `<maven>` / `<npm>` 时对应端点既不出现在列表中，也不会被注册。
+*/
+string[] registeredEndpoints(MicdnConfig config) {
   string[] parts = ["/admin"];
   if (config.asset !is null)
     parts ~= mountStatic;
-  parts ~= mountMaven;
-  parts ~= mountSnapshot;
-  parts ~= mountNpm;
+  if (config.maven !is null)
+    parts ~= mountMaven;
+  if (config.npm !is null)
+    parts ~= mountNpm;
   if (config.blob !is null) {
     parts ~= mountBlob;
     parts ~= mountS3;
@@ -189,7 +195,12 @@ void logRegisteredEndpoints(MicdnConfig config) {
       docLocs ~= doc.endpoint();
     parts ~= "/* (www" ~ (docLocs.length ? ": " ~ docLocs.join(", ") : "") ~ ")";
   }
-  logInfo("Registered HTTP endpoints: %s", parts.join(", "));
+  return parts;
+}
+
+/// 打印已挂载的 HTTP 端点。
+void logRegisteredEndpoints(MicdnConfig config) {
+  logInfo("Registered HTTP endpoints: %s", registeredEndpoints(config).join(", "));
 }
 
 // 跑 dub test 时由测试运行器提供 main，此处不编译
@@ -482,13 +493,15 @@ int runClean(string[] args) {
   return ok ? 0 : 1;
 }
 
-/** `install <FILE>`：把本地开发版构件装入配置里的仓库目录，并按目录内容刷新元数据。
+/** `install <FILE>`：把本地开发版构件装入配置里的仓库目录，并把元数据与本地版本合并刷新。
 
     - `.tgz` → npm：装入 `<npm base>`，`dist.tarball` 写 origin 占位符 `{origin}/npm/...`
-      （见 `originPlaceholder`），交付时由 npm 服务按请求 origin 替换；`--tag` 只对 npm 有效。
+      （见 `originPlaceholder`），交付时由 npm 服务按请求 origin 替换；packument 与已有内容（含上游
+      代理来的版本）合并；`--tag` 只对 npm 有效。需要配置 `<npm>`。
     - `.jar` / `.war` / `.pom` → maven SNAPSHOT：坐标取自工件内部（`pom.properties`，退化到
-      `MANIFEST.MF` 的 `Implementation-*`；`.pom` 直接解析 XML），装入 `<snapshot base>`，
+      `MANIFEST.MF` 的 `Implementation-*`；`.pom` 直接解析 XML），装入 `<maven base>`（与正式版共用），
       并重写 `maven-metadata.xml`。文件名须带 `mvn deploy` 生成的时间戳（不接受裸 `-SNAPSHOT.jar`）。
+      需要配置 `<maven>`。
 */
 int runInstall(string[] args) {
   auto configValue = configArg(args);
@@ -511,6 +524,8 @@ int runInstall(string[] args) {
   auto lower = pkg.toLower;
 
   if (lower.endsWith(".tgz")) {
+    if (config.npm is null)
+      throw new Exception("no <npm> section in config");
     auto repo = NpmRepo.build(config);
     auto result = installTarball(repo.base, pkg, originPlaceholder ~ mountNpm, tag);
     logInfo("install ok: %s@%s", result.name, result.ver);
@@ -523,12 +538,14 @@ int runInstall(string[] args) {
   if (lower.endsWith(".jar") || lower.endsWith(".war") || lower.endsWith(".pom")) {
     if (tag.length > 0)
       throw new Exception("--tag only applies to npm packages (.tgz)");
+    if (config.maven is null)
+      throw new Exception("no <maven> section in config");
     auto repo = SnapshotRepo.build(config);
     auto result = installSnapshot(repo, pkg);
     logInfo("install ok: %s:%s:%s", result.coords.group, result.coords.artifact, result.coords.ver);
     logInfo("artifact: %s", result.file);
     logInfo("metadata: %s", result.metadata);
-    logInfo("uri: %s%s", mountSnapshot, result.uri);
+    logInfo("uri: %s%s", mountMaven, result.uri);
     return 0;
   }
 
@@ -736,7 +753,7 @@ Commands:
                          FILE=PKG.tgz            装入 <npm base>，刷新 packument
                                                  --tag NAME  额外把本次版本挂到该 dist-tag（如 dev）
                                                  （dist.tarball 写 {origin} 占位符，交付时按请求 origin 替换）
-                         FILE=ARTIFACT.jar/war   装入 <snapshot base>，刷新 maven-metadata.xml
+                         FILE=ARTIFACT.jar/war   装入 <maven base>（与正式版共用），刷新 maven-metadata.xml
                          FILE=pom.xml            同上（坐标取自 pom；文件名须是 mvn deploy 生成的时间戳形式）
 
 Help Options:

@@ -8,12 +8,16 @@
   <maven base="/var/lib/micdn/maven">
     <remote url="https://maven.aliyun.com/repository/public" />
     <remote url="https://repo1.maven.org/maven2/" />
-    <!-- 本地 SNAPSHOT 仓库（挂载 /snapshot），由 `micdn install xxx-1.0.0-20250803.132600-31.jar` 装入 -->
-    <snapshot base="/var/lib/micdn/snapshots" />
+    <!-- SNAPSHOT 上游：/maven 下 SNAPSHOT 路径本地优先，缺失时回源这里（正式版路径不会回落到它）；
+         省略则只发本地已装入的快照构件。整个 <maven> 元素可省略，省略时不挂载 /maven。 -->
+    <snapshot remote="https://oss.sonatype.org/content/repositories/snapshots/" />
   </maven>
 
   <npm base="/var/lib/micdn/npm">
     <remote url="https://registry.npmmirror.com" />
+    <!-- 开发版上游（可省略）：dev/预发布版本只从这里回源；省略则开发版不代理、只发本地已装入的包。
+         整个 <npm> 元素可省略，省略时不挂载 /npm。 -->
+    <dev remote="https://registry.example.com/dev" />
   </npm>
 
   <blob base="${micdn.home}/blob" maxSize="50M">

@@ -10,8 +10,8 @@
 |------|------|
 | **static** | 从 Maven GAV（WebJar）、npm 包或本地目录部署前端资源，按 bundle 提供 |
 | **www** | SPA/文档站：npm / zip；支持 `try-file`；zip 可 `auto-deploy`（Linux inotify） |
-| **maven** / **npm** | 本地缓存 + 上游 remote 拉取 |
-| **snapshot** | 只读本地快照仓库（`/snapshot`），服务 `install` 装入的 maven SNAPSHOT，不访问上游 |
+| **maven** | 本地缓存 + 上游 remote 拉取；正式版与 SNAPSHOT 共用 `/maven`，SNAPSHOT 可选独立上游（`<snapshot remote="..."/>`） |
+| **npm** | 本地缓存 + 上游 registry 拉取；开发版（dev/预发布）可选独立上游（`<dev remote="..."/>`），与正式版共用 `/npm` |
 | **blob** | 对象存储；可选 S3 兼容接口 |
 | **admin** | localhost 只读指标 `/admin/metrics`、配置查看与 reload |
 
@@ -21,13 +21,16 @@
 
 | 前缀 | 说明 |
 |------|------|
-| `/maven` | 正式版：本地缓存 + 上游 remote 拉取；命中 SNAPSHOT 路径一律 404 |
-| `/snapshot` | 本地 SNAPSHOT（只读）：`micdn install` 装入后由它提供，别名请求 302 到最新时间戳文件 |
-| `/npm` | npm registry：packument（交付时替换 `{origin}` 占位符）与 tgz |
+| `/maven` | maven：本地缓存 + 上游 remote 拉取；SNAPSHOT 路径本地优先、缺失时按 `<snapshot remote>` 回源，别名请求 302 到最新时间戳文件（仅配置了 `<maven>` 时挂载） |
+| `/npm` | npm registry（正式版与开发版共用）：packument（交付时替换 `{origin}` 占位符）与 tgz（仅配置了 `<npm>` 时挂载） |
 | `/static` | 静态资源（配置了 `<static>` 时） |
 | `/blob`、`/s3` | 对象存储与 S3 兼容接口（配置了 `<blob>` 时） |
 | `/admin` | 本机只读指标 `/admin/metrics`、配置查看与 reload |
 | `/*` | www 兜底（配置了 `<www>` 时，按各 `<doc>` 名匹配） |
+
+**未声明 `<maven>` / `<npm>` 元素就不挂载对应端点**（`config.maven` / `config.npm` 为 null）。
+仓库前缀的根路径也是目录列表：缺尾斜杠（如 `/maven`）先 302 补 `/`，避免列表页的相对链接从站点根解析；
+`/maven/`、`/npm/` 直接列出本地仓库内容，便于核对缓存与本地装入（`micdn install`）的结果。
 
 ## 快速开始
 
@@ -59,20 +62,57 @@ micdn -f /etc/micdn/micdn.xml install xxx-0.0.3-dev.1.tgz --tag dev
 npm install @scope/xxx@dev --registry http://micdn:8888/npm/
 ```
 
-元数据全部由目录内容推导：`dist.integrity` / `dist.shasum` 由 tgz 字节算出，`dist-tags.latest` 取最高**正式**版
+本地版本的元数据全部由目录内容推导：`dist.integrity` / `dist.shasum` 由 tgz 字节算出，`dist-tags.latest` 取最高**正式**版
 （预发布不会顶替 latest），预发布版本按 `dev` / `next` / `beta` / `rc` / `alpha` / `canary` 自动打通道 tag，
-`--tag` 可再挂一个自定义 tag。删掉 `{npm base}/{包名}` 后再 `install` 一次即可重建元数据。
+`--tag` 可再挂一个自定义 tag。若 `{npm base}/{包名}` 已有 packument（例如上游代理来的正式版），install 会**合并**
+而不是覆盖：上游版本条目原样保留，本地版本覆盖同名条目。删掉 `{npm base}/{包名}` 后再 `install` 一次即可重建元数据。
 
 `dist.tarball` 不写死主机，而是写成占位符 `{origin}/npm/@scope/xxx/-/xxx-0.0.3-dev.1.tgz`，由 npm 服务在**交付时**
 替换成访问方看到的 origin，按请求推导（`Host` 与反代的 `X-Forwarded-Proto` / `X-Forwarded-Host` / `X-Forwarded-Port`）。
 因此同一个 packument 对 `http://micdn:8888`、`https://cdn.example.com` 都能给出可用地址，不需要在配置里写死对外地址。
 从上游 registry 代理来的 packument（含 `https://registry.npmmirror.com/...` 绝对地址）不做替换，原样发送。
 
-## 本地发布 maven SNAPSHOT
+## 开发版 npm 与上游（`<npm><dev remote="..."/>`）
 
-正式版走 `/maven`（本地缓存 + 上游 remote 拉取）；开发版 SNAPSHOT 不走上游，落在独立的本地仓库、由 **`/snapshot`**
-只读提供。仓库位置由 `<maven>` 的 `<snapshot base="..."/>` 配置（默认 `${micdn.home}/snapshots`）；**即使不写
-`<snapshot>` 元素也会建库并挂载 `/snapshot`**。
+正式版与开发版**共用** `/npm` 与 `<npm base>` 目录树，区别只在回源：`<dev>` 只配置开发版（dev/预发布）的上游 registry。
+整个 `<npm>` 元素可省略，省略就不挂载 `/npm`。
+
+```xml
+<npm base="${micdn.home}/npm">
+  <remote url="https://registry.npmmirror.com" />
+  <dev remote="https://registry.example.com/dev" />
+</npm>
+```
+
+- 回源按版本选上游（`NpmRepo.upstreamsFor`）：**开发版只走 `<dev>` 的 remote，不再回落正式版 remote**；正式版只走
+  `<npm>` 的 remote。开发版 = 语义化预发布版本（含 `-`，如 `0.0.3-dev.2`、`1.2.0-rc.1`）或预发布通道 tag
+  （`dev`/`next`/`beta`/`rc`/`alpha`/`canary`），见 `isDevVersionSpec`。
+- `<dev>` 可省略：此时开发版**不代理上游**，只认本地已装入/已缓存的文件，缺失即 404。
+  这也意味着开发版不必依赖外部 registry——`micdn install` 装入的包照样能被 `resolve` 与 `/npm` 找到。
+- packument 的 URL 不带版本、无法判定开发版还是正式版，代理时按正式版 remote、再 `<dev>` remote 顺序探测
+  （正式版优先，结果确定；同一 URL 重复配置只试一次）。
+- 一个包在本地只有**一份** packument（`{npm base}/{包名}`），它可能来自 `micdn install`、正式版上游或
+  `<dev>` 上游。`resolve` 解析 dist-tag 时先读本地这份，本地没有该 tag 就按 tag 所属的上游重新拉取；
+  每次 packument 落盘（install 或上游拉取）后都会**把本地已装入的版本并回去**（`mergeLocalVersions`），
+  所以「开发版上游只有 `dev`、正式版上游只有 `latest`」互不覆盖，两份 tag 都能解析到。
+- 消费方把它当 registry 用即可：`npm install @xurp/manual@dev --registry http://micdn:8888/npm/`。
+- 版本可以写具体版本，也可以写 dist-tag（`@xurp/manual@dev`、`@xurp/manual@latest`）：tag 先取 packument 的
+  `dist-tags` 解析成具体版本，再按 npm 目录规范取 tgz（`{pkg}/-/{name}-{version}.tgz`）。
+- 部署目录名仍是配置里写的版本（tag `dev` → `{static base}/{bundle}/dev/`），内容随 tag 指向的版本更新；
+  是否重新解压仍按 tgz 的 mtime 判断（`manifest.json` 快路径）。
+
+## maven SNAPSHOT（同一个 `/maven`）
+
+正式版与 SNAPSHOT **共用一个入口 `/maven`**，也共用 `<maven base>` 目录树（`{base}/{group 路径}/{artifact}/{version}/`），
+按版本目录区分：路径含 `SNAPSHOT` 的回源只走 `<snapshot remote="..."/>`，其余只走 `<maven><remote>`，两者互不回落。
+**省略 `<snapshot>`** 时快照不代理上游，只发本地已装入的构件（缺失即 404）：
+
+```xml
+<maven base="${micdn.home}/maven">
+  <remote url="https://repo1.maven.org/maven2/" />
+  <snapshot remote="https://oss.sonatype.org/content/repositories/snapshots/" />
+</maven>
+```
 
 把 `mvn deploy` 产出的带时间戳构件交给 **`micdn install`**：
 
@@ -83,7 +123,8 @@ micdn -f /etc/micdn/micdn.xml install target/beangle-commons-5.0.0-20250803.1326
 坐标（groupId / artifactId / version）取自工件内部：`META-INF/maven/{group}/{artifact}/pom.properties`（war 在
 `WEB-INF/classes/` 下），没有则退回 `MANIFEST.MF` 的 `Implementation-Vendor-Id` / `-Title` / `-Version`；`.pom`
 直接解析 XML。install 会复制构件、写 `.sha1`，并扫描版本目录重写 `maven-metadata.xml`（`<snapshot>` 取最新时间戳，
-`<snapshotVersions>` 列出最新构建的 jar/pom/classifier 等文件），元数据与构件一样由**写入方产出**，HTTP 侧只发文件。
+`<snapshotVersions>` 列出最新构建的 jar/pom/classifier 等文件），元数据与构件一样由**写入方产出**，HTTP 侧只负责
+发文件、解析别名，并在本地缺失且配了 `<snapshot remote>` 时回源。
 
 消费方在 POM 里声明这个仓库即可：
 
@@ -91,7 +132,7 @@ micdn -f /etc/micdn/micdn.xml install target/beangle-commons-5.0.0-20250803.1326
 <repositories>
   <repository>
     <id>micdn-snapshot</id>
-    <url>http://micdn:8888/snapshot</url>
+    <url>http://micdn:8888/maven</url>
     <snapshots><enabled>true</enabled></snapshots>
     <releases><enabled>false</enabled></releases>
   </repository>
@@ -99,7 +140,8 @@ micdn -f /etc/micdn/micdn.xml install target/beangle-commons-5.0.0-20250803.1326
 ```
 
 别名（不带时间戳）请求 `...-1.0.0-SNAPSHOT.jar` 会 `302` 到同目录最新的时间戳文件，`HEAD` 则以 `latest` 头返回实际
-文件名；`.sha1` 请求同样支持。`/maven` 不再服务任何 SNAPSHOT（命中即 404），避免与 `/snapshot` 语义混淆。
+文件名；`.sha1` 请求同样支持（别名只在本地目录里解析，不会为此单独探测上游）。快照构件的响应头为 `no-store`
+（同一路径可能被重新发布覆盖），`maven-metadata.xml` 为 `public, no-cache`。
 
 ## 配置示例
 
@@ -107,10 +149,11 @@ micdn -f /etc/micdn/micdn.xml install target/beangle-commons-5.0.0-20250803.1326
 <micdn home="/var/lib/micdn" listen="127.0.0.1:8080">
   <maven base="${micdn.home}/maven">
     <remote url="https://repo1.maven.org/maven2/" />
-    <snapshot base="${micdn.home}/snapshots" />
+    <snapshot remote="https://oss.sonatype.org/content/repositories/snapshots/" />
   </maven>
   <npm base="${micdn.home}/npm">
     <remote url="https://registry.npmmirror.com" />
+    <dev remote="https://registry.example.com/dev" />
   </npm>
   <static base="/var/cache/micdn/asset">
     <bundle name="bootstrap">

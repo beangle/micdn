@@ -29,10 +29,20 @@ import micdn.xml;
 
 auto CentralURL = "https://repo1.maven.org/maven2";
 
-@("default maven/npm repo bases expand tilde")
+@("maven/npm sections are optional: absent means the endpoint is not registered")
 unittest {
-  assert(MavenRepoConfig.defaultConfig().base == expandTilde("~/maven"));
-  assert(NpmRepoConfig.defaultConfig().base == expandTilde("~/npm"));
+  auto config = parse("/srv/micdn", `<?xml version="1.0"?><micdn></micdn>`);
+  assert(config.maven is null && config.npm is null);
+  auto xml = toXml(config);
+  assert(!xml.canFind("<maven"), "未声明 <maven> 就不输出");
+  assert(!xml.canFind("<npm"), "未声明 <npm> 就不输出");
+
+  // 写了元素（哪怕是空元素）才建库，base 回落默认路径，remote 回落默认上游
+  auto both = parse("/srv/micdn", `<?xml version="1.0"?><micdn><maven/><npm/></micdn>`);
+  assert(both.maven.base == "/srv/micdn/maven");
+  assert(both.maven.remotes == [CentralURL]);
+  assert(both.npm.base == "/srv/micdn/npm");
+  assert(both.npm.remotes == ["https://registry.npmmirror.com"]);
 }
 
 @("asset repo remote url")
@@ -98,56 +108,128 @@ unittest {
   assertThrown(parseAsset("~/tmp", dom));
 }
 
-@("maven config parse remotes")
-unittest
-{
-    auto content = `<?xml version="1.0" encoding="UTF-8"?>
+@("maven config parses <remote> under <maven>; legacy <repo> is ignored")
+unittest {
+  // <repo> 曾作为 <maven> 的别名，现已移除：不解析、不建库，也就不注册 /maven
+  auto legacy = parse("/srv/micdn", `<?xml version="1.0" encoding="UTF-8"?>
 <micdn>
   <repo>
     <remote url="https://maven.aliyun.com/nexus/content/groups/public"/>
-    <remote url="https://repo1.maven.org/maven2"/>
   </repo>
-</micdn>`;
+</micdn>`);
+  assert(legacy.maven is null, "<repo> must not be treated as <maven>");
 
-  auto dom = parseXml(content);
+  auto dom = parseXml(`<?xml version="1.0" encoding="UTF-8"?>
+<micdn>
+  <maven>
+    <remote url="https://maven.aliyun.com/nexus/content/groups/public"/>
+    <remote url="https://repo1.maven.org/maven2"/>
+  </maven>
+</micdn>`);
   auto config = parseMaven("~/maven", dom);
   assert(config.remotes.length == 2);
   assert(config.remotes[1] == CentralURL);
 }
 
-@("maven snapshot repo base: configured, defaulted and serialized")
+@("maven snapshot remote: an attribute on <snapshot>, optional and serialized")
 unittest {
   auto dom = parseXml(`<?xml version="1.0"?><micdn><maven base="/srv/maven">
-    <snapshot base="${micdn.home}/sndev"/>
+    <remote url="https://repo1.maven.org/maven2"/>
+    <snapshot remote="https://oss.example.com/content/repositories/snapshots/"/>
   </maven></micdn>`);
-  assert(parseMaven("/srv/micdn", dom).snapshotBase == "/srv/micdn/sndev");
+  auto config = parseMaven("/srv/micdn", dom);
+  assert(config.base == "/srv/maven", "SNAPSHOT 与正式版共用 base");
+  assert(config.remotes == ["https://repo1.maven.org/maven2"]);
+  assert(config.snapshotRemote == "https://oss.example.com/content/repositories/snapshots",
+      "remote 要 strip 尾斜杠");
 
-  // 省略 <snapshot> 也按 ${micdn.home}/snapshots 建库（HTTP 侧 /snapshot 无条件注册）
+  // 省略 <snapshot>：SNAPSHOT 不代理上游，/maven 只发本地已装入的构件
   auto bare = parseXml(`<?xml version="1.0"?><micdn><maven base="/srv/maven"/></micdn>`);
-  assert(parseMaven("/srv/micdn", bare).snapshotBase == "/srv/micdn/snapshots");
+  assert(parseMaven("/srv/micdn", bare).snapshotRemote.length == 0);
 
   auto root = parse("/srv/micdn", `<?xml version="1.0"?><micdn><maven/></micdn>`);
   assert(root.maven.base == "/srv/micdn/maven");
-  assert(root.maven.snapshotBase == "/srv/micdn/snapshots");
+  assert(root.maven.snapshotRemote.length == 0);
+  assert(!toXml(root).canFind("<snapshot"), "没有 remote 不输出 <snapshot>");
 
-  auto reserialized = toXml(root);
-  assert(reserialized.canFind("<snapshot base="));
-  assert(parse("/srv/micdn", reserialized).maven.snapshotBase == "/srv/micdn/snapshots");
+  auto withSnapshot = toXml(parse("/srv/micdn", `<?xml version="1.0"?><micdn><maven>
+    <snapshot remote="https://snapshots.example.com"/>
+  </maven></micdn>`));
+  assert(withSnapshot.canFind(`<snapshot remote="https://snapshots.example.com"/>`));
+  assert(parse("/srv/micdn", withSnapshot).maven.snapshotRemote == "https://snapshots.example.com");
 }
 
-@("snapshot repo base rejects an empty attribute and reserves /snapshot")
+@("snapshot remote rejects bad input and no longer reserves /snapshot")
 unittest {
-  auto dom = parseXml(`<?xml version="1.0"?><micdn><maven><snapshot base=""/></maven></micdn>`);
-  assertThrown!Exception(parseMaven("/srv/micdn", dom));
+  // 至多一个 <snapshot>
+  auto twice = parseXml(
+      `<?xml version="1.0"?><micdn><maven><snapshot remote="a"/><snapshot remote="b"/></maven></micdn>`);
+  assertThrown!Exception(parseMaven("/srv/micdn", twice));
+  // remote 属性必须非空
+  auto emptyUrl = parseXml(`<?xml version="1.0"?><micdn><maven><snapshot remote=""/></maven></micdn>`);
+  assertThrown!Exception(parseMaven("/srv/micdn", emptyUrl));
+  // 旧写法（子元素 + base）不再接受
+  auto legacyBase = parseXml(`<?xml version="1.0"?><micdn><maven><snapshot base="/srv/snap"/></maven></micdn>`);
+  assertThrown!Exception(parseMaven("/srv/micdn", legacyBase));
+  auto legacyChild = parseXml(
+      `<?xml version="1.0"?><micdn><maven><snapshot><remote url="https://a/b"/></snapshot></maven></micdn>`);
+  assertThrown!Exception(parseMaven("/srv/micdn", legacyChild));
 
-  // /snapshot 是内置挂载，www doc 不能同名占位（即使没写 <snapshot> 元素）
+  // /snapshot 不再是内置端点：www doc 可以叫 snapshot（SNAPSHOT 现在挂在 /maven 下）
   auto content = `<?xml version="1.0"?><micdn>
   <maven/>
   <www base="~/tmp/www">
     <doc name="snapshot" zip="~/m.zip"/>
   </www>
 </micdn>`;
-  assertThrown!Exception(parse("~/tmp", content), "snapshot mount vs www doc conflict");
+  assert(parse("~/tmp", content).www.docs.length == 1);
+}
+
+@("npm dev remote: an attribute on <dev>, optional and serialized")
+unittest {
+  auto dom = parseXml(`<?xml version="1.0"?><micdn><npm base="/srv/npm">
+    <remote url="https://registry.example.com"/>
+    <dev remote="https://registry.example.com/dev/"/>
+  </npm></micdn>`);
+  auto npm = parseNpm("/srv/micdn", dom);
+  assert(npm.base == "/srv/npm");
+  assert(npm.remotes == ["https://registry.example.com"]);
+  assert(npm.devRemote == "https://registry.example.com/dev", "remote 要 strip 尾斜杠");
+
+  // 省略 <dev>：开发版不代理上游；<npm> 的 remote 回落默认 registry
+  auto plainDom = parseXml(`<?xml version="1.0"?><micdn><npm/></micdn>`);
+  auto plain = parseNpm("/srv/micdn", plainDom);
+  assert(plain.devRemote.length == 0);
+  assert(plain.base == "/srv/micdn/npm", "开发版与正式版共用 base");
+  assert(plain.remotes == ["https://registry.npmmirror.com"]);
+
+  auto defaulted = parse("/srv/micdn",
+      `<?xml version="1.0"?><micdn><npm><dev remote="https://dev.example.com/snapshots"/></npm></micdn>`);
+  assert(defaulted.npm.devRemote == "https://dev.example.com/snapshots");
+  assert(defaulted.npm.base == "/srv/micdn/npm");
+  auto reserialized = toXml(defaulted);
+  assert(reserialized.canFind(`<dev remote="https://dev.example.com/snapshots"/>`));
+  assert(parse("/srv/micdn", reserialized).npm.devRemote == "https://dev.example.com/snapshots");
+}
+
+@("npm dev: at most one <dev>, non-empty remote url, and no /npm-dev mount")
+unittest {
+  assertThrown!Exception(parse("/srv/micdn",
+      `<?xml version="1.0"?><micdn><npm><dev/><dev/></npm></micdn>`));
+  assertThrown!Exception(parse("/srv/micdn",
+      `<?xml version="1.0"?><micdn><npm><dev remote=""/></npm></micdn>`));
+  // 旧写法（子元素 <remote>）不再接受
+  assertThrown!Exception(parse("/srv/micdn",
+      `<?xml version="1.0"?><micdn><npm><dev><remote url="https://a/dev"/></dev></npm></micdn>`));
+
+  // 开发版与正式版共用 /npm：不再有 /npm-dev 挂载，同名 www doc 不冲突
+  auto free = `<?xml version="1.0"?><micdn>
+  <npm/>
+  <www base="~/tmp/www">
+    <doc name="npm-dev" zip="~/m.zip"/>
+  </www>
+</micdn>`;
+  assert(parse("~/tmp", free).www.docs.length == 1);
 }
 
 @("blob config parse xml")

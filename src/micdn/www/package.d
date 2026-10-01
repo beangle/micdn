@@ -371,12 +371,16 @@ private WwwFile attachGzByStat(const(WwwDocConfig) doc, WwwFile wf) const {
       logWarn("Invalid npm package spec: %s", np.packageSpec);
       return false;
     }
-    auto npmRepo = NpmRepo.build(config);
-    if (!npmRepo.fetch(scopePart, namePart, versionPart)) {
+    if (config.npm is null) {
+      logWarn("Cannot resolve npm package %s: no <npm> section in config", np.packageSpec);
+      return false;
+    }
+    // 开发版（dev/预发布）只走 <npm><dev> 上游，未配置时不代理（见 NpmRepo.upstreamsFor）
+    auto tgzPath = fetchNpmTarball(config, scopePart, namePart, versionPart);
+    if (tgzPath is null) {
       logWarn("Cannot resolve npm package %s", np.packageSpec);
       return false;
     }
-    auto tgzPath = npmRepo.localTarball(scopePart, namePart, versionPart);
     deployed = force || !canSkipDeploy(tgzPath, docDir, "package/" ~ np.dir, np.packageSpec);
     if (!extractTgzToDocBase(tgzPath, docDir, "package/" ~ np.dir, np.packageSpec, force)) {
       logWarn("Failed to extract %s to %s", tgzPath, docDir);

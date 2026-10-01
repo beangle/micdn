@@ -30,7 +30,7 @@ import std.path;
 import std.uuid : randomUUID;
 import std.zlib : Compress, HeaderFormat;
 
-import micdn.npm.packument : installTarball;
+import micdn.npm.packument : installTarball, mergeLocalVersions;
 
 // ---- 造包：最小 ustar 头 + gzip（与 test/micdn/fs/tar_test.d 同口径，只造普通文件）----
 
@@ -194,6 +194,73 @@ unittest {
   assert(doc2["versions"]["1.0.1"]["dist"]["shasum"].str
       == toHexString!(LetterCase.lower)(sha1Of(cast(const(ubyte)[]) read(replaced))));
   assert(doc2["dist-tags"]["stable"].str == "1.0.0", "custom tag kept after reinstall");
+}
+
+@("installTarball: local dev versions merge into an upstream packument")
+unittest {
+  auto work = tempBase("merge-install");
+  scope (exit)
+    if (exists(work))
+      rmdirRecurse(work);
+  auto base = work ~ "/npm";
+  // 先有一份「上游代理来的」packument：只有正式版，tarball 是上游绝对地址
+  auto upstreamUrl = "https://registry.npmmirror.com/@xurp/manual/-/manual-0.0.2.tgz";
+  mkdirRecurse(base ~ "/@xurp");
+  std.file.write(base ~ "/@xurp/manual",
+      `{"name":"@xurp/manual","description":"upstream","readme":"hi",` ~
+      `"dist-tags":{"latest":"0.0.2"},` ~
+      `"versions":{"0.0.2":{"name":"@xurp/manual","version":"0.0.2",` ~
+      `"dist":{"tarball":"` ~ upstreamUrl ~ `"}}},` ~
+      `"time":{"created":"2024-01-01T00:00:00.000Z","modified":"2024-01-01T00:00:00.000Z",` ~
+      `"0.0.2":"2024-01-01T00:00:00.000Z"}}`);
+
+  auto result = installTarball(base, makeTgz(work ~ "/src",
+      `{"name":"@xurp/manual","version":"0.0.3-dev.1","description":"devbuild"}`),
+      "{origin}/npm", "");
+  assert(result.versions == ["0.0.2", "0.0.3-dev.1"], result.versions.to!string);
+
+  auto doc = readDoc(result.packument);
+  // 上游版本原样保留：绝对 tarball 地址与 time 都不动
+  assert(doc["versions"]["0.0.2"]["dist"]["tarball"].str == upstreamUrl);
+  assert(doc["time"]["0.0.2"].str == "2024-01-01T00:00:00.000Z");
+  // 本地开发版写占位符地址
+  assert(doc["versions"]["0.0.3-dev.1"]["dist"]["tarball"].str
+      == "{origin}/npm/@xurp/manual/-/manual-0.0.3-dev.1.tgz");
+  assert(doc["dist-tags"]["latest"].str == "0.0.2", "上游正式版仍是 latest");
+  assert(doc["dist-tags"]["dev"].str == "0.0.3-dev.1");
+  // 顶层字段以上游（latest 所在版本）为准，不被本地开发版的清单覆盖
+  assert(doc["description"].str == "upstream");
+  assert(doc["readme"].str == "hi");
+}
+
+@("mergeLocalVersions restores local dev versions after a proxy overwrite")
+unittest {
+  auto work = tempBase("merge-proxy");
+  scope (exit)
+    if (exists(work))
+      rmdirRecurse(work);
+  auto base = work ~ "/npm";
+  installTarball(base, makeTgz(work ~ "/src", `{"name":"@xurp/manual","version":"0.0.4-dev.2"}`),
+      "{origin}/npm", "");
+
+  // 模拟代理覆盖：上游 packument 只有正式版，本地 dev 版本被盖掉
+  auto upstreamUrl = "https://registry.npmmirror.com/@xurp/manual/-/manual-0.0.4.tgz";
+  std.file.write(base ~ "/@xurp/manual",
+      `{"name":"@xurp/manual","dist-tags":{"latest":"0.0.4"},` ~
+      `"versions":{"0.0.4":{"dist":{"tarball":"` ~ upstreamUrl ~ `"}}}}`);
+
+  mergeLocalVersions(base, "/@xurp/manual", "{origin}/npm");
+  auto doc = readDoc(base ~ "/@xurp/manual");
+  assert(doc["dist-tags"]["latest"].str == "0.0.4");
+  assert(doc["dist-tags"]["dev"].str == "0.0.4-dev.2", "本地 dev 版本要被并回去");
+  assert(doc["versions"]["0.0.4"]["dist"]["tarball"].str == upstreamUrl);
+  assert(doc["versions"]["0.0.4-dev.2"]["dist"]["tarball"].str
+      == "{origin}/npm/@xurp/manual/-/manual-0.0.4-dev.2.tgz");
+
+  // 本地没有任何 tgz 的包：不重写上游 packument
+  auto before = readText(base ~ "/@xurp/manual");
+  mergeLocalVersions(base, "/other", "{origin}/npm");
+  assert(readText(base ~ "/@xurp/manual") == before);
 }
 
 @("installTarball: rejects missing, malformed and unsafe packages")
