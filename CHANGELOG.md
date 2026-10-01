@@ -1,5 +1,9 @@
 # Changelog
 
+## 未发布
+
+- 文档：明确 `manifest.json` 是部署快路径的**唯一判据**（只比对源文件 `inner` / `size` / `mtime` / `artifact`，不看部署产物本身），以及部署产物被外部改动后不自愈的现象与手工恢复方式（`deploy … --force` + reload）。曾评估过“校验部署目录”（文件计数 / 目录指纹 / 目录 mtime）以自动重新部署，因复杂度和收益不成比例而放弃，详见 `docs/maintenance.md`
+
 ## v0.3.3 (2026-08-26)
 
 - 修复：SIGHUP 热加载只生效一次——eventcore 事件回调为一次性消费（触发后即移除），`startSighupReloadThread` 改为在回调内重新挂载事件，`systemctl reload` 可持续触发（已本地连发两次 SIGHUP 冒烟验证）

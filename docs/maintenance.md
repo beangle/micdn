@@ -72,7 +72,7 @@ sudo chmod 2775 /var/log/micdn
    sudo chmod 664 /etc/micdn/micdn.xml
    ```
 
-   加入 **`beangle`** 组的用户即可用编辑器直接保存（仍建议通过 **`sudo systemctl reload micdn`** 或 **SIGHUP** 按你环境要求重载配置）。  
+   加入 **`beangle`** 组的用户即可用编辑器直接保存（仍建议通过 **`sudo systemctl reload micdn`** 或 **SIGHUP** 按你环境要求重载配置）。
    **注意**：组可写会扩大能改配置的人的范围，请仅在可信管理员组内使用。
 
 修改配置后若服务支持热加载，可 **`systemctl reload micdn`**（即 SIGHUP）；否则 **`systemctl restart micdn`**。reload 的触发方式、工作流程与生效边界见 **[reload.md](./reload.md)**。
@@ -124,8 +124,25 @@ sudo -u micdn micdn -f /etc/micdn/micdn.xml deploy www manual --force   # 强制
 
 若在 **`micdn.xml`** 中为 `<dir location="...">` 等指定**新路径**（例如新的挂载点），需保证：
 
-- 目录存在，且 **`micdn` 用户可写**，或  
+- 目录存在，且 **`micdn` 用户可写**，或
 - 属主为 **`micdn:beangle`**，权限与父目录策略一致（例如 **`2775`**），便于进程与组内维护用户同时访问。
+
+---
+
+## 部署判定：只看 `manifest.json`
+
+`asset` / `www` 的部署产物是**可再生成**的缓存。是否跳过解压**只比对 `manifest.json` 与部署源文件**（`inner` 路径、`size`、`mtime`、逻辑 `artifact`），**不检查部署目录里还剩多少文件**。这是有意的取值：判定就是读一次 manifest 加几个 `stat`，启动不会被大目录拖慢；代价是**产物被本进程之外的改动动过时不会自愈**——缺失的文件会一直 404，直到下一次强制部署。
+
+> 曾评估在快路径里加“部署目录校验”（逐文件计数、目录指纹、目录 mtime）来自动重新部署。三种方案各有代价：计数发现不了“同目录新增 a、删除 b”；目录 mtime 会被本进程自己的写入（可写性探针、manifest）刷新，只有逐层重建目录状态才可靠，复杂度与启动成本都不划算。当前选择把 `manifest.json` 作为**唯一入口标准**，保持简单。
+
+因此部署目录被外部清理或改坏后，不要指望重启自愈，直接强制重装对应的 bundle / doc：
+
+```bash
+sudo -u micdn micdn -f /etc/micdn/micdn.xml deploy static jquery --force
+sudo -u micdn micdn -f /etc/micdn/micdn.xml deploy www manual --force
+```
+
+注意 `deploy` 之后，运行中实例的文件索引仍是启动 / reload 时建立的，需要 **重启或 `systemctl reload micdn`** 才会看到重新解压出来的内容（`reload` 见 [reload.md](./reload.md)）。
 
 ---
 
