@@ -142,13 +142,13 @@ URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
     registerEndpointGetHead(router, mountStatic, &assetService.service);
   }
 
-  // 未声明 <maven> / <npm> 就不注册对应端点（见 MicdnConfig.maven / npm 的 null 语义）
-  if (config.maven !is null) {
+  // 未声明 <maven> / <npm> 就不注册对应端点；仓库本身仍有默认值（见 MicdnConfig.mavenDeclared / npmDeclared）
+  if (config.mavenDeclared) {
     auto mavenService = new MavenService(config);
     registerEndpointGetHead(router, mountMaven, &mavenService.service);
   }
 
-  if (config.npm !is null) {
+  if (config.npmDeclared) {
     auto npmService = new NpmService(config);
     registerEndpointGetHead(router, mountNpm, &npmService.service);
   }
@@ -175,15 +175,15 @@ URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
 
 /** 已挂载的 HTTP 端点列表（与 `buildRouter` 中注册各服务的条件一致）。
 
-    未声明 `<maven>` / `<npm>` 时对应端点既不出现在列表中，也不会被注册。
+    未声明 `<maven>` / `<npm>` 时对应端点既不出现在列表中，也不会被注册（仓库仍有默认值）。
 */
 string[] registeredEndpoints(MicdnConfig config) {
   string[] parts = ["/admin"];
   if (config.asset !is null)
     parts ~= mountStatic;
-  if (config.maven !is null)
+  if (config.mavenDeclared)
     parts ~= mountMaven;
-  if (config.npm !is null)
+  if (config.npmDeclared)
     parts ~= mountNpm;
   if (config.blob !is null) {
     parts ~= mountBlob;
@@ -524,8 +524,7 @@ int runInstall(string[] args) {
   auto lower = pkg.toLower;
 
   if (lower.endsWith(".tgz")) {
-    if (config.npm is null)
-      throw new Exception("no <npm> section in config");
+    // 未声明 <npm> 也有默认仓库（可能只是不挂 /npm 端点），install 一样可用
     auto repo = NpmRepo.build(config);
     auto result = installTarball(repo.base, pkg, originPlaceholder ~ mountNpm, tag);
     logInfo("install ok: %s@%s", result.name, result.ver);
@@ -538,8 +537,6 @@ int runInstall(string[] args) {
   if (lower.endsWith(".jar") || lower.endsWith(".war") || lower.endsWith(".pom")) {
     if (tag.length > 0)
       throw new Exception("--tag only applies to npm packages (.tgz)");
-    if (config.maven is null)
-      throw new Exception("no <maven> section in config");
     auto repo = SnapshotRepo.build(config);
     auto result = installSnapshot(repo, pkg);
     logInfo("install ok: %s:%s:%s", result.coords.group, result.coords.artifact, result.coords.ver);

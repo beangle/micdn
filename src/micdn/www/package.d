@@ -371,10 +371,6 @@ private WwwFile attachGzByStat(const(WwwDocConfig) doc, WwwFile wf) const {
       logWarn("Invalid npm package spec: %s", np.packageSpec);
       return false;
     }
-    if (config.npm is null) {
-      logWarn("Cannot resolve npm package %s: no <npm> section in config", np.packageSpec);
-      return false;
-    }
     // 开发版（dev/预发布）只走 <npm><dev> 上游，未配置时不代理（见 NpmRepo.upstreamsFor）
     auto tgzPath = fetchNpmTarball(config, scopePart, namePart, versionPart);
     if (tgzPath is null) {

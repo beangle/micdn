@@ -127,12 +127,14 @@ MicdnConfig parse(string defaultHome, string content, const string sourceFile = 
   BlobConfig blob;
   WwwConfig www;
 
-  if (dom.children.any!(c => c.name == "maven")) {
-    maven = parseMaven(home, dom);
-  }
-  if (dom.children.any!(c => c.name == "npm")) {
-    npm = parseNpm(home, dom);
-  }
+  // <maven>/<npm> 只决定「是否挂载端点」：未声明时仍给与「声明了空元素」同口径的默认仓库，
+  // 让 <jar>/<npm> provider 与 `micdn install` 不必为了下载而强制声明该元素（见 MicdnConfig.mavenDeclared）。
+  bool mavenDeclared = dom.children.any!(c => c.name == "maven");
+  bool npmDeclared = dom.children.any!(c => c.name == "npm");
+  maven = mavenDeclared ? parseMaven(home, dom) : new MavenRepoConfig(
+      normalizeBasePath(home ~ "/maven"), [defaultMavenRemote]);
+  npm = npmDeclared ? parseNpm(home, dom) : new NpmRepoConfig(
+      normalizeBasePath(home ~ "/npm"), [defaultNpmRemote]);
   if (dom.children.any!(c => c.name == "static")) {
     asset = parseAsset(home, dom);
   }
@@ -142,7 +144,8 @@ MicdnConfig parse(string defaultHome, string content, const string sourceFile = 
   if (dom.children.any!(c => c.name == "www")) {
     www = parseWww(home, dom);
   }
-  return new MicdnConfig(asset, maven, blob, www, npm, listen, remote, home, logFile, logLevel);
+  return new MicdnConfig(asset, maven, blob, www, npm, listen, remote, home, logFile, logLevel,
+      mavenDeclared, npmDeclared);
 }
 
 /** 从本地 XML 文件解析 MicdnConfig。
@@ -179,7 +182,7 @@ string toXml(const MicdnConfig config) {
     app.put(i` log-level="$(config.logLevel)"`.text);
   app.put(">");
 
-  if (config.maven) {
+  if (config.mavenDeclared) {
     app.put(i`  <maven base="$(config.maven.base)">`.text);
     app.put("\n");
     foreach (remote; config.maven.remotes) {
@@ -191,7 +194,7 @@ string toXml(const MicdnConfig config) {
     app.put("  </maven>\n");
   }
 
-  if (config.npm) {
+  if (config.npmDeclared) {
     app.put(i`  <npm base="$(config.npm.base)">`.text);
     app.put("\n");
     foreach (remote; config.npm.remotes) {
@@ -262,6 +265,11 @@ string toXml(const MicdnConfig config) {
   return app.data;
 }
 
+/// `<remote>` 缺省（含未声明 `<maven>` / `<npm>` 元素）时的默认上游。
+immutable string defaultMavenRemote = "https://repo1.maven.org/maven2";
+/// 见 `defaultMavenRemote`。
+immutable string defaultNpmRemote = "https://registry.npmmirror.com";
+
 /** 解析 Maven 仓库配置（本地路径、正式版 remote、可选的 SNAPSHOT remote）。标签固定为 `<maven>`。
 
     正式版与 SNAPSHOT 共用 `base`；`<snapshot remote="..."/>` 只用来配置 SNAPSHOT 的上游，
@@ -276,7 +284,7 @@ MavenRepoConfig parseMaven(T)(string home, ref DOMEntity!T micdnDom) {
   auto snapshotRemote = parseSingleRemote(dom, "snapshot");
   string[] remoteRepos = parseRemotes(dom);
   if (remoteRepos.length == 0) {
-    remoteRepos ~= "https://repo1.maven.org/maven2";
+    remoteRepos ~= defaultMavenRemote;
   }
   return new MavenRepoConfig(base, remoteRepos, snapshotRemote);
 }
@@ -293,7 +301,7 @@ NpmRepoConfig parseNpm(T)(string home, ref DOMEntity!T micdnDom) {
   string base = parseRepoBase(home, attrs, "/npm");
   string[] remoteRepos = parseRemotes(dom);
   if (remoteRepos.length == 0) {
-    remoteRepos ~= "https://registry.npmmirror.com";
+    remoteRepos ~= defaultNpmRemote;
   }
   return new NpmRepoConfig(base, remoteRepos, parseSingleRemote(dom, "dev"));
 }

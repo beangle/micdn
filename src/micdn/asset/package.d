@@ -239,11 +239,8 @@ class AssetRepo {
   private static bool deployBundleJar(MicdnConfig config, const string bundlePath, const GavJarProvider gap,
       bool force) {
     auto base = config.asset.base;
+    // 未声明 <maven> 也有默认仓库（只是不挂 /maven 端点）
     auto maven = config.maven;
-    if (maven is null) {
-      logError("Cannot resolve %s: no <maven> section in config", gap.gav);
-      return false;
-    }
     string localJar = maven.localFile(gap.gav);
     string innerDir = gap.dir ~ bundlePath ~ "/" ~ gap.getVersion();
     auto docBase = base ~ bundlePath ~ "/" ~ gap.getVersion();
@@ -286,10 +283,6 @@ class AssetRepo {
   private static bool deployBundleNpm(MicdnConfig config, const string bundlePath, const NpmProvider np,
       string scopePart, string namePart, string versionPart, bool force) {
     auto base = config.asset.base;
-    if (config.npm is null) {
-      logWarn("Cannot resolve npm package %s: no <npm> section in config", np.packageSpec);
-      return false;
-    }
     // 开发版（dev/预发布）只走 <npm><dev> 上游；目录名仍用配置里写的版本（如 dev）
     auto tgzPath = fetchNpmTarball(config, scopePart, namePart, versionPart);
     if (tgzPath is null) {

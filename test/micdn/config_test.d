@@ -29,16 +29,22 @@ import micdn.xml;
 
 auto CentralURL = "https://repo1.maven.org/maven2";
 
-@("maven/npm sections are optional: absent means the endpoint is not registered")
+@("maven/npm sections control the endpoint only; absent still has a default repo")
 unittest {
   auto config = parse("/srv/micdn", `<?xml version="1.0"?><micdn></micdn>`);
-  assert(config.maven is null && config.npm is null);
+  // 未声明元素：不挂端点，但仓库仍在（provider 与 install 可用），取与空元素同口径的默认值
+  assert(!config.mavenDeclared && !config.npmDeclared);
+  assert(config.maven.base == "/srv/micdn/maven");
+  assert(config.maven.remotes == [CentralURL]);
+  assert(config.npm.base == "/srv/micdn/npm");
+  assert(config.npm.remotes == ["https://registry.npmmirror.com"]);
   auto xml = toXml(config);
   assert(!xml.canFind("<maven"), "未声明 <maven> 就不输出");
   assert(!xml.canFind("<npm"), "未声明 <npm> 就不输出");
 
-  // 写了元素（哪怕是空元素）才建库，base 回落默认路径，remote 回落默认上游
+  // 写了元素（哪怕是空元素）才挂端点，base 与未声明时相同
   auto both = parse("/srv/micdn", `<?xml version="1.0"?><micdn><maven/><npm/></micdn>`);
+  assert(both.mavenDeclared && both.npmDeclared);
   assert(both.maven.base == "/srv/micdn/maven");
   assert(both.maven.remotes == [CentralURL]);
   assert(both.npm.base == "/srv/micdn/npm");
@@ -117,7 +123,8 @@ unittest {
     <remote url="https://maven.aliyun.com/nexus/content/groups/public"/>
   </repo>
 </micdn>`);
-  assert(legacy.maven is null, "<repo> must not be treated as <maven>");
+  assert(!legacy.mavenDeclared, "<repo> must not be treated as <maven>");
+  assert(legacy.maven.base == "/srv/micdn/maven", "<repo> 不建库，回落到默认仓库");
 
   auto dom = parseXml(`<?xml version="1.0" encoding="UTF-8"?>
 <micdn>

@@ -23,11 +23,14 @@ unittest {
       rmdirRecurse(home);
   mkdirRecurse(home);
 
-  // 不写 <maven>/<npm>：既不建库也不挂端点，避免暴露空仓库
+  // 不写 <maven>/<npm>：不挂端点，但仓库仍有默认值（provider/install 可用），避免暴露空仓库
   auto minimal = buildPath(home, "minimal.xml");
   write(minimal, `<?xml version="1.0"?><micdn></micdn>`);
-  assert(registeredEndpoints(parseFile(minimal)) == ["/admin"],
+  auto minimalConfig = parseFile(minimal);
+  assert(registeredEndpoints(minimalConfig) == ["/admin"],
       "undeclared maven/npm must not register /maven or /npm");
+  assert(!minimalConfig.npmDeclared && minimalConfig.npm.base.length > 0,
+      "undeclared npm must still have a usable default repo");
 
   // 写了元素（哪怕没有子元素）才注册端点
   auto full = buildPath(home, "full.xml");

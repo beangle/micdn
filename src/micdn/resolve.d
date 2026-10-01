@@ -60,9 +60,10 @@ private bool checkServiceRoots(MicdnConfig config) {
     return false;
   }
 
-  if (config.maven !is null && !checkRoot("maven", config.maven.base))
+  // 仓库始终存在（未声明 <maven>/<npm> 时是默认仓库），两个根目录都要可用
+  if (!checkRoot("maven", config.maven.base))
     ok = false;
-  if (config.npm !is null && !checkRoot("npm", config.npm.base))
+  if (!checkRoot("npm", config.npm.base))
     ok = false;
   if (config.asset !is null && !checkRoot("static", config.asset.base))
     ok = false;
@@ -126,19 +127,11 @@ private bool validateProviderSpec(MicdnConfig config, string context, const(Bund
       logError("Resolve %s failed: invalid npm spec: %s", context, np.packageSpec);
       return false;
     }
-    if (config.npm is null) {
-      logError("Resolve %s failed: npm provider needs a <npm> section", context);
-      return false;
-    }
     return true;
   }
   if (GavJarProvider gap = cast(GavJarProvider) provider) {
     if (!isValidGav(gap.gav)) {
       logError("Resolve %s failed: invalid gav: %s", context, gap.gav);
-      return false;
-    }
-    if (config.maven is null) {
-      logError("Resolve %s failed: jar provider needs a <maven> section", context);
       return false;
     }
     return true;

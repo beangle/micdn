@@ -21,14 +21,14 @@
 
 | 前缀 | 说明 |
 |------|------|
-| `/maven` | maven：本地缓存 + 上游 remote 拉取；SNAPSHOT 路径本地优先、缺失时按 `<snapshot remote>` 回源（版本元数据按 TTL 刷新），别名请求 302 到最新时间戳文件，本地快照版本并入 artifact 级元数据（仅配置了 `<maven>` 时挂载） |
-| `/npm` | npm registry（正式版与开发版共用）：packument（交付时替换 `{origin}` 占位符）与 tgz（仅配置了 `<npm>` 时挂载） |
+| `/maven` | maven：本地缓存 + 上游 remote 拉取；SNAPSHOT 路径本地优先、缺失时按 `<snapshot remote>` 回源（版本元数据按 TTL 刷新），别名请求 302 到最新时间戳文件，本地快照版本并入 artifact 级元数据（声明了 `<maven>` 才挂载；未声明时仍有默认仓库，见下） |
+| `/npm` | npm registry（正式版与开发版共用）：packument（交付时替换 `{origin}` 占位符）与 tgz（声明了 `<npm>` 才挂载；未声明时仍有默认仓库，见下） |
 | `/static` | 静态资源（配置了 `<static>` 时） |
 | `/blob`、`/s3` | 对象存储与 S3 兼容接口（配置了 `<blob>` 时） |
 | `/admin` | 本机只读指标 `/admin/metrics`、配置查看与 reload |
 | `/*` | www 兜底（配置了 `<www>` 时，按各 `<doc>` 名匹配） |
 
-**未声明 `<maven>` / `<npm>` 元素就不挂载对应端点**（`config.maven` / `config.npm` 为 null）。
+**`<maven>` / `<npm>` 元素只决定是否挂载对应端点**：未声明时 `/maven`、`/npm` 不挂载，但仓库仍在——base 回落到 `${micdn.home}/maven`、`${micdn.home}/npm`，上游回落到 repo1 / npmmirror，因此 `<jar>` / `<npm>` provider 与 `micdn install` 无需声明该元素（`config.mavenDeclared` / `config.npmDeclared`）。
 仓库前缀的根路径也是目录列表：缺尾斜杠（如 `/maven`）先 302 补 `/`，避免列表页的相对链接从站点根解析；
 `/maven/`、`/npm/` 直接列出本地仓库内容，便于核对缓存与本地装入（`micdn install`）的结果。
 

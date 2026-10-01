@@ -50,10 +50,22 @@ class MicdnConfig {
   const string logLevel;
   /// 静态资源配置（bundles 等；HTTP 前缀见 `micdn.routes.mountStatic`）
   const AssetConfig asset;
-  /// Maven 仓库配置（远程镜像、本地路径等；HTTP 前缀见 `mountMaven`）；未配置 `<maven>` 时为 null（不注册端点）
+  /** Maven 仓库配置（远程镜像、本地路径等；HTTP 前缀见 `mountMaven`）。
+
+      **始终存在**：未声明 `<maven>` 时取默认仓库（base `${micdn.home}/maven`、上游 repo1），
+      `<jar>` provider 与 `micdn install` 照常可用，只是不挂载 `/maven`（见 `mavenDeclared`）。
+  */
   const MavenRepoConfig maven;
-  /// NPM 仓库配置（base、remotes；HTTP 前缀见 `mountNpm`）；未配置 `<npm>` 时为 null（不注册端点）
+  /** NPM 仓库配置（base、remotes；HTTP 前缀见 `mountNpm`）。
+
+      **始终存在**：未声明 `<npm>` 时取默认仓库（base `${micdn.home}/npm`、上游 npmmirror），
+      `<npm>` provider 与 `micdn install` 照常可用，只是不挂载 `/npm`（见 `npmDeclared`）。
+  */
   const NpmRepoConfig npm;
+  /// `<maven>` 是否声明（决定是否挂载 `/maven`）；仓库本身始终可用
+  const bool mavenDeclared;
+  /// `<npm>` 是否声明（决定是否挂载 `/npm`）；仓库本身始终可用
+  const bool npmDeclared;
   /// Blob 存储配置（profiles、上传限制等）
   const BlobConfig blob;
   /// WWW 文档配置（多 doc，每 doc 独立 endpoint）
@@ -61,7 +73,8 @@ class MicdnConfig {
 
   this(AssetConfig asset, MavenRepoConfig maven, BlobConfig blob, WwwConfig www = null,
       NpmRepoConfig npm = null, string listen = "127.0.0.1:8888",
-      string remote = null, string home = "", string logFile = "console", string logLevel = "info") {
+      string remote = null, string home = "", string logFile = "console", string logLevel = "info",
+      bool mavenDeclared = true, bool npmDeclared = true) {
     this.listen = listen;
     this.remote = remote;
     this.home = home;
@@ -72,6 +85,9 @@ class MicdnConfig {
     this.blob = blob;
     this.www = www;
     this.npm = npm;
+    // 没有配置对象也就没有端点：把「声明」收敛为「声明且配置存在」，下游只看这一个标志
+    this.mavenDeclared = mavenDeclared && maven !is null;
+    this.npmDeclared = npmDeclared && npm !is null;
     validateEndpoints();
   }
 
@@ -83,11 +99,11 @@ class MicdnConfig {
       names ~= "static";
       endpoints ~= mountStatic;
     }
-    if (maven !is null) {
+    if (mavenDeclared) {
       names ~= "maven";
       endpoints ~= mountMaven;
     }
-    if (npm !is null) {
+    if (npmDeclared) {
       names ~= "npm";
       endpoints ~= mountNpm;
     }

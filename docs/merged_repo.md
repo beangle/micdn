@@ -33,8 +33,8 @@
 ```
 
 - `<snapshot>` / `<dev>` **只有 `remote` 属性、没有 `base`**：开发版不拥有独立目录树，和 `<maven base>` /
-  `<npm base>` 共用。历史上它们曾是子元素 `<remote>`，且 `/snapshot` 曾是独立只读入口，现已一并合并进 `/maven`。
-- **未声明 `<maven>` / `<npm>` 元素就不挂载对应端点**（`config.maven` / `config.npm` 为 null）。
+  `<npm base>` 共用。
+- **`<maven>` / `<npm>` 元素只决定是否挂载端点**：未声明时不挂 `/maven`、`/npm`，但仓库仍有默认值（base `${micdn.home}/maven`、`${micdn.home}/npm`，上游 repo1 / npmmirror），`<jar>` / `<npm>` provider 与 `micdn install` 照常可用。
 - 仓库前缀的根路径也是目录列表：缺尾斜杠（如 `/maven`）先 302 补 `/`。
 
 ## 本地布局与冲突分析
@@ -119,6 +119,8 @@
 | 开发版 | 配了 | 无 | 按 `<snapshot remote>` / `<dev remote>` 回源；仍无 → 404 |
 | 开发版 | 未配 | 有 | 直接发本地（`micdn install` 的产物无需外部 registry） |
 | 开发版 | 未配 | 无 | **404**（不回落正式版上游） |
+
+`<dev>` 未配置只影响「回源」，本地仓库与默认 base 始终可用（见上）。
 
 两套上游互不回落：混着试会让「这个版本到底从哪来」不可预期。
 
