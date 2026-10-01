@@ -512,7 +512,7 @@ private string prereleaseOf(string ver) {
 }
 
 /// 预发布通道名：`1.2.3-dev.4` → `dev`；正式版或未约定的通道返回空串。
-private string channelOf(string ver) {
+string channelOf(string ver) {
   auto pre = prereleaseOf(ver);
   if (pre.length == 0)
     return "";

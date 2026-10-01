@@ -24,6 +24,12 @@
     <bucket name="local" key="65KhzfJQme4jApTZ2EZ-58hKDUpZrbzwhsKd2dRPP08" />
   </blob>
 
+  <!-- 发布端点（PUT 上传）：用于开发时直接 `npm publish` / `mvn deploy` 到这个实例。
+       令牌必填（Authorization: Bearer/Basic 或 X-Micdn-Token），它就是写权限凭据，
+       因此只应经 HTTPS（或反代的 HTTPS 终止）暴露，并选用足够长的随机令牌；
+       不写这个元素就完全不挂 PUT 端点（只有 GET/HEAD）。 -->
+  <!-- <publish token="change-me" maxSize="64M" /> -->
+
   <!-- static bundles 由 resources/a.xml（contexts）转换：context base="/foo" → bundle name="foo" -->
   <static base="/var/cache/micdn/asset">
     <bundle name="AdminLTE">

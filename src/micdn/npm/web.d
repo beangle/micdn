@@ -17,6 +17,7 @@ import std.string;
 
 import vibe.core.core;
 import vibe.core.file;
+import vibe.core.log;
 import vibe.http.fileserver : handleCacheFile;
 import vibe.http.router;
 import vibe.http.server;
@@ -25,11 +26,13 @@ import micdn.fs.browser;
 import micdn.model;
 import micdn.routes;
 import micdn.npm;
-import micdn.npm.packument : originPlaceholder;
+import micdn.npm.publish : installPublishedPackument;
+import micdn.npm.packument : InstallResult, originPlaceholder;
 import micdn.web;
 import micdn.web.cache;
 import micdn.web.file;
 import micdn.web.origin;
+import micdn.web.publish : authorizePublish, readUploadBody;
 import micdn.fs.index;
 
 /** npm registry：版本化 tarball 与 packument（本地文件优先，缺失时按同一路径从上游拉取）。
@@ -44,12 +47,27 @@ import micdn.fs.index;
 class NpmService {
   private enum string endpoint = mountNpm;
   private const NpmRepo repo;
+  /** 上传令牌（`<publish token="…"/>`）；空表示未启用发布，PUT 一律 401。 */
+  private string publishToken;
+  /** 上传体上限（来自 `<publish maxSize>`）。 */
+  private size_t publishMaxSize;
 
   this(MicdnConfig config) {
     this.repo = NpmRepo.build(config);
+    if (config.publish !is null) {
+      this.publishToken = config.publish.token;
+      this.publishMaxSize = config.publish.maxSize;
+    }
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
+    if (req.method == HTTPMethod.PUT) {
+      // 写路径的唯一入口：先校验令牌，再做任何路径解析与 body 读取
+      if (!authorizePublish(req, res, publishToken))
+        return;
+      publish(req, res);
+      return;
+    }
     const uri = getResourceUri(endpoint, req);
     const ruri = repositoryUri(uri);
     auto path = repositoryPath(repo.base, uri);
@@ -108,6 +126,33 @@ class NpmService {
         sendFile(req, res, path, info, npmArtifactCachePolicy(ruri));
       }
     }
+  }
+
+  /** 发布：`npm publish --registry http://127.0.0.1:8888/npm/`。
+
+      请求体是 npm 的 publish 文档（packument + `_attachments` 内嵌 Base64 tgz），
+      交给 `installPublishedPackument` 解出后落盘并刷新 packument。
+      调用方（`service` 的 PUT 分支）已通过 `authorizePublish` 校验令牌。
+      路径必须是包名（`PUT /npm/@scope/name`），否则 404。
+  */
+  private void publish(HTTPServerRequest req, HTTPServerResponse res) {
+    const uri = getResourceUri(endpoint, req);
+    const ruri = repositoryUri(uri);
+    if (!isPackageUri(ruri))
+      throw new HTTPStatusException(HTTPStatus.notFound);
+    auto body = readUploadBody(req.bodyReader, publishMaxSize);
+    InstallResult result;
+    try
+      result = installPublishedPackument(repo.base, ruri[1 .. $], body,
+          originPlaceholder ~ mountNpm);
+    catch (HTTPStatusException e)
+      throw e;
+    catch (Exception e)
+      throw new HTTPStatusException(HTTPStatus.badRequest, e.msg);
+    logInfo("npm publish: %s@%s", result.name, result.ver);
+    res.statusCode = HTTPStatus.created;
+    res.headers["Content-Type"] = "application/json; charset=utf-8";
+    res.writeBody(`{"ok":true}`);
   }
 
   /** 交付 packument：把 `{origin}` 占位符换成请求 origin（`micdn.web.origin.getOrigin`）后写出。

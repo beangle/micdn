@@ -124,8 +124,12 @@ class ReloadableDispatcher : HTTPServerRequestHandler {
 }
 
 private void applyLimits(HTTPServerSettings settings, MicdnConfig config) {
+  // 请求体上限：<blob> 的 maxSize（图片上传）或 <publish> 的 maxSize（npm 包 / maven 构件，
+  // vibe 默认 2 MiB 太小）。两者都未配置时不动默认值——此时没有大 body 的入口。
   if (config.blob !is null)
     settings.maxRequestSize = config.blob.maxSize;
+  else if (config.publish !is null)
+    settings.maxRequestSize = config.publish.maxSize;
   setLimits(settings.maxRequestSize, settings.keepAliveTimeout.total!"seconds"());
 }
 
@@ -143,14 +147,21 @@ URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
   }
 
   // 未声明 <maven> / <npm> 就不注册对应端点；仓库本身仍有默认值（见 MicdnConfig.mavenDeclared / npmDeclared）
+  // PUT（发布）只在声明 <publish> 时注册；未声明时即使有 0.0.0.0 的反代也没有写入入口。
   if (config.mavenDeclared) {
     auto mavenService = new MavenService(config);
-    registerEndpointGetHead(router, mountMaven, &mavenService.service);
+    if (config.publish !is null)
+      registerEndpointGetHeadPut(router, mountMaven, &mavenService.service);
+    else
+      registerEndpointGetHead(router, mountMaven, &mavenService.service);
   }
 
   if (config.npmDeclared) {
     auto npmService = new NpmService(config);
-    registerEndpointGetHead(router, mountNpm, &npmService.service);
+    if (config.publish !is null)
+      registerEndpointGetHeadPut(router, mountNpm, &npmService.service);
+    else
+      registerEndpointGetHead(router, mountNpm, &npmService.service);
   }
 
   if (config.blob !is null) {
@@ -201,6 +212,8 @@ string[] registeredEndpoints(MicdnConfig config) {
 /// 打印已挂载的 HTTP 端点。
 void logRegisteredEndpoints(MicdnConfig config) {
   logInfo("Registered HTTP endpoints: %s", registeredEndpoints(config).join(", "));
+  if (config.publish !is null && (config.mavenDeclared || config.npmDeclared))
+    logInfo("Publish (PUT) enabled on /maven,/npm: token required");
 }
 
 // 跑 dub test 时由测试运行器提供 main，此处不编译
@@ -382,6 +395,13 @@ void registerEndpointGetHead(T)(URLRouter router, string endpoint, T handler) {
   router.get(endpoint ~ "/*", handler);
   router.match(HTTPMethod.HEAD, endpoint, handler);
   router.match(HTTPMethod.HEAD, endpoint ~ "/*", handler);
+}
+
+/// 读服务 + 发布：GET/HEAD 读取，PUT 上传（由 handler 按 `req.method` 分派，需令牌，见 `micdn.web.publish`）。
+void registerEndpointGetHeadPut(T)(URLRouter router, string endpoint, T handler) {
+  registerEndpointGetHead(router, endpoint, handler);
+  router.match(HTTPMethod.PUT, endpoint, handler);
+  router.match(HTTPMethod.PUT, endpoint ~ "/*", handler);
 }
 
 /// 为 endpoint 及其子路径注册同一 handler（任意 HTTP 方法），由 handler 内按 `req.method` 分发（Blob、S3 等）。

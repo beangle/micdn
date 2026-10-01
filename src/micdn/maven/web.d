@@ -30,12 +30,14 @@ import vibe.http.router;
 import vibe.http.server;
 
 import micdn.maven;
+import micdn.maven.publish : storeUpload;
 import micdn.maven.snapshot;
 import micdn.model;
 import micdn.routes;
 import micdn.web;
 import micdn.web.cache;
 import micdn.web.file;
+import micdn.web.publish : authorizePublish, readUploadBody;
 import micdn.fs.index;
 import micdn.fs.browser;
 import micdn.xml;
@@ -49,12 +51,20 @@ private bool looksLikeMavenArtifactFile(string uri) {
 class MavenService {
   private enum string endpoint = mountMaven;
   private const GavRepo repo;
+  /** 上传令牌（`<publish token="…"/>`）；空表示未启用发布，PUT 一律 401。 */
+  private string publishToken;
+  /** 上传体上限（来自 `<publish maxSize>`）。 */
+  private size_t publishMaxSize;
   /** 本地快照布局与「不带时间戳的别名 → 最新时间戳文件」解析（与 `repo` 共用同一 base）。 */
   private const SnapshotRepo snapshots;
 
   this(MicdnConfig config) {
     this.repo = GavRepo.build(config);
     this.snapshots = SnapshotRepo.build(config);
+    if (config.publish !is null) {
+      this.publishToken = config.publish.token;
+      this.publishMaxSize = config.publish.maxSize;
+    }
   }
 
   /** 单个 `/maven` 入口同时服务正式版与 SNAPSHOT，按版本目录区分：
@@ -77,6 +87,13 @@ class MavenService {
       快照构件（路径含 SNAPSHOT）为 `no-store`——同一路径可能被重新发布覆盖。
   */
   void service(HTTPServerRequest req, HTTPServerResponse res) {
+    if (req.method == HTTPMethod.PUT) {
+      // 写路径的唯一入口：先校验令牌，再做任何路径解析与 body 读取
+      if (!authorizePublish(req, res, publishToken))
+        return;
+      publish(req, res);
+      return;
+    }
     const uri = getResourceUri(endpoint, req);
     const ruri = repositoryUri(uri);
 
@@ -140,5 +157,28 @@ class MavenService {
       auto info = IndexedFileInfo.fromFileInfo(fi);
       sendFile(req, res, file, info, mavenArtifactCachePolicy(ruri));
     }
+  }
+
+  /** 发布：接受 `mvn deploy` / `mvn deploy:deploy-file` 的 HTTP PUT，原样写入本地仓库。
+
+      服务端不解析内容——客户端负责生成时间戳文件名与 `maven-metadata.xml`，落盘后
+      `/maven` 的读路径（快照别名、artifact 级元数据合并）即可照常服务。
+      调用方（`service` 的 PUT 分支）已通过 `authorizePublish` 校验令牌。
+      注意：为某 SNAPSHOT 版本目录配置了 `<snapshot remote>` 时，本地写入的
+      `maven-metadata.xml` 会在 TTL 到期后被上游刷新覆盖（本地发布场景通常不配上游客）。
+  */
+  private void publish(HTTPServerRequest req, HTTPServerResponse res) {
+    const uri = getResourceUri(endpoint, req);
+    const ruri = repositoryUri(uri);
+    auto body = readUploadBody(req.bodyReader, publishMaxSize);
+    try
+      storeUpload(repo.base, ruri, body);
+    catch (HTTPStatusException e)
+      throw e;
+    catch (Exception e)
+      throw new HTTPStatusException(HTTPStatus.badRequest, e.msg);
+    logInfo("maven publish: %s (%d bytes)", ruri, body.length);
+    res.statusCode = HTTPStatus.created;
+    res.writeVoidBody();
   }
 }

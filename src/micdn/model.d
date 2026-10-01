@@ -70,11 +70,16 @@ class MicdnConfig {
   const BlobConfig blob;
   /// WWW 文档配置（多 doc，每 doc 独立 endpoint）
   const WwwConfig www;
+  /** 发布（上传）配置（`<publish token="…"/>`；未声明为 null）。
+
+      **未声明时不挂载 PUT**；声明后 `/maven`、`/npm` 才接受上传，且每次上传都必须携带令牌。
+  */
+  const PublishConfig publish;
 
   this(AssetConfig asset, MavenRepoConfig maven, BlobConfig blob, WwwConfig www = null,
       NpmRepoConfig npm = null, string listen = "127.0.0.1:8888",
       string remote = null, string home = "", string logFile = "console", string logLevel = "info",
-      bool mavenDeclared = true, bool npmDeclared = true) {
+      bool mavenDeclared = true, bool npmDeclared = true, PublishConfig publish = null) {
     this.listen = listen;
     this.remote = remote;
     this.home = home;
@@ -85,6 +90,7 @@ class MicdnConfig {
     this.blob = blob;
     this.www = www;
     this.npm = npm;
+    this.publish = publish;
     // 没有配置对象也就没有端点：把「声明」收敛为「声明且配置存在」，下游只看这一个标志
     this.mavenDeclared = mavenDeclared && maven !is null;
     this.npmDeclared = npmDeclared && npm !is null;
@@ -470,6 +476,29 @@ class BlobConfig {
     this.base = base;
   }
 
+}
+
+/** 发布默认上传体上限（64 MiB）：也是未配置 `<blob>` 时的服务器 `maxRequestSize`。 */
+enum defaultPublishMaxSize = 64 * 1024 * 1024;
+
+/** 发布（上传）配置（micdn.xml 根级 `<publish token="…" maxSize="…"/>`）。
+
+    声明后 `/npm`、`/maven` 接受 PUT 上传（npm publish / mvn deploy），未声明则完全不挂 PUT。
+    **令牌就是写权限凭据**，与来源无关：不按对端地址限制（本机反代会让远端请求看起来是环回，那套
+    判定不可靠），因此前端开发机可以带令牌直接推给远端 micdn。
+    令牌可放在 `Authorization: Bearer <token>`、`Authorization: Basic <base64>`（用户名或口令任一
+    与令牌相同，Maven 走这条）或 `X-Micdn-Token: <token>`；缺失/不符返回 401 并给出 Basic 挑战。
+    **只应经 HTTPS 暴露发布端点**——Bearer 凭据在明文 HTTP 上会被链路上的任何人读走。
+*/
+class PublishConfig {
+  /// 上传令牌（必填，非空）
+  const string token;
+  /// 单次上传体上限（字节），默认 64 MiB
+  ulong maxSize = defaultPublishMaxSize;
+
+  this(string token) {
+    this.token = token;
+  }
 }
 
 /** WWW 文档配置，包含多个 doc，每个 doc 有独立 endpoint 与一个 npm/dir/zip 来源（XML 属性）。

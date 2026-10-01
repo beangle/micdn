@@ -44,10 +44,10 @@ private string resolveHome(string homeAttr, string defaultDir) {
   return expandTilde(homeAttr);
 }
 
-/** 展开 include 后校验：maven、npm、blob、static、www 各至多出现一次。
+/** 展开 include 后校验：maven、npm、blob、static、www、publish 各至多出现一次。
 */
 private void validateMicdnServiceElementsUnique(T)(ref DOMEntity!T dom) {
-  foreach (name; ["maven", "npm", "blob", "static", "www"]) {
+  foreach (name; ["maven", "npm", "blob", "static", "www", "publish"]) {
     size_t n = 0;
     foreach (c; dom.children) {
       if (isNamedElement(c.type) && c.name == name)
@@ -126,6 +126,7 @@ MicdnConfig parse(string defaultHome, string content, const string sourceFile = 
   NpmRepoConfig npm;
   BlobConfig blob;
   WwwConfig www;
+  PublishConfig publish;
 
   // <maven>/<npm> 只决定「是否挂载端点」：未声明时仍给与「声明了空元素」同口径的默认仓库，
   // 让 <jar>/<npm> provider 与 `micdn install` 不必为了下载而强制声明该元素（见 MicdnConfig.mavenDeclared）。
@@ -144,8 +145,13 @@ MicdnConfig parse(string defaultHome, string content, const string sourceFile = 
   if (dom.children.any!(c => c.name == "www")) {
     www = parseWww(home, dom);
   }
+  // <publish> 才挂载 PUT 上传端点（未声明则只有 GET/HEAD）——写权限完全由令牌判定，
+  // 与对端地址无关；不声明就没人能写。
+  if (dom.children.any!(c => c.name == "publish")) {
+    publish = parsePublish(dom);
+  }
   return new MicdnConfig(asset, maven, blob, www, npm, listen, remote, home, logFile, logLevel,
-      mavenDeclared, npmDeclared);
+      mavenDeclared, npmDeclared, publish);
 }
 
 /** 从本地 XML 文件解析 MicdnConfig。
@@ -204,6 +210,12 @@ string toXml(const MicdnConfig config) {
     if (config.npm.devRemote.length > 0)
       app.put(i`    <dev remote="$(config.npm.devRemote)"/>`.text ~ "\n");
     app.put("  </npm>\n");
+  }
+
+  if (config.publish) {
+    app.put(i`  <publish token="$(escapeXmlAttr(config.publish.token))"`.text);
+    app.put(i` maxSize="$(formatSizeForXml(config.publish.maxSize))"/>`.text);
+    app.put("\n");
   }
 
   if (config.blob) {
@@ -287,6 +299,22 @@ MavenRepoConfig parseMaven(T)(string home, ref DOMEntity!T micdnDom) {
     remoteRepos ~= defaultMavenRemote;
   }
   return new MavenRepoConfig(base, remoteRepos, snapshotRemote);
+}
+
+/** 从 DOM 节点解析 `<publish token="…" maxSize="…"/>`。
+
+    `token` 必填且非空——上传端点的唯一授权凭据，缺失直接配置失败（不静默放行，也不退化成
+    「仅本机」：本机反代会把远端请求以环回源地址转发，那种判断区分不出远端请求）。
+*/
+private PublishConfig parsePublish(T)(ref DOMEntity!T micdnDom) {
+  auto dom = children(micdnDom, "publish").front;
+  auto attrs = getAttrs(dom);
+  auto token = attrs.get("token", "").strip;
+  if (token.length == 0)
+    throw new Exception("<publish> requires a non-empty token attribute");
+  auto config = new PublishConfig(token);
+  config.maxSize = parseSize(attrs.get("maxSize", formatSizeForXml(defaultPublishMaxSize)));
+  return config;
 }
 
 /** 解析 NPM 仓库配置（base、正式版 remotes、可选的开发版上游 `<dev remote="..."/>`）。支持标签 npm。

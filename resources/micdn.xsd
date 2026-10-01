@@ -24,7 +24,7 @@
     </xs:restriction>
   </xs:simpleType>
 
-  <!-- Root：maven/npm/blob/static/www 彼此无顺序要求，各至多一次（xs:all）。xi:include 在 XSD 1.0 中不能与 all 混排，故列于前段；若需与服务块交错请依赖运行时。readXml 展开后由程序校验各服务元素至多一次。 -->
+  <!-- Root：maven/npm/blob/static/www/publish 彼此无顺序要求，各至多一次（xs:all）。xi:include 在 XSD 1.0 中不能与 all 混排，故列于前段；若需与服务块交错请依赖运行时。readXml 展开后由程序校验各服务元素至多一次。 -->
   <xs:element name="micdn">
     <xs:complexType>
       <xs:sequence>
@@ -35,6 +35,7 @@
           <xs:element name="blob" type="blobType" minOccurs="0" maxOccurs="1" />
           <xs:element name="static" type="staticType" minOccurs="0" maxOccurs="1" />
           <xs:element name="www" type="wwwType" minOccurs="0" maxOccurs="1" />
+          <xs:element name="publish" type="publishType" minOccurs="0" maxOccurs="1" />
         </xs:all>
       </xs:sequence>
       <xs:attribute name="listen" type="xs:string" default="127.0.0.1:8888" use="optional">
@@ -250,6 +251,23 @@
     </xs:sequence>
     <xs:attribute name="base" type="xs:string" default="~/blob" use="optional" />
     <xs:attribute name="maxSize" type="xs:string" default="100M" use="optional" />
+  </xs:complexType>
+
+  <!-- publishType：发布端点（npm publish / mvn deploy 的 PUT 上传）。不写 <publish> 则不挂载 PUT 端点。 -->
+  <xs:complexType name="publishType">
+    <xs:annotation>
+      <xs:documentation> 上传令牌必填，且是唯一的写权限凭据（不限制来源地址：本机反代下「对端为环回」无法区分远端请求）。声明后 /maven、/npm 接受 PUT，需携带 Authorization: Bearer/Basic 或 X-Micdn-Token，缺失/不符 401 并返回 Basic 挑战；未声明该元素则不挂 PUT。只应经 HTTPS 暴露。 </xs:documentation>
+    </xs:annotation>
+    <xs:attribute name="token" type="xs:string" use="required">
+      <xs:annotation>
+        <xs:documentation> 非空上传令牌 </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
+    <xs:attribute name="maxSize" type="xs:string" default="64M" use="optional">
+      <xs:annotation>
+        <xs:documentation> 单次上传体上限，同时作为未配置 <blob> 时的服务器 maxRequestSize </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
   </xs:complexType>
 
   <!-- staticType -->
