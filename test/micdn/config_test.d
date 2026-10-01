@@ -650,6 +650,33 @@ unittest {
   assertThrown!Exception(parse("~/tmp", dup));
 }
 
+@("publish section requires a token and controls the upload limit")
+unittest {
+  auto config = parse("/srv/micdn",
+      `<?xml version="1.0"?><micdn><publish token="s3cret" maxSize="8M"/></micdn>`);
+  assert(config.publish !is null);
+  assert(config.publish.token == "s3cret");
+  assert(config.publish.maxSize == 8 * 1024 * 1024);
+
+  // 省略 maxSize 时取默认 64 MiB；未声明 <publish> 则完全不启用上传
+  auto defaults = parse("/srv/micdn", `<?xml version="1.0"?><micdn><publish token="t"/></micdn>`);
+  assert(defaults.publish.maxSize == defaultPublishMaxSize);
+  assert(parse("/srv/micdn", `<?xml version="1.0"?><micdn></micdn>`).publish is null);
+
+  // 令牌缺失（空/无属性）与重复 <publish> 都在配置期报错
+  assertThrown!Exception(parse("/srv/micdn", `<?xml version="1.0"?><micdn><publish/></micdn>`));
+  assertThrown!Exception(parse("/srv/micdn",
+      `<?xml version="1.0"?><micdn><publish token=" "/></micdn>`));
+  assertThrown!Exception(parse("/srv/micdn",
+      `<?xml version="1.0"?><micdn><publish token="a"/><publish token="b"/></micdn>`));
+
+  // toXml 往返：令牌与上限都要保留（admin 的配置视图依赖它）
+  auto xml = config.toXml();
+  assert(xml.canFind(`<publish token="s3cret" maxSize="8M"/>`), xml);
+  auto reparsed = parse("/srv/micdn", xml);
+  assert(reparsed.publish.token == "s3cret" && reparsed.publish.maxSize == 8 * 1024 * 1024);
+}
+
 @("resolveMicdn checks configured service data roots")
 unittest {
   import std.conv : octal;

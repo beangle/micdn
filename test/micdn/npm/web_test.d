@@ -12,15 +12,18 @@ import std.algorithm : canFind;
 import std.conv : to;
 import std.file;
 import std.path : absolutePath, buildPath;
+import std.socket : parseAddress;
 import std.uuid : randomUUID;
 
-import vibe.http.common : HTTPMethod, HTTPStatus;
+import vibe.core.net : NetworkAddress;
+import vibe.http.common : HTTPMethod, HTTPStatus, HTTPStatusException;
 import vibe.http.server : createTestHTTPServerRequest, createTestHTTPServerResponse, TestHTTPResponseMode;
 import vibe.inet.message : InetHeaderMap;
 import vibe.inet.url : URL;
-import vibe.stream.memory : createMemoryOutputStream;
+import vibe.stream.memory : createMemoryOutputStream, createMemoryStream;
 
 import micdn.config : parseFile;
+import micdn.model : MicdnConfig;
 import micdn.npm : NpmRepo;
 import micdn.npm.web : NpmService;
 
@@ -187,4 +190,85 @@ unittest {
   assert(body.canFind("http://cdn.example.com/npm/@xurp/manual/-/manual-0.0.4-dev.2.tgz"), body);
   assert(!body.canFind("{origin}"), body);
   assert(res.headers["Content-Type"] == "application/json; charset=utf-8");
+}
+
+// ---- 发布（PUT）：令牌闸门 ----
+
+private struct PublishOutcome {
+  int status;
+  string body;
+  string authenticate;
+}
+
+/// 发一个 PUT 到 `/npm/@xurp/manual`：`peer` 为空表示不设对端（即空 peer，非环回）。
+/// `authorization` 走 `Authorization` 头（Bearer/Basic），`xToken` 走 `X-Micdn-Token`。
+private PublishOutcome npmPut(MicdnConfig config, string peer, string authorization, string body,
+    string xToken = "") {
+  InetHeaderMap headers;
+  headers["Host"] = "localhost";
+  if (authorization.length > 0)
+    headers["Authorization"] = authorization;
+  if (xToken.length > 0)
+    headers["X-Micdn-Token"] = xToken;
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://localhost/npm/@xurp/manual"), HTTPMethod.PUT,
+      headers, createMemoryStream(cast(ubyte[]) body));
+  if (peer.length > 0)
+    req.clientAddress = NetworkAddress(parseAddress(peer, 12345));
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  try {
+    new NpmService(config).service(req, res);
+  } catch (HTTPStatusException e) {
+    // 真实服务器上由 vibe 的错误处理把抛出的异常转成状态码（测试替身没有这一层）
+    return PublishOutcome(e.status, "", "");
+  }
+  return PublishOutcome(res.statusCode, cast(string) output.data,
+      res.headers.get("WWW-Authenticate", ""));
+}
+
+private string publishConfig(string home, string publishElement) {
+  auto xmlPath = buildPath(home, "micdn.xml");
+  write(xmlPath, `<?xml version="1.0"?><micdn listen="127.0.0.1:8888">
+  <maven/><npm base="` ~ buildPath(home, "npm") ~ `"/>` ~ publishElement ~ `
+</micdn>`);
+  return xmlPath;
+}
+
+@("npm PUT requires the publish token")
+unittest {
+  auto home = npmHome();
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  auto config = parseFile(publishConfig(home, `<publish token="s3cret"/>`));
+
+  // 缺令牌：401 且带 Basic 挑战（Maven 靠它重试）；写完响应即返回，不看 body
+  auto missing = npmPut(config, "127.0.0.1", "", "x");
+  assert(missing.status == HTTPStatus.unauthorized);
+  assert(missing.authenticate.canFind("Basic"), missing.authenticate);
+
+  auto wrong = npmPut(config, "127.0.0.1", "Bearer nope", "x");
+  assert(wrong.status == HTTPStatus.unauthorized);
+
+  // 令牌正确就放行，来源地址无关（远端开发机带令牌直接推）：body 不是 publish 文档 → 400
+  auto badBody = npmPut(config, "127.0.0.1", "Bearer s3cret", "not-json");
+  assert(badBody.status == HTTPStatus.badRequest, badBody.status.to!string);
+
+  auto remote = npmPut(config, "192.168.1.5", "Bearer s3cret", "not-json");
+  assert(remote.status == HTTPStatus.badRequest, remote.status.to!string);
+
+  auto viaHeader = npmPut(config, "::1", "", "not-json", "s3cret");
+  assert(viaHeader.status == HTTPStatus.badRequest, viaHeader.status.to!string);
+}
+
+@("npm PUT stays closed when <publish> is absent")
+unittest {
+  auto home = npmHome();
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  // 未声明 <publish>：服务端令牌为空，即便带上令牌也一律 401（路由层也不会注册 PUT）
+  auto config = parseFile(publishConfig(home, ""));
+  auto outcome = npmPut(config, "127.0.0.1", "Bearer s3cret", "x");
+  assert(outcome.status == HTTPStatus.unauthorized, outcome.status.to!string);
 }
