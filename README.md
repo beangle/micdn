@@ -21,7 +21,7 @@
 
 | 前缀 | 说明 |
 |------|------|
-| `/maven` | maven：本地缓存 + 上游 remote 拉取；SNAPSHOT 路径本地优先、缺失时按 `<snapshot remote>` 回源，别名请求 302 到最新时间戳文件（仅配置了 `<maven>` 时挂载） |
+| `/maven` | maven：本地缓存 + 上游 remote 拉取；SNAPSHOT 路径本地优先、缺失时按 `<snapshot remote>` 回源（版本元数据按 TTL 刷新），别名请求 302 到最新时间戳文件，本地快照版本并入 artifact 级元数据（仅配置了 `<maven>` 时挂载） |
 | `/npm` | npm registry（正式版与开发版共用）：packument（交付时替换 `{origin}` 占位符）与 tgz（仅配置了 `<npm>` 时挂载） |
 | `/static` | 静态资源（配置了 `<static>` 时） |
 | `/blob`、`/s3` | 对象存储与 S3 兼容接口（配置了 `<blob>` 时） |
@@ -85,26 +85,36 @@ npm install @scope/xxx@dev --registry http://micdn:8888/npm/
 ```
 
 - 回源按版本选上游（`NpmRepo.upstreamsFor`）：**开发版只走 `<dev>` 的 remote，不再回落正式版 remote**；正式版只走
-  `<npm>` 的 remote。开发版 = 语义化预发布版本（含 `-`，如 `0.0.3-dev.2`、`1.2.0-rc.1`）或预发布通道 tag
+  `<npm>` 的 remote。开发版 = 预发布**标识**是开发标识的版本（`0.0.3-dev.2`、`1.0-SNAPSHOT.1`，
+  标识为 `dev`/`snapshot`/`local`/`nightly`/`test`，见 `developmentIds`）或预发布通道 tag
   （`dev`/`next`/`beta`/`rc`/`alpha`/`canary`），见 `isDevVersionSpec`。
+  `1.2.0-rc.1`、`19.0.0-beta.2` 这类**正式 registry 上正常发布的预发布版**不算开发版（仍走正式版上游）——
+  只按「版本里有没有 `-`」判定会把它们错误地路由到 `<dev>`，未配置 `<dev>` 时直接 404。
 - `<dev>` 可省略：此时开发版**不代理上游**，只认本地已装入/已缓存的文件，缺失即 404。
   这也意味着开发版不必依赖外部 registry——`micdn install` 装入的包照样能被 `resolve` 与 `/npm` 找到。
 - packument 的 URL 不带版本、无法判定开发版还是正式版，代理时按正式版 remote、再 `<dev>` remote 顺序探测
   （正式版优先，结果确定；同一 URL 重复配置只试一次）。
-- 一个包在本地只有**一份** packument（`{npm base}/{包名}`），它可能来自 `micdn install`、正式版上游或
-  `<dev>` 上游。`resolve` 解析 dist-tag 时先读本地这份，本地没有该 tag 就按 tag 所属的上游重新拉取；
-  每次 packument 落盘（install 或上游拉取）后都会**把本地已装入的版本并回去**（`mergeLocalVersions`），
-  所以「开发版上游只有 `dev`、正式版上游只有 `latest`」互不覆盖，两份 tag 都能解析到。
+- 一个包在本地只有**一份** packument（`{npm base}/{包名}`），客户端只读我们发的这一份。`/npm` 的交付路径
+  不带版本、判定不了来源，因此**把正式版与 `<dev>` 两个上游的文档都取回来并入同一份**
+  （`NpmRepo.allUpstreams` + `mergeUpstreamPackument`：已有文件为准，上游文档只补缺失的版本/`time`/tag，
+  再按合并后的版本集重推 `dist-tags`）——否则「开发版上游只有 `dev`、正式版上游只有 `latest`」会互相覆盖，
+  `npm install <pkg>` 可能只看到 dev 版本。`resolve` 解析 dist-tag 时先读本地这份，本地没有该 tag 才按
+  tag 所属的上游重新拉取（也是并入式落盘）；`micdn install` 落盘同样只合并不覆盖。
 - 消费方把它当 registry 用即可：`npm install @xurp/manual@dev --registry http://micdn:8888/npm/`。
 - 版本可以写具体版本，也可以写 dist-tag（`@xurp/manual@dev`、`@xurp/manual@latest`）：tag 先取 packument 的
   `dist-tags` 解析成具体版本，再按 npm 目录规范取 tgz（`{pkg}/-/{name}-{version}.tgz`）。
 - 部署目录名仍是配置里写的版本（tag `dev` → `{static base}/{bundle}/dev/`），内容随 tag 指向的版本更新；
   是否重新解压仍按 tgz 的 mtime 判断（`manifest.json` 快路径）。
 
+正式版与开发版为什么共用一个入口与一份 packument、上游文档如何并入，见
+[docs/merged_repo.md](docs/merged_repo.md)。
+
 ## maven SNAPSHOT（同一个 `/maven`）
 
 正式版与 SNAPSHOT **共用一个入口 `/maven`**，也共用 `<maven base>` 目录树（`{base}/{group 路径}/{artifact}/{version}/`），
-按版本目录区分：路径含 `SNAPSHOT` 的回源只走 `<snapshot remote="..."/>`，其余只走 `<maven><remote>`，两者互不回落。
+按版本目录区分：路径段以 `-SNAPSHOT` 结尾（如 `.../1.0.0-SNAPSHOT/...`）的回源只走 `<snapshot remote="..."/>`，
+其余只走 `<maven><remote>`，两者互不回落。只认「段以 `-SNAPSHOT` 结尾」而不是全文包含 `SNAPSHOT`，
+artifactId 里含 `SNAPSHOT` 的正式版构件不会被误判成快照。
 **省略 `<snapshot>`** 时快照不代理上游，只发本地已装入的构件（缺失即 404）：
 
 ```xml
@@ -126,22 +136,34 @@ micdn -f /etc/micdn/micdn.xml install target/beangle-commons-5.0.0-20250803.1326
 `<snapshotVersions>` 列出最新构建的 jar/pom/classifier 等文件），元数据与构件一样由**写入方产出**，HTTP 侧只负责
 发文件、解析别名，并在本地缺失且配了 `<snapshot remote>` 时回源。
 
+快照元数据要跟着上游走，否则新 deploy 的构建永远不可见，因此：
+
+- 版本目录的 `maven-metadata.xml` 按 TTL（`GavRepo.snapshotMetadataTtl`，默认 60 秒）从 `<snapshot remote>`
+  重新探测；探测失败保留本地旧副本。别名（不带时间戳）取「元数据声明的最新构建」与「本地目录里最新的时间戳文件」
+  中更新者——元数据刚刷新到上游新构建、文件还没落入本地时，别名直接 `302` 到该时间戳路径，后续请求再回源。
+- artifact 级 `maven-metadata.xml`（`{group}/{artifact}/maven-metadata.xml`）如果本地有 `*-SNAPSHOT` 版本目录，
+  会把这些本地快照版本并进 `<versions>` 并更新 `<latest>`，让 `LATEST` / 版本范围也能看到本地装入的开发版；
+  没有本地快照版本时，该文件保持上游原样（字节级透传）。
+
 消费方在 POM 里声明这个仓库即可：
 
 ```xml
 <repositories>
   <repository>
-    <id>micdn-snapshot</id>
+    <id>micdn</id>
     <url>http://micdn:8888/maven</url>
     <snapshots><enabled>true</enabled></snapshots>
-    <releases><enabled>false</enabled></releases>
+    <releases><enabled>true</enabled></releases>
   </repository>
 </repositories>
 ```
 
 别名（不带时间戳）请求 `...-1.0.0-SNAPSHOT.jar` 会 `302` 到同目录最新的时间戳文件，`HEAD` 则以 `latest` 头返回实际
-文件名；`.sha1` 请求同样支持（别名只在本地目录里解析，不会为此单独探测上游）。快照构件的响应头为 `no-store`
-（同一路径可能被重新发布覆盖），`maven-metadata.xml` 为 `public, no-cache`。
+文件名；`.sha1` 请求同样支持。快照构件的响应头为 `no-store`（同一路径可能被重新发布覆盖），
+`maven-metadata.xml` 为 `public, no-cache`。
+
+正式版与 SNAPSHOT 为什么共用一个 `/maven` 与一个仓库根、artifact 级元数据如何合并，见
+[docs/merged_repo.md](docs/merged_repo.md)。
 
 ## 配置示例
 
@@ -204,6 +226,7 @@ static / www 的文本类资源（js/css/html/svg/json 等）在**部署期**预
 | [docs/build_aur.md](docs/build_aur.md) | Arch AUR |
 | [docs/maintenance.md](docs/maintenance.md) | systemd、`micdn`/`beangle` 权限、resolve/deploy、auto-deploy |
 | [docs/reverse_proxy.md](docs/reverse_proxy.md) | nginx / varnish 缓存、haproxy 压缩等协作部署 |
+| [docs/merged_repo.md](docs/merged_repo.md) | 正式版/开发版合并仓库与单一入口设计（元数据合并、回源路由、缓存策略） |
 | [docs/stress_test.md](docs/stress_test.md) | 压测复测指南：环境、样例、场景与结果比较 |
 | [docs/release-v0.3.3.md](docs/release-v0.3.3.md) | 当前版本说明 |
 

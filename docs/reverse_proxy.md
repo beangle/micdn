@@ -40,10 +40,12 @@ micdn **不维护响应级的共享缓存**：每个请求都直接读磁盘返�
 
 ### maven SNAPSHOT（同一个 `/maven`）与缓存
 
-正式版与 SNAPSHOT 共用 `/maven` 一个入口与同一仓库根（不需要对 `/snapshot` 单独反代），按版本路径区分：含
-`SNAPSHOT` 的路径本地优先，缺失且配了 `<snapshot remote="...">` 时才按该上游回源（仅 GET 触发的交付路径，
-反代视角与普通回源一致）。不带时间戳的别名请求会回 `302` 到本地最新时间戳文件，属正常的缓存（反代按 302 处理
-即可，别名本身不产生响应体）。快照路径的构件响应一律 `Cache-Control: no-store`（`maven-metadata.xml` 为
+正式版与 SNAPSHOT 共用 `/maven` 一个入口与同一仓库根（不需要对 `/snapshot` 单独反代），按版本路径区分：
+路径段以 `-SNAPSHOT` 结尾的本地优先，缺失且配了 `<snapshot remote="...">` 时才按该上游回源（仅 GET 触发的
+交付路径，反代视角与普通回源一致）。版本目录的 `maven-metadata.xml` 还会按 TTL（默认 60 秒）回上游刷新一次，
+所以同一条元数据 URL 会周期性产生回源请求，属正常现象。不带时间戳的别名请求会回 `302` 到最新时间戳文件
+（可能指向上游刚发布、本地还没缓存的构建，需要反代放行该 302 及后续的时间戳路径），属正常的缓存（反代按 302
+处理即可，别名本身不产生响应体）。快照路径的构件响应一律 `Cache-Control: no-store`（`maven-metadata.xml` 为
 `public, no-cache`），因为同一路径可能被重新发布覆盖；若反代要缓存，按 no-store 语义跳过或极短 TTL 即可。
 
 ### 开发版 npm（`<npm><dev remote="..."/>`）与缓存
@@ -53,8 +55,9 @@ micdn **不维护响应级的共享缓存**：每个请求都直接读磁盘返�
 正式版 tarball 是 `public, max-age=31536000, immutable`。
 
 `resolve` 侧不经过反代：开发版规格落到 `<npm base>`，本地没有时才按 `<dev remote>` 回源；没配 `<dev>` 时不下
-上游，缺失即失败（需要时先 `micdn install` 装入）。包在本地只有一份 packument，上游拉取或 install 落盘后都会
-把本地已装入的版本并回去，反代缓存刷新不影响 dev/latest 两个 tag 并存。
+上游，缺失即失败（需要时先 `micdn install` 装入）。包在本地只有一份 packument，`/npm` 交付时会**把正式版与
+`<dev>` 两个上游的文档合并**到这一份（已有条目为准、只补缺失版本，再重推 dist-tags），上游拉取或 `install`
+落盘也都是并入式，反代缓存刷新不影响 dev/latest 两个 tag 并存。
 
 ---
 
