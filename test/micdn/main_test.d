@@ -13,7 +13,28 @@ import std.path : absolutePath, buildPath;
 
 import micdn.asset : AssetRepo;
 import micdn.config : parseFile;
-import micdn.main : runClean;
+import micdn.main : commandArg, commandIndex, runClean;
+
+@("commandArg takes the first non-option argument as the subcommand")
+unittest {
+  assert(commandArg(["micdn"]) is null, "no arguments means default startup mode");
+  assert(commandArg(["micdn", "-f", "/etc/micdn/micdn.xml"]) is null);
+  // `-f` 的值与子命令同形时不得误判（曾经的 args.canFind 判定在这里会跑 install）
+  assert(commandArg(["micdn", "-f", "/srv/install/micdn.xml"]) is null);
+  assert(commandArg(["micdn", "-f", "/srv/clean/micdn.xml", "resolve"]) == "resolve");
+  assert(commandArg(["micdn", "-f", "deploy"]) is null, "-f value must not be a subcommand");
+  assert(commandArg(["micdn", "-f", "x.xml", "install", "pkg.tgz"]) == "install");
+  assert(commandArg(["micdn", "install", "-f", "x.xml", "pkg.tgz"]) == "install",
+      "order of -f and the subcommand must not matter");
+  assert(commandArg(["micdn", "-f", "x.xml", "deploy", "www", "manual", "--force"]) == "deploy");
+  assert(commandArg(["micdn", "-f", "x.xml", "install", "pkg.tgz", "--registry", "http://h/npm"])
+      == "install");
+  // 带值选项的值（哪怕与子命令同形）不算子命令
+  assert(commandArg(["micdn", "-f", "x.xml", "install", "pkg.tgz", "--tag", "clean"]) == "install");
+  assert(commandArg(["micdn", "-f", "x.xml", "-y", "clean"]) == "clean");
+  assert(commandArg(["micdn", "-f", "x.xml", "bogus"]) == "bogus", "dispatch rejects unknown commands");
+  assert(commandIndex(["micdn", "-f", "x.xml"]) == size_t.max);
+}
 
 @("clean removes www/static deploy dirs but keeps maven/npm caches and blob")
 unittest {

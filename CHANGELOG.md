@@ -5,6 +5,7 @@
 - **npm 发布**：新增 `micdn -f CONFIG install PKG.tgz` 子命令——把本地 npm 包装入配置里的 `<npm base>`（`{scope|_}/{name}/{version}/`），并从 tarball 内的 `package/package.json` 生成/刷新 `{npm base}/{包名}` 的 packument：`dist.integrity`/`shasum` 由 tgz 字节算出，`dist-tags.latest` 取最高正式版，预发布按 `dev`/`next`/`beta`/`rc`/`alpha`/`canary` 自动打通道 tag，`--tag` 可再加一个自定义 tag（已有自定义 tag 在版本仍存在时保留），`--registry` 省略时按 `listen` 推导。纯 D 实现（复用 `fs.tar.readTgzEntry` 内存内读单个 tar 条目），不再依赖宿主 `node`/`tar`，替换掉原先的 `scripts/npm_add.sh`
 - **npm 交付**：packument 由发布方产出、micdn 只负责交付——`/npm/{pkg}` 直接发送 `{npm base}/{pkg}` 文件（包名路径标注 `application/json`）；本地没有该文件时按同一相对路径从上游 registry 拉取后发送（与 maven 侧 `GavRepo.fetch` 同口径），micdn 不自行拼装元数据
 - **npm 缓存策略按路径细分**（`npmArtifactCachePolicy(uri)`）：正式版 tarball 仍 `public, max-age=31536000, immutable`；预发布/开发版 tarball（版本号含 `-`）与 packument、目录列表改 `public, no-cache`（同名版本可能被覆盖重发、元数据随时变）；`SNAPSHOT` 版本 `no-store`（与 maven 侧同口径）。用于非文件响应（目录列表）的 `applyCachePolicy` 一并补齐 `Cache-Control`/`Expires`
+- **CLI**：子命令改为「第一个非选项参数」（`-f` / `--registry` / `--tag` 的值不参与识别，与 `-f` 的先后顺序无关），`-f` 指向的路径里含 `deploy`/`clean`/`install` 字样不再被误判；未知子命令直接报错退出，不再当成启动 HTTP 服务
 - 文档：明确 `manifest.json` 是部署快路径的**唯一判据**（只比对源文件 `inner` / `size` / `mtime` / `artifact`，不看部署产物本身），以及部署产物被外部改动后不自愈的现象与手工恢复方式（`deploy … --force` + reload）。曾评估过“校验部署目录”（文件计数 / 目录指纹 / 目录 mtime）以自动重新部署，因复杂度和收益不成比例而放弃，详见 `docs/maintenance.md`
 
 ## v0.3.3 (2026-08-26)

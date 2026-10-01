@@ -199,33 +199,40 @@ version (unittest) {
       showHelpInfo();
       return 0;
     }
-    if (args.canFind("deploy")) {
+    auto command = commandArg(args);
+    if (command == "deploy") {
       try {
         return runDeploy(args);
       } catch (Exception e) {
         return reportStartupError(e.msg);
       }
     }
-    if (args.canFind("resolve")) {
+    if (command == "resolve") {
       try {
         return runResolve(args);
       } catch (Exception e) {
         return reportStartupError(e.msg);
       }
     }
-    if (args.canFind("clean")) {
+    if (command == "clean") {
       try {
         return runClean(args);
       } catch (Exception e) {
         return reportStartupError(e.msg);
       }
     }
-    if (args.canFind("install")) {
+    if (command == "install") {
       try {
         return runInstall(args);
       } catch (Exception e) {
         return reportStartupError(e.msg);
       }
+    }
+    if (command !is null) {
+      // 认不出的子命令直接报错，避免把 `micdn -f CONF bogus` 当成启动服务。
+      stderr.writeln("micdn: unknown command: " ~ command);
+      showHelpInfo();
+      return ExitStartupError;
     }
     bool hasConfig = args.canFind("-f");
     if (!hasConfig) {
@@ -507,21 +514,16 @@ int runInstall(string[] args) {
 
 /// `install` 之后第一个非选项参数：待安装的 tgz 路径。
 private string installPackageArg(string[] args) {
-  foreach (i, a; args) {
-    if (a != "install")
+  auto i = commandIndex(args);
+  if (i == size_t.max)
+    return null;
+  for (auto j = i + 1; j < args.length;) {
+    auto candidate = args[j];
+    if (candidate.length > 1 && candidate[0] == '-') {
+      j += valueOptions.canFind(candidate) ? 2 : 1;
       continue;
-    for (auto j = i + 1; j < args.length;) {
-      auto candidate = args[j];
-      if (candidate == "--registry" || candidate == "--tag") {
-        j += 2;
-        continue;
-      }
-      if (candidate.startsWith("-")) {
-        j++;
-        continue;
-      }
-      return candidate;
     }
+    return candidate;
   }
   return null;
 }
@@ -542,6 +544,32 @@ private string configArg(string[] args) {
       return args[i + 1];
   }
   return null;
+}
+
+/// 带值的选项：其后一个参数是它的值，不参与子命令识别。
+private immutable string[] valueOptions = ["-f", "--registry", "--tag"];
+
+/** 子命令在 args 中的下标：**第一个非选项参数**（`-f` / `--registry` / `--tag` 的值不算）。
+
+    `args[0]` 是程序名，不算子命令。没有再出现非选项参数时返回 `size_t.max`（默认启动 HTTP 服务）。
+    这样 `-f` 指向的路径里含 "deploy"/"clean"/"install" 等字样不会被误判成子命令。
+*/
+size_t commandIndex(string[] args) {
+  for (size_t i = 1; i < args.length;) {
+    auto a = args[i];
+    if (a.length > 1 && a[0] == '-') {
+      i += valueOptions.canFind(a) ? 2 : 1;
+      continue;
+    }
+    return i;
+  }
+  return size_t.max;
+}
+
+/// 子命令名；没有子命令返回 null。
+string commandArg(string[] args) {
+  auto i = commandIndex(args);
+  return i == size_t.max ? null : args[i];
 }
 
 /// 取 `--name VALUE` 形式的选项值；未给出返回 fallback。
@@ -589,34 +617,25 @@ private bool stdinInteractive() {
 }
 
 private bool deployForceArg(string[] args) {
-  foreach (i, a; args) {
-    if (a != "deploy" || i + 1 >= args.length)
-      continue;
-    foreach (j; i + 1 .. args.length) {
-      if (args[j] == "--force")
-        return true;
-    }
-  }
+  auto i = commandIndex(args);
+  if (i == size_t.max)
+    return false;
+  foreach (j; i + 1 .. args.length)
+    if (args[j] == "--force")
+      return true;
   return false;
 }
 
 private string deployTargetArg(string[] args) {
-  foreach (i, a; args) {
-    if (a == "deploy") {
-      if (i + 1 >= args.length || args[i + 1].startsWith("-"))
-        throw new Exception("usage: micdn -f CONFIG deploy www|static [name]");
-      return args[i + 1];
-    }
-  }
-  throw new Exception("usage: micdn -f CONFIG deploy www|static [name]");
+  auto i = commandIndex(args);
+  if (i == size_t.max || i + 1 >= args.length || args[i + 1].startsWith("-"))
+    throw new Exception("usage: micdn -f CONFIG deploy www|static [name]");
+  return args[i + 1];
 }
 
 private string deployNameArg(string[] args) {
-  foreach (i, a; args) {
-    if (a == "deploy" && i + 2 < args.length && !args[i + 2].startsWith("-"))
-      return args[i + 2];
-  }
-  return null;
+  auto i = commandIndex(args);
+  return (i != size_t.max && i + 2 < args.length && !args[i + 2].startsWith("-")) ? args[i + 2] : null;
 }
 
 private int runDeployWww(MicdnConfig config, string docName, bool force) {
