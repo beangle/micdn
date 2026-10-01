@@ -27,9 +27,28 @@ dub build --build=release-nobounds --compiler=ldc2
 ./target/micdn -f /etc/micdn/micdn.xml deploy www manual
 ./target/micdn -f /etc/micdn/micdn.xml deploy static bootstrap --force
 ./target/micdn -f /etc/micdn/micdn.xml clean --yes # 清除 www/static 部署目录（交互终端下会逐项确认；maven/npm 缓存与 blob 数据不清理）
+./target/micdn -f /etc/micdn/micdn.xml install build/xxx-0.0.2.tgz # 本地 npm 包入库并生成 packument
 ```
 
 `-f` 可为本地文件、目录（使用 `DIR/micdn.xml`）或 URL（下载到 `~/micdn.xml`）。
+
+## 本地发布 npm 包
+
+开发版/内网包不必发到公网 registry：把 `npm pack` 产出的 tgz 交给 **`micdn install`**，它按 npm 目录规范
+装入配置里的 `<npm base>`（`{scope|_}/{name}/{version}/`），并在 `{npm base}/{包名}` 写出 packument 元数据：
+
+```bash
+npm pack                                                        # 产出 xxx-0.0.3-dev.1.tgz
+micdn -f /etc/micdn/micdn.xml install xxx-0.0.3-dev.1.tgz --tag dev
+
+# 消费方（registry 指向 micdn 的 /npm，见 docs/reverse_proxy.md）
+npm install @scope/xxx@dev --registry http://micdn:8888/npm/
+```
+
+元数据全部由目录内容推导：`dist.integrity` / `dist.shasum` 由 tgz 字节算出，`dist-tags.latest` 取最高**正式**版
+（预发布不会顶替 latest），预发布版本按 `dev` / `next` / `beta` / `rc` / `alpha` / `canary` 自动打通道 tag，
+`--tag` 可再挂一个自定义 tag。`--registry` 用于写入 `dist.tarball`，省略时按 `listen` 推导（通配地址回落 `127.0.0.1`）。
+删掉 `{npm base}/{包名}` 后再 `install` 一次即可重建元数据。
 
 ## 配置示例
 

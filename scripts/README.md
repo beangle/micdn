@@ -10,7 +10,6 @@
 | `stress_bench.sh` | 四场景吞吐压测（目录/文件/404/gzip，预热 + 多轮取中位，见 `docs/stress_test.md`） |
 | `stress_mem.sh` | 多文件内存压测（自生成样例，c=50 多路径 + c=200 heavy，可选 `/admin/reclaim`） |
 | `setup-windows.ps1` | Windows 下 dub / 依赖补丁 |
-| `npm_add.sh` | 把本地 npm 包 tgz 装入 npm 缓存目录（`--base`，默认 `~/npm`）并刷新 packument，使消费方可用 `@scope:registry=<micdn>/npm/` 安装；无需重新发布到公网 registry |
 | `container/` | **仅镜像**：默认 `micdn.xml`、`entrypoint.sh`；可选本地 `host-dub-cache/`（见 `.gitignore`） |
 | `package/` | **仅 deb/rpm**：面向 systemd 安装的 `micdn.xml`（与容器版不同）、`micdn.service` |
 

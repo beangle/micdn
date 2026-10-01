@@ -16,7 +16,7 @@
 
 module test.micdn.fs.tar_test;
 
-import micdn.fs.tar : extractTgz;
+import micdn.fs.tar : extractTgz, readTgzEntry;
 
 import std.file;
 import std.path;
@@ -173,4 +173,44 @@ unittest {
   std.file.write(plain, "not a gzip file");
   assert(!extractTgz(plain, base ~ "/out2"), "non-gzip must be rejected");
   assert(!extractTgz(base ~ "/missing.tgz", base ~ "/out3"), "missing file must fail");
+}
+
+@("readTgzEntry reads one entry in memory without extracting")
+unittest {
+  auto base = tempDir() ~ "/micdn_tgz_entry_" ~ randomUUID().toString();
+  scope (exit)
+    if (exists(base))
+      rmdirRecurse(base);
+
+  auto gz = tgzBytes(
+      tarHeaderBlock("package/", null, '5', octal!755),
+      tarHeaderBlock("package/package.json", cast(ubyte[]) `{"name":"lib"}`, '0', octal!644),
+      tarHeaderBlock("package/other.txt", cast(ubyte[]) "x", '0', octal!644));
+  auto tgz = writeTgzFile(gz, base);
+
+  ubyte[] content;
+  assert(readTgzEntry(tgz, "package/package.json", content), "existing entry must be found");
+  assert(cast(string) content == `{"name":"lib"}`, "entry content must round-trip");
+  assert(!readTgzEntry(tgz, "package/missing.json", content), "absent entry must fail");
+  assert(content is null, "absent entry must clear content");
+  assert(!readTgzEntry(base ~ "/missing.tgz", "package/package.json", content),
+      "missing file must fail");
+  assert(content is null);
+}
+
+@("readTgzEntry resolves pax path override")
+unittest {
+  auto base = tempDir() ~ "/micdn_tgz_entry_pax_" ~ randomUUID().toString();
+  scope (exit)
+    if (exists(base))
+      rmdirRecurse(base);
+
+  auto gz = tgzBytes(
+      tarHeaderBlock("dummy", cast(ubyte[]) "26 path=package/real.json\n", 'x', 0),
+      tarHeaderBlock("dummy", cast(ubyte[]) `{"a":1}`, '0', octal!644));
+  auto tgz = writeTgzFile(gz, base);
+
+  ubyte[] content;
+  assert(readTgzEntry(tgz, "package/real.json", content), "pax path must be honored");
+  assert(cast(string) content == `{"a":1}`);
 }

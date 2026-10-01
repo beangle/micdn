@@ -57,22 +57,10 @@ private bool pathUnder(const string absDir, const string absPath) {
   return path.startsWith(dir);
 }
 
-/** 使用内置 gzip + tar 解析解压 tgz 到指定目录（不再依赖宿主 tar 命令）。
-
-    与 zip 侧同样的安全口径：解压前检查 gzip 魔数，解压时限制总大小，
-    逐条目校验路径合法性（拒绝绝对路径、`..` 穿越与超深/超长），
-    并防止经由本包内先创建的符号链接写入 baseDir 之外。
-
-    Params:
-        tgzFile = .tgz 文件路径
-        baseDir = 解压目标目录
-
-    Returns:
-        true 成功，false 失败（损坏、超限或不安全条目）
-*/
-bool extractTgz(string tgzFile, string baseDir) {
+/// 读取并解压 tgz 的 tar 内容（全部在内存中）；失败返回 null 并记日志。
+private ubyte[] decompressTgz(string tgzFile) {
   if (!exists(tgzFile))
-    return false;
+    return null;
 
   ubyte[] data;
   try {
@@ -83,7 +71,7 @@ bool extractTgz(string tgzFile, string baseDir) {
     ubyte[2] magic;
     if (f.rawRead(magic[]).length < 2 || magic[0] != 0x1F || magic[1] != 0x8B) {
       logWarn("Not a valid tgz (bad gzip magic): %s", tgzFile);
-      return false;
+      return null;
     }
     f.rewind();
 
@@ -98,15 +86,34 @@ bool extractTgz(string tgzFile, string baseDir) {
       total += decoded.length;
       if (total > maxTgzDecompressedSize) {
         logWarn("Skip tgz %s: decompressed size exceeds limit", tgzFile);
-        return false;
+        return null;
       }
       data ~= decoded;
     }
   } catch (Exception e) {
     logError("Invalid or corrupted tgz: %s - %s", tgzFile, e.msg);
-    return false;
+    return null;
   }
+  return data;
+}
 
+/** 使用内置 gzip + tar 解析解压 tgz 到指定目录（不再依赖宿主 tar 命令）。
+
+    与 zip 侧同样的安全口径：解压前检查 gzip 魔数，解压时限制总大小，
+    逐条目校验路径合法性（拒绝绝对路径、`..` 穿越与超深/超长），
+    并防止经由本包内先创建的符号链接写入 baseDir 之外。
+
+    Params:
+        tgzFile = .tgz 文件路径
+        baseDir = 解压目标目录
+
+    Returns:
+        true 成功，false 失败（损坏、超限或不安全条目）
+*/
+bool extractTgz(string tgzFile, string baseDir) {
+  auto data = decompressTgz(tgzFile);
+  if (data is null)
+    return false;
   mkdirRecurse(baseDir);
   try {
     return extractTarEntries(data, baseDir, tgzFile);
@@ -114,6 +121,100 @@ bool extractTgz(string tgzFile, string baseDir) {
     logError("Invalid or corrupted tgz: %s - %s", tgzFile, e.msg);
     return false;
   }
+}
+
+/** 读取 tgz 中单个普通文件条目的内容（内存内完成，不落盘）。
+
+    用于按需读取打包内的元数据（如 npm 包的 `package/package.json`），避免整包解压。
+    与解压侧同样的检查：gzip 魔数、解压总大小上限、tar 校验和与截断。
+
+    Params:
+        tgzFile = .tgz 文件路径
+        entryName = tar 条目名（如 `package/package.json`，含 pax/GNU 长名解析结果）
+        content = 读出的内容（未找到时为 null）
+
+    Returns:
+        true 找到并读出；false 未找到、损坏或超限
+*/
+bool readTgzEntry(string tgzFile, string entryName, out ubyte[] content) {
+  content = null;
+  auto data = decompressTgz(tgzFile);
+  if (data is null)
+    return false;
+
+  size_t off;
+  string gnuName;
+  string paxPath;
+  ulong paxSize;
+  bool paxHasPath, paxHasSize;
+
+  while (off + TarHeader.sizeof <= data.length) {
+    auto hdr = cast(TarHeader*) (data.ptr + off);
+    off += TarHeader.sizeof;
+
+    if (isZeroTarHeader(*hdr))
+      break;
+    if (!validTarChecksum(*hdr)) {
+      logWarn("Invalid tar checksum in %s", tgzFile);
+      return false;
+    }
+
+    auto type = hdr.typeflag[0];
+    auto size = tarOctalValue(hdr.size);
+    if (off + size > data.length) {
+      logWarn("Truncated tar entry in %s", tgzFile);
+      return false;
+    }
+
+    if (type == 'x' || type == 'g') {
+      if (type == 'x') {
+        string paxLink;
+        bool paxHasLink;
+        parsePaxHeader(data[off .. off + size], paxPath, paxLink, paxSize, paxHasPath, paxHasLink,
+            paxHasSize);
+      }
+      off += (size + 511) & ~511UL;
+      continue;
+    }
+    if (type == 'L' || type == 'K') {
+      if (type == 'L') {
+        auto body = data[off .. off + size];
+        size_t end;
+        foreach (i, b; body) {
+          if (b == 0)
+            break;
+          end = i + 1;
+        }
+        gnuName = cast(string) body[0 .. end];
+      }
+      off += (size + 511) & ~511UL;
+      continue;
+    }
+
+    string name = tarFieldString(hdr.name);
+    auto prefix = tarFieldString(hdr.prefix);
+    if (prefix.length > 0)
+      name = prefix ~ "/" ~ name;
+    if (gnuName.length > 0) {
+      name = gnuName;
+      gnuName = null;
+    }
+    if (paxHasPath) {
+      name = paxPath;
+      paxHasPath = false;
+    }
+    if (paxHasSize) {
+      size = paxSize;
+      paxHasSize = false;
+    }
+
+    if ((type == '\0' || type == '0' || type == '7') && name == entryName) {
+      content = data[off .. off + size].dup;
+      return true;
+    }
+    off += (size + 511) & ~511UL;
+  }
+  return false;
 }
 
 private struct TarHeader {

@@ -48,6 +48,8 @@ import micdn.blob.store;
 import micdn.blob.web;
 import micdn.maven.web;
 import micdn.model;
+import micdn.npm;
+import micdn.npm.packument;
 import micdn.npm.web;
 import micdn.web;
 import micdn.www;
@@ -214,6 +216,13 @@ version (unittest) {
     if (args.canFind("clean")) {
       try {
         return runClean(args);
+      } catch (Exception e) {
+        return reportStartupError(e.msg);
+      }
+    }
+    if (args.canFind("install")) {
+      try {
+        return runInstall(args);
       } catch (Exception e) {
         return reportStartupError(e.msg);
       }
@@ -420,7 +429,7 @@ int runResolve(string[] args) {
 /// `clean`：清除 www/static 部署目录（可再生成内容）；maven/npm 下载缓存与 blob 数据不清理。
 /// 交互终端（stdin 为 TTY）下逐目录询问确认（默认否）；`--yes`/`-y` 跳过确认。
 int runClean(string[] args) {
-  auto configValue = cleanConfigArg(args);
+  auto configValue = configArg(args);
   if (configValue is null)
     throw new Exception("-f is required for clean");
   auto yes = args.canFind("--yes") || args.canFind("-y");
@@ -461,13 +470,87 @@ int runClean(string[] args) {
   return ok ? 0 : 1;
 }
 
-/// 从 args 数组提取 `-f` 后的配置值（不依赖全局 vibe args，供 clean 测试/复用）。
-private string cleanConfigArg(string[] args) {
+/** `install <pkg.tgz>`：把本地 npm 包装入配置里的 `<npm base>`，并按目录内容刷新 packument。
+
+    元数据（`dist.tarball`）需要一个对外可访问的 registry 前缀：优先 `--registry`，
+    未给出时按 `listen` 推导（通配地址回落到 `127.0.0.1`）。
+*/
+int runInstall(string[] args) {
+  auto configValue = configArg(args);
+  if (configValue is null)
+    throw new Exception("-f is required for install");
+  auto tgz = installPackageArg(args);
+  if (tgz is null)
+    throw new Exception("install requires a package tgz: micdn -f micdn.xml install PKG.tgz");
+
+  auto configPath = resolveConfigFile("micdn.xml", configValue);
+  auto expanded = expandTilde(configPath);
+  if (!exists(expanded))
+    throw new Exception("Config file[" ~ expanded ~ "] not exists!");
+
+  auto config = parseFile(expanded);
+  applyMicdnCliLogging();
+  auto repo = NpmRepo.build(config);
+
+  auto registry = optionArg(args, "--registry", "");
+  if (registry.length == 0)
+    registry = defaultRegistryBase(config.listen);
+  auto tag = optionArg(args, "--tag", "");
+
+  auto result = installTarball(repo.base, tgz, registry, tag);
+  logInfo("install ok: %s@%s", result.name, result.ver);
+  logInfo("tarball: %s", result.tarball);
+  logInfo("packument: %s (versions: %s)", result.packument, result.versions.join(", "));
+  logInfo("url: %s", result.url);
+  return 0;
+}
+
+/// `install` 之后第一个非选项参数：待安装的 tgz 路径。
+private string installPackageArg(string[] args) {
+  foreach (i, a; args) {
+    if (a != "install")
+      continue;
+    for (auto j = i + 1; j < args.length;) {
+      auto candidate = args[j];
+      if (candidate == "--registry" || candidate == "--tag") {
+        j += 2;
+        continue;
+      }
+      if (candidate.startsWith("-")) {
+        j++;
+        continue;
+      }
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/// 未给 `--registry` 时的默认前缀：`http://{listen host}:{port}/npm`（通配监听地址回落到 127.0.0.1）。
+private string defaultRegistryBase(string listen) {
+  auto pair = parseListen(listen);
+  auto host = pair[0];
+  if (host.length == 0 || host == "0.0.0.0" || host == "::" || host == "[::]" || host == "*")
+    host = "127.0.0.1";
+  return "http://" ~ host ~ ":" ~ pair[1].to!string ~ mountNpm;
+}
+
+/// 从 args 数组提取 `-f` 后的配置值（不依赖全局 vibe args，供各子命令与测试复用）。
+private string configArg(string[] args) {
   foreach (i, a; args) {
     if (a == "-f" && i + 1 < args.length)
       return args[i + 1];
   }
   return null;
+}
+
+/// 取 `--name VALUE` 形式的选项值；未给出返回 fallback。
+private string optionArg(string[] args, string name, string fallback = null) {
+  foreach (i, a; args) {
+    if (a == name && i + 1 < args.length)
+      return args[i + 1];
+  }
+  return fallback;
 }
 
 /** 待清理目录：www/static 部署目录（配置中存在才清理）；maven/npm 下载缓存与 blob 数据不清理。 */
@@ -615,6 +698,9 @@ Commands:
                          --force  删除已有部署目录后重新安装（忽略 manifest.json）
   clean                  清除 www/static 部署目录；交互终端下逐项确认；maven/npm 下载缓存与 blob 数据不清理
                          --yes  跳过确认（非交互/脚本）
+  install PKG.tgz        把本地 npm 包装入 <npm base>，并按目录内容刷新 packument 元数据；日志输出到控制台
+                         --registry URL  写入 dist.tarball 的对外 registry 前缀（省略则按 listen 推导）
+                         --tag NAME      额外把本次版本挂到该 dist-tag（如 dev）
 
 Help Options:
   --help      Show this help message and exit
@@ -628,6 +714,7 @@ Examples:
   micdn -f micdn.xml deploy www manual --force
   micdn -f micdn.xml deploy www
   micdn -f micdn.xml clean
+  micdn -f micdn.xml install ~/build/beangle-ems-app-0.0.2.tgz
 `;
   writeln(strip(helpRaw));
 }
