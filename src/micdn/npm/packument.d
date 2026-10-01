@@ -16,6 +16,9 @@
 
 module micdn.npm.packument;
 /// 本地发布：把 npm 包 tgz 装入本地缓存目录，并按目录内容生成/刷新 packument 元数据（`micdn install`）。
+///
+/// 一个包在本地只有一份 packument（`{base}/{pkg}`），正式版与开发版共用；代理上游时以「并入」而不是「覆盖」
+/// 落盘（`mergeUpstreamPackument`），保证 dev 与 latest 两个 tag 同时可见。设计见 `docs/merged_repo.md`。
 
 import std.algorithm;
 import std.array;
@@ -146,29 +149,70 @@ private bool readManifest(string tgzFile, out JSONValue manifest) {
   return true;
 }
 
-/** 代理场景的合并入口：把本地已装入的版本并入 `{base}/{pkg}`（`ruri` 为 `/name` 或 `/@scope/name`）。
+/** 代理场景：把刚拉到的上游 packument（`incomingFile`）并入 `{base}/{pkg}`，再合并本地版本。
 
-    从上游拿到的 packument 只含上游自己的版本；而正式版与开发版共用同一份 `{base}/{pkg}`，
-    一份文件里的 dist-tags 因此可能缺失另一个来源的 tag。每次 packument 落盘后调用本函数，
-    把本地 tgz 目录里的版本补回去，交付期（与 `resolveVersion`）就有完整的 dist-tags。
+    一个包只有一份 packument，却可能有两个上游（正式版 `remotes` 与 `<npm><dev remote=...>`），
+    而客户端只会读我们发的这一份，dev tag 必须在文档里就齐全。因此**不能**用「谁后拉到谁覆盖」：
+    直接落盘会把另一个上游的版本整份丢掉（只剩 dev tag 的文档会让 `npm install <pkg>` 拿不到
+    `latest`，直到有人再触发一次正式版拉取为止）。
 
-    本地一个 tgz 都没有时不重写 packument。
+    合并规则：已有文件为准，`incoming` 只补已有文件里没有的版本、`time` 与自定义 tag——
+    同名版本保留先到的条目，其 `tarball` 地址因此稳定指向真正拥有它的那个 registry；
+    合并后仍由 `refreshPackument` 按「合并版本集 + 本地 tgz」重推 dist-tags。
+
+    读不出 `incoming`（空文件、非法 JSON）时抛 Exception，调用方按失败处理。
 */
-void mergeLocalVersions(string base, string ruri, string registryBase) {
+void mergeUpstreamPackument(string base, string ruri, string registryBase, string incomingFile) {
   if (ruri.length < 2 || ruri[0] != '/' || !isPackageName(ruri[1 .. $]))
     return;
+  auto incoming = readPackument(incomingFile);
+  if (incoming.object.length == 0)
+    throw new Exception("no packument to merge from " ~ incomingFile);
+
   auto name = ruri[1 .. $];
-  auto segs = name.split("/");
-  auto scopePart = segs.length == 2 ? segs[0][1 .. $] : "_";
   auto root = normalizeBasePath(base);
-  if (!exists(root ~ "/" ~ scopePart ~ "/" ~ segs[$ - 1]))
-    return;
-  try {
-    refreshPackument(root, name, registryBase, "", "");
-  } catch (Exception e) {
-    // 合并只是尽力而为：packument 已经拿到手，不能因为本地目录有杂音就让交付失败。
-    logWarn("npm packument merge skipped for %s - %s", ruri, e.msg);
+  auto packumentFile = packumentPathOf(root, name);
+  auto doc = readPackument(packumentFile);
+  foldMissing(doc, incoming, "versions");
+  foldMissing(doc, incoming, "time");
+  foldMissing(doc, incoming, "dist-tags");
+  // 顶层摘要字段只补空缺（本地与正式版上游的写法更贴近发布方）。
+  foreach (key; [
+    "description", "license", "homepage", "repository", "bugs", "keywords",
+    "readme", "maintainers", "author"
+  ]) {
+    if (key in doc.object)
+      continue;
+    if (auto value = key in incoming.object)
+      doc[key] = *value;
   }
+  mkdirRecurse(dirName(packumentFile));
+  write(packumentFile, toJSON(doc, true) ~ "\n");
+  refreshPackument(root, name, registryBase, "", "");
+}
+
+/// `{base}/{pkg}`：scoped 包为 `{base}/@scope/{name}`，否则 `{base}/{name}`。
+private string packumentPathOf(string root, string name) {
+  auto segs = name.split("/");
+  return segs.length == 2 ? root ~ "/@" ~ segs[0][1 .. $] ~ "/" ~ segs[1] : root ~ "/" ~ segs[0];
+}
+
+/** 把 `source` 里 `key` 下的对象条目补进 `target`（`target` 已有的键不动）。
+
+    `dist-tags` 用同一规则：自定义 tag 只在缺失时补（`latest` 等派生 tag 由 `refreshPackument`
+    按合并后的版本集重推，不会被这里的旧值挡住）。
+*/
+private void foldMissing(ref JSONValue target, JSONValue source, string key) {
+  auto incoming = key in source.object;
+  if (incoming is null || incoming.type != JSONType.object)
+    return;
+  auto slot = key in target.object;
+  if (slot is null || slot.type != JSONType.object)
+    target[key] = JSONValue.emptyObject;
+  auto merged = key in target.object;
+  foreach (name, entry; incoming.object)
+    if (!(name in merged.object))
+      merged.object[name] = entry;
 }
 
 /** 扫描本地版本目录，把 `{base}/{pkg}` 的 packument 刷新为「已有版本 + 本地版本」的合并结果，

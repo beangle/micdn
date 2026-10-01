@@ -8,6 +8,7 @@
 
 module micdn.npm.web;
 /// NPM 仓库 HTTP 服务：版本化 tarball 与 packument 元数据（本地文件，缺失时按同一路径从上游拉取）。
+/// 正式版与开发版共用 `/npm` 与同一仓库根（一份 packument 承载两个通道），设计见 `docs/merged_repo.md`。
 
 import std.algorithm;
 import std.exception;

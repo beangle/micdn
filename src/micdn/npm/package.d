@@ -8,12 +8,17 @@
 
 module micdn.npm;
 /// NPM 仓库本地缓存与从 registry 拉取 tgz。
+///
+/// 正式版与开发版（`<npm><dev remote="..."/>`）**共用** `/npm` 入口与 `<npm base>` 目录树：本地一份 packument
+/// 同时承载两个通道的版本与 dist-tags，回源时按版本规格选上游。整体设计（含「为什么不能拆目录」）见
+/// `docs/merged_repo.md`。
 
 import std.algorithm;
 import std.conv;
 import std.exception;
 import std.file;
 import std.json : JSONType, parseJSON;
+import std.path : baseName, dirName;
 import std.string;
 import std.typecons;
 import std.uri;
@@ -21,7 +26,7 @@ import std.uri;
 import vibe.core.log;
 
 import micdn.model;
-import micdn.npm.packument : mergeLocalVersions, originPlaceholder, prereleaseChannels;
+import micdn.npm.packument : mergeUpstreamPackument, originPlaceholder, prereleaseChannels;
 import micdn.routes : mountNpm;
 import micdn.web.file;
 import micdn.web : normalizeBasePath;
@@ -88,6 +93,12 @@ Tuple!(string, string, string) parseTarballUri(string path) {
   return Tuple!(string, string, string)(scopePart, namePart, versionPart);
 }
 
+/** npm 仓库根：本地缓存与上游 registry 回源（正式版 `remotes` / 开发版 `devRemote`）。
+
+    正式版与开发版**共用**同一 `base`：一个包只有一份 packument（`{base}/{pkg}`），承载两个通道的版本与
+    dist-tags；回源按版本规格选上游（`upstreamsFor`），packument 交付路径则并入全部上游（`allUpstreams`）。
+    整体设计见 `docs/merged_repo.md`。
+*/
 class NpmRepo {
   /// 本地缓存根目录（绝对路径）
   const string base;
@@ -114,12 +125,28 @@ class NpmRepo {
       - 开发版规格（`isDevVersionSpec`）→ `<npm><dev remote=...>`；未配置 `<dev>` 时返回**空列表**，
         表示开发版不代理上游（`fetch` / `fetchPackument` 只认本地已有文件）。
 
+      上游仍然只取一个，不做交叉回落——开发版与正式版是两套来源，混着试会让「这个版本到底
+      从哪来」不可预期；`1.0.0-rc.1` 这类**正式 registry 上的预发布版**由 `isDevVersionSpec`
+      的判定排除在开发版之外（详见该函数）。
       解析出具体版本后也会走这里：`0.0.4-dev.2` 这类具体开发版版本同样只回 dev 上游。
   */
   const(string[]) upstreamsFor(string versionSpec) const {
     if (!isDevVersionSpec(versionSpec))
       return remotes;
     return devRemote.length > 0 ? [devRemote] : [];
+  }
+
+  /** 全部配置过的上游（正式版优先，`<dev>` 在后，去重）。
+
+      packument 的 URL（`/{name}`）不带版本，判定不了正式版/开发版，而客户端只会读我们发的
+      那一份文档——因此交付路径要把两个上游的 packument 都取回来合并（见 `fetchPackument`）。
+  */
+  const(string[]) allUpstreams() const {
+    string[] result;
+    foreach (base; remotes ~ devRemote)
+      if (base.length > 0 && !result.canFind(base))
+        result ~= base;
+    return result;
   }
 
   /** 返回本地 tgz 路径（与 NpmRepoConfig.localTarball 一致）。
@@ -145,10 +172,20 @@ class NpmRepo {
       下载（开发版走 `<npm><dev>`，未配置时不下上游），成功返回 true。
   */
   bool fetch(string scopePart, string namePart, string versionPart) const {
+    return fetch(scopePart, namePart, versionPart, upstreamsFor(versionPart));
+  }
+
+  /** 同 `fetch`，但由调用方显式指定上游列表。
+
+      `resolve` 已按原始规格（tag）选定来源后，取 tgz 要沿用同一份上游：解析出的具体版本未必能
+      单凭版本号判定来源（如 tag `next` 解析成 `1.0.0-next.1`，标识 `next` 不在 `developmentIds`
+      里），否则会出现「packument 取自 dev 上游、tgz 却去正式版上游找」的错配。
+  */
+  bool fetch(string scopePart, string namePart, string versionPart, const(string[]) upstreams) const {
     auto local = localTarball(scopePart, namePart, versionPart);
     if (exists(local))
       return true;
-    foreach (registryBase; upstreamsFor(versionPart)) {
+    foreach (registryBase; upstreams) {
       string url = tarballUrl(scopePart, namePart, versionPart, registryBase);
       logInfo("Downloading %s", url);
       if (curlDownload(url, local)) {
@@ -161,7 +198,8 @@ class NpmRepo {
   /** 包元数据（packument）：本地有 `{base}/{pkg}` 返回 true；
       否则按同一相对路径从 `versionSpec` 对应的上游列表拉取（与 maven 侧 `GavRepo.fetch` 同口径，
       只接受包名路径）。dist-tag 必须是开发版 tag（`dev`/`next` 等）时才会去 `<npm><dev>` 找
-      packument（见 `resolveVersion`）。`force` 为真时忽略本地已有文件、重新拉取（覆盖）。
+      packument（见 `resolveVersion`）。`force` 为真时忽略本地已有文件、重新拉取（并入，
+      见 `fetchPackumentFrom`）。
 
       元数据由发布方产出——本地发布走 `micdn install`（`micdn.npm.packument`）写盘，代理场景直接取
       上游 registry 的 packument，micdn 不自行拼装。
@@ -170,34 +208,48 @@ class NpmRepo {
     return fetchPackumentFrom(ruri, upstreamsFor(versionSpec), force);
   }
 
-  /** packument 的 HTTP 交付路径：URL（`/{name}` 或 `/@scope/{name}`）不含版本，
-      无法判定正式版/开发版，故按 `remotes`、再 `<dev>` 顺序探测上游——正式版优先保证结果
-      确定，`<dev>` 只在正式版上游没有该包时兜底（同一 URL 重复配置时只试一次）。
+  /** packument 的 HTTP 交付路径：URL（`/{name}` 或 `/@scope/{name}`）不含版本，判定不了正式版/
+      开发版，故把所有上游的文档都取回来并入同一份（`allUpstreams`，正式版优先、去重）——
+      客户端只读我们发的这一份，dev 与 latest 两个 tag 必须同时齐全。
   */
   bool fetchPackument(string ruri) const {
-    auto upstreams = remotes.dup;
-    if (devRemote.length > 0 && !upstreams.canFind(devRemote))
-      upstreams ~= devRemote;
-    return fetchPackumentFrom(ruri, upstreams, false);
+    // packument 的 URL 不带版本，判定不了正式版/开发版：两个上游都取回来并入同一份文档
+    // （客户端只读我们发的这一份，dev tag 必须在这里就齐全）。
+    return fetchPackumentFrom(ruri, allUpstreams(), false);
   }
 
+  /** 逐一尝试 `upstreams`，每一份成功的上游文档都并入本地 packument（见 `mergeUpstreamPackument`），
+      任一成功即返回 true（`force` 为假且本地已有文件时直接成功，不回源）。
+
+      上游文档先落到临时文件再合并：直接下到 packument 路径会把另一个上游的版本整份丢掉。
+      合并失败（如上游返回的不是 JSON）时退回「原样落盘」——拿到的 packument 绝不能丢。
+  */
   private bool fetchPackumentFrom(string ruri, const(string[]) upstreams, bool force) const {
     if (!isPackageUri(ruri))
       return false;
     auto local = base ~ ruri;
     if (!force && exists(local))
       return true;
+    bool fetched;
     foreach (registryBase; upstreams) {
       string url = registryBase ~ ruri;
+      auto incoming = dirName(local) ~ "/." ~ baseName(local) ~ ".incoming";
+      scope (exit)
+        if (exists(incoming))
+          remove(incoming);
       logInfo("Downloading %s", url);
-      if (curlDownload(url, local)) {
-        // 上游 packument 只覆盖上游自己的版本：拉回后立刻把本地已装入的版本并回去，
-        // 否则一份 packument 会在正式版/开发版之间互相覆盖（见 mergeLocalVersions）。
-        mergeLocalVersions(base, ruri, originPlaceholder ~ mountNpm);
-        return true;
+      if (!curlDownload(url, incoming))
+        continue;
+      fetched = true;
+      try
+        mergeUpstreamPackument(base, ruri, originPlaceholder ~ mountNpm, incoming);
+      catch (Exception e) {
+        logWarn("npm packument merge failed for %s - %s", ruri, e.msg);
+        mkdirRecurse(dirName(local));
+        copy(incoming, local);
       }
     }
-    return false;
+    return fetched;
   }
 
   /** 从本地 packument 读一个 dist-tag；文件不存在 / tag 缺失 / JSON 非法都返回 null。
@@ -230,11 +282,11 @@ class NpmRepo {
       正式版与开发版共用一个本地 base，而一个包的 packument 只有一份 `{base}/{pkg}`：它可能来自
       `micdn install`，也可能来自正式版或 `<npm><dev>` 的某个上游，因此 dist-tags 未必齐全。
       查找分两步：
-      1. 先读本地已有 packument，命中即返回（`install` 产出的元数据通常最全）；
-      2. 本地没有该 tag 时，按 `versionSpec` 对应的上游（`dev` 走 `<npm><dev>`，`latest` 走正式版
-         `remotes`）重新拉取 packument 后再读一次。拉取是覆盖式的，但落盘时会立刻把本地已装入的
-         版本并回去（`mergeLocalVersions`），所以「开发版上游只有 dev tag、正式版上游只有 latest」
-         不会互相遮蔽。
+     1. 先读本地已有 packument，命中即返回（`install` 产出的元数据通常最全）；
+     2. 本地没有该 tag 时，按 `versionSpec` 对应的上游（`dev` 走 `<npm><dev>`，`latest` 走正式版
+         `remotes`）重新拉取 packument 后再读一次。拉取是**并入**式的（`mergeUpstreamPackument`
+         把上游文档与已有文件、本地已装入的版本合成一份），所以「开发版上游只有 dev tag、
+         正式版上游只有 latest」不会互相遮蔽。
   */
   string resolveVersion(string scopePart, string namePart, string versionSpec) const {
     auto spec = versionSpec.strip;
@@ -272,8 +324,19 @@ bool isConcreteVersion(string versionSpec) {
   return v.length > 1 && (v[0] == 'v' || v[0] == 'V') && v[1] >= '0' && v[1] <= '9';
 }
 
-/** 版本规格是否开发版：语义化预发布版本（版本号含 `-`，如 `0.0.3-dev.2`、`1.2.0-rc.1`）或
-    预发布通道 tag（`prereleaseChannels`：dev/next/beta/rc/alpha/canary）。`latest` 等正式 tag 不算。
+/// 版本里的「开发版」预发布标识（`1.0.0-dev.2` 的 `dev`）：这些版本来自开发仓库。
+immutable string[] developmentIds = [
+  "dev", "snapshot", "local", "nightly", "test"
+];
+
+/** 版本规格是否开发版：预发布**标识**是开发标识（`0.0.3-dev.2`、`1.0-SNAPSHOT.1`），
+    或规格本身是预发布通道 tag（`prereleaseChannels`：dev/next/beta/rc/alpha/canary）。
+    `latest` 等正式 tag 不算。
+
+    只认开发标识而不是「版本里有没有 `-`」：`1.0.0-rc.1`、`19.0.0-beta.2`、`2.0.0-20240101`
+    这类预发布版本在正式 registry 上是正常发布（如 react 的 rc 版本），按旧判定会被路由到
+    `<dev>`；未配置 `<dev>` 时直接 404，比「只代理正式版」还差。`rc`/`beta`/`alpha` 仍作为
+    *通道 tag* 参与 dist-tag 推导（`prereleaseChannels`），只是不再据此判断版本来源。
 
     命中时回源走 `<npm><dev remote=...>`（未配置则不代理，见 `NpmRepo.upstreamsFor`）。
 */
@@ -281,8 +344,20 @@ bool isDevVersionSpec(string versionSpec) {
   auto v = versionSpec.strip;
   if (v.length == 0)
     return false;
-  if (v.indexOf('-') > 0)
-    return true;
+  auto dash = v.indexOf('-');
+  if (dash > 0) {
+    auto id = v[dash + 1 .. $];
+    // 预发布标识到下一个分隔符为止：`dev.2` → `dev`、`canary-abc` → `canary`
+    size_t end = size_t.max;
+    foreach (sep; ['.', '+', '-']) {
+      auto at = id.indexOf(sep);
+      if (at >= 0 && at < end)
+        end = at;
+    }
+    if (end != size_t.max)
+      id = id[0 .. end];
+    return developmentIds.canFind(id.toLower);
+  }
   return prereleaseChannels.canFind(v.toLower);
 }
 
@@ -290,14 +365,16 @@ bool isDevVersionSpec(string versionSpec) {
 
     - 规格里的版本可能是 dist-tag（`dev`/`latest`），先经 `NpmRepo.resolveVersion` 解析成具体版本；
     - 本地缓存已有（`{base}/{scope|_}/{name}/{version}/`）时不再访问上游；
-    - 需要回源时由 `NpmRepo.fetch` 按版本选上游：开发版走 `<npm><dev>` 的 remote，未配置则不下
-      上游（返回 null，除非本地已装入）；正式版走 `<npm><remote>`。
+    - 需要回源时由 `NpmRepo.fetch` 取 tgz，上游沿用**原始规格**选出的那份（与 `resolveVersion`
+      取 packument 的来源一致）：开发版走 `<npm><dev>` 的 remote，未配置则不下上游（返回 null，
+      除非本地已装入）；正式版走 `<npm><remote>`。这样 tag `next` 解析成 `1.0.0-next.1` 后
+      仍从同一个上游取 tgz，不会因版本标识不同而错配来源。
 */
 string fetchNpmTarball(NpmRepo repo, string scopePart, string namePart, string versionSpec) {
   auto ver = repo.resolveVersion(scopePart, namePart, versionSpec);
   if (ver is null)
     return null;
-  if (!repo.fetch(scopePart, namePart, ver))
+  if (!repo.fetch(scopePart, namePart, ver, repo.upstreamsFor(versionSpec)))
     return null;
   return repo.localTarball(scopePart, namePart, ver);
 }
