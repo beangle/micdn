@@ -2,7 +2,7 @@
 
 轻量 CDN / 静态资源服务：Maven、npm、WebJar/本地静态包、WWW 文档站点与 Blob 存储（含可选 S3 兼容 API）。配置驱动，单进程 HTTP。
 
-**License:** GPLv3 · **Version:** 0.3.3
+**License:** GPLv3 · **Version:** 0.4.0
 
 ## 功能
 
@@ -228,7 +228,7 @@ static / www 的文本类资源（js/css/html/svg/json 等）在**部署期**预
 | [docs/reverse_proxy.md](docs/reverse_proxy.md) | nginx / varnish 缓存、haproxy 压缩等协作部署 |
 | [docs/merged_repo.md](docs/merged_repo.md) | 正式版/开发版合并仓库与单一入口设计（元数据合并、回源路由、缓存策略） |
 | [docs/stress_test.md](docs/stress_test.md) | 压测复测指南：环境、样例、场景与结果比较 |
-| [docs/release-v0.3.3.md](docs/release-v0.3.3.md) | 当前版本说明 |
+| [docs/release-v0.4.0.md](docs/release-v0.4.0.md) | 当前版本说明 |
 
 打包脚本（每次默认 `dub clean` + 清空 `target/` 后全量构建）：
 

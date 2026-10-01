@@ -1,23 +1,50 @@
 # Changelog
 
-## 未发布
+## v0.4.0 (2026-10-02)
+
+概要：正式版与开发版（maven SNAPSHOT / npm dev）合并为**一个入口、一个本地仓库根**，本地发布（`micdn install`）与上游代理共用同一份元数据；同时有一批修复、打包与文档更新。**Breaking**：`<repo>` 别名移除、未声明 `<maven>` / `<npm>` 不再挂载端点（v0.3.3 未声明时会挂默认仓库）、默认 base 由 `~/maven`、`~/npm` 改为 `${micdn.home}/maven`、`${micdn.home}/npm`。**新增（v0.3.3 没有）**：maven SNAPSHOT 支持（`<snapshot remote="..."/>`，与正式版共用 `/maven`）、npm dev 上游（`<dev remote="..."/>`）、npm packument 交付与本地发布。
+
+### 配置
 
 - **移除 `<repo>` 别名**：maven 配置只认 `<maven>`（此前 `<repo>` 也能被当成 `<maven>` 解析）。写 `<repo>` 的旧配置不再建库、不再注册 `/maven`，请改成 `<maven>`；`<repo>` 是 Maven 客户端 `settings.xml` 的标签，与 micdn 的配置语义无关，保留别名只会让两种格式混淆
-- **修复**：仓库根路径 `/maven`、`/npm`、`/static` 一律 404——`ResourceUri` 用「段数组为 null」表示解析失败，而 D 的空数组字面量本身指针为 null，导致「零段」（仓库根）与「点段越界」被同等当成失败。改为显式 `invalid` 标志区分二者后，根路径回落到目录列表分支；缺尾斜杠（如 `/maven`）先 302 补 `/`（`micdn.web.directoryUri`，此前 `/static` 无尾斜杠时还会把目标拼成 `/static//`），保证列表页相对链接正确。尾斜杠改以原始请求为准（`decodeRepositoryUri` 会把空串补成 `/`，否则 `/maven` 会被当成 `/maven/` 直接列表）
+- **新增开发版通道配置（纯增量）**：`<dev>` / `<snapshot>` 是本版新增的可选元素，采用**属性** `remote`（`<dev remote="..."/>` / `<snapshot remote="..."/>`），没有独立 `base`——两个通道与正式版共用同一个仓库根。v0.3.3 没有对应元素，无需迁移
+- **`<maven>` / `<npm>` 元素只决定是否挂载端点**：未声明时不再挂载 `/maven`、`/npm`（Breaking：v0.3.3 未声明时会回落到 `MavenRepoConfig.defaultConfig()` / `NpmRepoConfig.defaultConfig()` 并始终挂载端点），但仓库本身仍在——base 回落到 `${micdn.home}/maven`、`${micdn.home}/npm`（v0.3.3 的默认 base 是 `~/maven`、`~/npm`，依赖旧目录时请显式声明并写 base），上游回落到 `https://repo1.maven.org/maven2`、`https://registry.npmmirror.com`，`<jar>` / `<npm>` provider 与 `micdn install` 无需声明该元素。`MicdnConfig.maven` / `npm` 不再为 null，改由新增的 `mavenDeclared` / `npmDeclared` 决定是否挂端点（配置查看 `toXml` 也只输出声明过的段落）。`resources/micdn.xml` 与 `resources/micdn.xsd` 同步更新；`snapshotBase` / `devRemotes` 一并移除
+
+### npm
+
 - **npm 开发版上游**：`<npm>` 新增可选子元素 **`<dev remote="..."/>`**（属性形式，无 `base`）。开发版与正式版**共用** `/npm` 入口与 `<npm base>` 目录树，只在回源时按版本选上游（`NpmRepo.upstreamsFor`）：**dev/预发布版本只走 `<dev>` 的 remote，不再回落正式版 remote；正式版只走 `<npm>` 的 remote**。开发版判定见下条（预发布标识 / 通道 tag），并支持 dist-tag 版本（`@xurp/manual@dev`）——先取 packument 的 `dist-tags` 解析成具体版本再取 tgz，部署目录名仍用配置里写的版本。省略 `<dev>` 时**开发版不代理上游**，只认本地已装入/已缓存的文件（`micdn install` 的产物无需外部 registry 即可被 `resolve` 与 `/npm` 找到）
 - **packument 合并（并入式落盘）**：一个包在本地只有**一份** packument（`{npm base}/{pkg}`），客户端只读我们发的这一份。上游文档先下到临时文件，再由 `micdn.npm.packument.mergeUpstreamPackument` **并入**已有文件：已有条目为准，上游只补缺失的版本/`time`/自定义 tag 与空缺的顶层摘要字段，随后 `refreshPackument` 按「合并版本集 + 本地 tgz」重推 `dist-tags`（`latest` = 最高的正式版、通道 tag 同理、仍指向现存版本的自定义 tag 保留，本地 tgz 覆盖同名条目的 `dist`）。`/npm` 交付路径（`NpmRepo.allUpstreams`：正式版 remote + `<dev>` remote，去重）因此会把两个上游的文档都取回来合成一份——否则「开发版上游只有 dev tag、正式版上游只有 latest」会互相覆盖，`npm install <pkg>` 可能只看到 dev 版本；`resolve` 按 tag 取对应上游、`micdn install` 也从这份文件读出上游版本条目再合并。上游文档不是 JSON 时退回「原样落盘」，绝不丢掉刚拿到的 packument
 - **npm 开发版判定收窄**：`isDevVersionSpec` 不再「版本里含 `-` 就是开发版」，而是看预发布**标识**（`1.0.0-dev.2` 的 `dev`，见 `developmentIds` = dev/snapshot/local/nightly/test）或规格本身是预发布通道 tag（dev/next/beta/rc/alpha/canary）。`1.2.0-rc.1`、`19.0.0-beta.2` 这类正式 registry 上正常发布的预发布版仍走正式版上游——按旧判定会被路由到 `<dev>`，未配置 `<dev>` 时直接 404。`resolve` 取 tgz 沿用**原始规格**选出的上游（`fetchNpmTarball` 传 `NpmRepo.upstreamsFor(versionSpec)`），tag `next` 解析成 `1.0.0-next.1` 后不会因为标识不在 `developmentIds` 而错配到正式版上游
-- **maven SNAPSHOT 并入 `/maven`**：删除只读入口 **`/snapshot`**（`micdn.routes.mountSnapshot`），正式版与 SNAPSHOT **共用** `/maven` 与 `<maven base>`（`{base}/{group 路径}/{artifact}/{version}/`）。`<maven><snapshot remote="..."/></maven>` 配置 SNAPSHOT 专用上游：**路径段以 `-SNAPSHOT` 结尾**（`GavRepo.isSnapshotUri`，而非全文包含 `SNAPSHOT`，artifactId 含 `SNAPSHOT` 的正式版不会被误判）的本地缺失构件与 `maven-metadata.xml` 按该上游回源（先 `.sha1` 再构件并校验，校验不过删除并 404），其余走 `<maven><remote>`，**两者互不回落**；省略 `<snapshot>` 时快照只发本地已装入的构件。`install` 子命令按扩展名分派：`.jar`/`.war`/`.pom` 装入 `<maven base>`，坐标取自 `META-INF/maven/**/pom.properties`（war 在 `WEB-INF/classes/` 下）→ 退 `MANIFEST.MF` 的 `Implementation-*`（`.pom` 直接解析 XML），写出 `.sha1` 并扫描版本目录重写 `maven-metadata.xml`；**只接受带时间戳的文件名**（`xxx-1.0.0-SNAPSHOT.jar` 这类未经 `mvn deploy` 的裸名拒绝），`--tag` 仅对 npm 有效
+- **npm 发布**：新增 `micdn -f CONFIG install PKG.tgz` 子命令——把本地 npm 包装入配置里的 `<npm base>`（`{scope|_}/{name}/{version}/`），并从 tarball 内的 `package/package.json` 生成/刷新 `{npm base}/{包名}` 的 packument：`dist.integrity`/`shasum` 由 tgz 字节算出，`dist-tags.latest` 取最高正式版，预发布按 `dev`/`next`/`beta`/`rc`/`alpha`/`canary` 自动打通道 tag，`--tag` 可再加一个自定义 tag（已有自定义 tag 在版本仍存在时保留）。`dist.tarball` 写 origin 占位符 `{origin}/npm/...`（不写死主机，交付时替换，见下条）。纯 D 实现（复用 `fs.tar.readTgzEntry` 内存内读单个 tar 条目），不再依赖宿主 `node`/`tar`
+- **npm 交付**：packument 由发布方产出、micdn 只负责交付——`/npm/{pkg}` 发送 `{npm base}/{pkg}` 文件（包名路径标注 `application/json`）；本地没有该文件时按同一相对路径从上游 registry 拉取后发送（与 maven 侧 `GavRepo.fetch` 同口径，正式版 remote 优先、再 `<npm><dev>` 的 remote），micdn 不自行拼装元数据。交付前把 `{origin}` 占位符替换成请求 origin（见下条）；上游代理来的 packument 是绝对地址、不含占位符，原样发送。缓存头与 304 条件响应仍走 `handleCacheFile`（ETag/Last-Modified 与 `sendFile` 同口径）
+- **npm 缓存策略按路径细分**（`npmArtifactCachePolicy(uri)`）：正式版 tarball 仍 `public, max-age=31536000, immutable`；预发布/开发版 tarball（版本号含 `-`）与 packument、目录列表改 `public, no-cache`（同名版本可能被覆盖重发、元数据随时变）；`SNAPSHOT` 版本 `no-store`（与 maven 侧同口径）。用于非文件响应（目录列表）的 `applyCachePolicy` 一并补齐 `Cache-Control`/`Expires`
+
+### maven
+
+- **maven SNAPSHOT（新增，v0.3.3 无此能力）**：正式版与 SNAPSHOT **共用** `/maven` 与 `<maven base>`（`{base}/{group 路径}/{artifact}/{version}/`），不设独立入口。`<maven><snapshot remote="..."/></maven>` 配置 SNAPSHOT 专用上游：**路径段以 `-SNAPSHOT` 结尾**（`GavRepo.isSnapshotUri`，而非全文包含 `SNAPSHOT`，artifactId 含 `SNAPSHOT` 的正式版不会被误判）的本地缺失构件与 `maven-metadata.xml` 按该上游回源（先 `.sha1` 再构件并校验，校验不过删除并 404），其余走 `<maven><remote>`，**两者互不回落**；省略 `<snapshot>` 时快照只发本地已装入的构件。`install` 子命令按扩展名分派：`.jar`/`.war`/`.pom` 装入 `<maven base>`，坐标取自 `META-INF/maven/**/pom.properties`（war 在 `WEB-INF/classes/` 下）→ 退 `MANIFEST.MF` 的 `Implementation-*`（`.pom` 直接解析 XML），写出 `.sha1` 并扫描版本目录重写 `maven-metadata.xml`；**只接受带时间戳的文件名**（`xxx-1.0.0-SNAPSHOT.jar` 这类未经 `mvn deploy` 的裸名拒绝），`--tag` 仅对 npm 有效
 - **maven SNAPSHOT 元数据保鲜**：版本目录的 `maven-metadata.xml` 按 TTL（`GavRepo.snapshotMetadataTtl`，默认 60 秒）从 `<snapshot remote>` 重新探测，上游新 deploy 的构建才能被客户端解析到；探测/校验失败保留本地旧副本（不因上游抖动删缓存）。不带时间戳的别名（`{artifact}-{version}-SNAPSHOT.{ext}[.sha1]`）取「元数据声明的最新构建」与「本地目录里最新的时间戳文件」中更新者：元数据刚指向上游新构建、文件尚未落入本地时，别名直接 `302` 到该时间戳路径，后续请求再回源；`HEAD` 以 `latest` 头返回实际文件名（对标 sashub `SnapshotWS`）
 - **maven artifact 级元数据合并**：本地有 `*-SNAPSHOT` 版本目录时，`{group}/{artifact}/maven-metadata.xml`（`SnapshotRepo.mergeArtifactMetadata`）把本地快照版本并进 `<versions>` 并重算 `<latest>`，让 `LATEST` / 版本范围也能看到 `micdn install` 装入的开发版；上游顺序保留、本地快照按版本序追加，`<release>` 沿用上游（缺失时取最大正式版），已经并入过则不重写以保持文件稳定。没有本地快照版本的 artifact 仍字节级透传上游元数据；上游也拿不到、但本地有快照目录时，可据此生成一份最小可用元数据
-- **配置简化**：`<dev>` / `<snapshot>` 由子元素 `<remote>` 改为**属性** `remote`（`<dev remote="..."/>` / `<snapshot remote="..."/>`）；**未声明 `<maven>` / `<npm>` 元素就不挂载对应端点**（`MicdnConfig.maven` / `npm` 为 null，`MavenRepoConfig.defaultConfig()` / `NpmRepoConfig.defaultConfig()`、`snapshotBase`、`devRemotes` 一并移除，`resolve` 会提示 npm provider 需要 `<npm>`、jar provider 需要 `<maven>`）。`resources/micdn.xml` 与 `resources/micdn.xsd` 同步更新
-- **npm 发布**：新增 `micdn -f CONFIG install PKG.tgz` 子命令——把本地 npm 包装入配置里的 `<npm base>`（`{scope|_}/{name}/{version}/`），并从 tarball 内的 `package/package.json` 生成/刷新 `{npm base}/{包名}` 的 packument：`dist.integrity`/`shasum` 由 tgz 字节算出，`dist-tags.latest` 取最高正式版，预发布按 `dev`/`next`/`beta`/`rc`/`alpha`/`canary` 自动打通道 tag，`--tag` 可再加一个自定义 tag（已有自定义 tag 在版本仍存在时保留）。`dist.tarball` 写 origin 占位符 `{origin}/npm/...`（不写死主机，交付时替换，见下条）。纯 D 实现（复用 `fs.tar.readTgzEntry` 内存内读单个 tar 条目），不再依赖宿主 `node`/`tar`，替换掉原先的 `scripts/npm_add.sh`
-- **npm 交付**：packument 由发布方产出、micdn 只负责交付——`/npm/{pkg}` 发送 `{npm base}/{pkg}` 文件（包名路径标注 `application/json`）；本地没有该文件时按同一相对路径从上游 registry 拉取后发送（与 maven 侧 `GavRepo.fetch` 同口径，正式版 remote 优先、再 `<npm><dev>` 的 remote），micdn 不自行拼装元数据。交付前把 `{origin}` 占位符替换成请求 origin（见下条）；上游代理来的 packument 是绝对地址、不含占位符，原样发送。缓存头与 304 条件响应仍走 `handleCacheFile`（ETag/Last-Modified 与 `sendFile` 同口径）
-- **请求 origin 推导**：新增 `micdn.web.origin.getOrigin`（对标 Beangle `RequestUtils.getOrigin`，反向代理场景取浏览器看到的那一侧——协议优先 `X-Forwarded-Proto`、主机优先 `X-Forwarded-Host`、端口优先 Host 自带值再退 `X-Forwarded-Port`，默认端口省略，IPv6 方括号保留）。本地发布与交付都不需要配置对外地址：`install` 只写 `{origin}` 占位符，交付时按访问请求推导
-- **npm 缓存策略按路径细分**（`npmArtifactCachePolicy(uri)`）：正式版 tarball 仍 `public, max-age=31536000, immutable`；预发布/开发版 tarball（版本号含 `-`）与 packument、目录列表改 `public, no-cache`（同名版本可能被覆盖重发、元数据随时变）；`SNAPSHOT` 版本 `no-store`（与 maven 侧同口径）。用于非文件响应（目录列表）的 `applyCachePolicy` 一并补齐 `Cache-Control`/`Expires`
+
+### CLI 与交付
+
 - **CLI**：子命令改为「第一个非选项参数」（`-f` / `--tag` 的值不参与识别，与 `-f` 的先后顺序无关），`-f` 指向的路径里含 `deploy`/`clean`/`install` 字样不再被误判；未知子命令直接报错退出，不再当成启动 HTTP 服务
+- **请求 origin 推导**：新增 `micdn.web.origin.getOrigin`（对标 Beangle `RequestUtils.getOrigin`，反向代理场景取浏览器看到的那一侧——协议优先 `X-Forwarded-Proto`、主机优先 `X-Forwarded-Host`、端口优先 Host 自带值再退 `X-Forwarded-Port`，默认端口省略，IPv6 方括号保留）。本地发布与交付都不需要配置对外地址：`install` 只写 `{origin}` 占位符，交付时按访问请求推导
+
+### 修复
+
+- **修复**：仓库根路径 `/maven`、`/npm`、`/static` 一律 404——`ResourceUri` 用「段数组为 null」表示解析失败，而 D 的空数组字面量本身指针为 null，导致「零段」（仓库根）与「点段越界」被同等当成失败。改为显式 `invalid` 标志区分二者后，根路径回落到目录列表分支；缺尾斜杠（如 `/maven`）先 302 补 `/`（`micdn.web.directoryUri`，此前 `/static` 无尾斜杠时还会把目标拼成 `/static//`），保证列表页相对链接正确。尾斜杠改以原始请求为准（`decodeRepositoryUri` 会把空串补成 `/`，否则 `/maven` 会被当成 `/maven/` 直接列表）
+- **修复：配置自身的 `remote` 属性不再被上游 remote 误读**：`extractRemoteUrl` 只扫描根 `<micdn ...>` 起始标签，`<snapshot remote="..."/>` / `<dev remote="..."/>` 不会被当成配置的远程配置 URL（此前会把上游地址当成配置来源去下载）
+
+### 打包与工程
+
+- **打包：版本号改为从 git tag 推导**：`dub.json` 去掉 `version` 字段（dub 从 tag `vX.Y.Z` / 分支 `~branch` 取版本，字段存在会让 registry 拒绝分支版本），`scripts/build_*.sh` 改用 `git describe --tags --abbrev=0`（去 `v` 前缀）并在无 tag 时报错；`docs/build_linux.md` / `container_build.md` / `build_aur.md` 的版本来源说明同步
+
+### 文档
+
 - 文档：明确 `manifest.json` 是部署快路径的**唯一判据**（只比对源文件 `inner` / `size` / `mtime` / `artifact`，不看部署产物本身），以及部署产物被外部改动后不自愈的现象与手工恢复方式（`deploy … --force` + reload）。曾评估过“校验部署目录”（文件计数 / 目录指纹 / 目录 mtime）以自动重新部署，因复杂度和收益不成比例而放弃，详见 `docs/maintenance.md`
 - 文档：新增 [docs/merged_repo.md](docs/merged_repo.md)——正式版/开发版合并仓库与单一入口的设计（通道与配置、本地布局与冲突、npm packument 并入式落盘、maven 版本目录 TTL 保鲜与 artifact 级元数据合并、回源路由与缓存策略，以及 npm 为什么不能按目录拆分）。README 的功能/端点段落给出简要说明，`GavRepo` / `NpmRepo` / `SnapshotRepo` / `MavenService` / `NpmService` 的模块注释均指向该文
+
+完整说明见 docs/release-v0.4.0.md
 
 ## v0.3.3 (2026-08-26)
 
