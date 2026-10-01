@@ -18,6 +18,7 @@ module test.micdn.maven.snapshot_test;
 
 import std.algorithm : canFind;
 import std.conv : to;
+import std.datetime : SysTime;
 import std.digest : toHexString;
 import std.digest.sha : sha1Of;
 import std.exception : assertThrown, collectException;
@@ -577,11 +578,135 @@ unittest {
   auto rel = exchange(releaseService, "/maven" ~ rDir ~ "/tool-1.0.0.jar", HTTPMethod.GET, err);
   assert(err is null && rel.body == "release-jar", "正式版构件走 <maven><remote> 上游");
   exchange(releaseService, "/maven" ~ sDir ~ "/" ~ sJar, HTTPMethod.GET, err);
-  assert(err !is null && err.status == HTTPStatus.notFound, "快照路径不得回落到正式版上游");
+  assert(err !is null && err.status == HTTPStatus.notFound,
+      "快照路径不得回落到正式版上游");
+}
+
+@("MavenService refreshes SNAPSHOT metadata from the <snapshot> remote after the TTL")
+unittest {
+  auto home = tempHome();
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+
+  // 上游只有新构建 build 9（本地装入的是 build 4）
+  auto upstream = buildPath(home, "upstream");
+  auto vdir = "/org/beangle/tool/1.0.0-SNAPSHOT";
+  auto newJar = "tool-1.0.0-20250803.132600-9.jar";
+  mkdirRecurse(upstream ~ vdir);
+  writeUpstream(upstream, vdir ~ "/" ~ newJar, "snapshot-build-9");
+  writeUpstream(upstream, vdir ~ "/maven-metadata.xml", `<?xml version="1.0" encoding="UTF-8"?>
+<metadata modelVersion="1.1.0">
+  <groupId>org.beangle</groupId>
+  <artifactId>tool</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <versioning>
+    <snapshot><timestamp>20250803.132600</timestamp><buildNumber>9</buildNumber></snapshot>
+    <lastUpdated>20250803132600</lastUpdated>
+    <snapshotVersions>
+      <snapshotVersion>
+        <extension>jar</extension>
+        <value>1.0.0-20250803.132600-9</value>
+        <updated>20250803132600</updated>
+      </snapshotVersion>
+    </snapshotVersions>
+  </versioning>
+</metadata>
+`);
+
+  auto xmlPath = buildPath(home, "micdn.xml");
+  std.file.write(xmlPath, `<?xml version="1.0"?><micdn listen="127.0.0.1:8888">
+  <maven base="` ~ buildPath(home, "maven") ~ `">
+    <remote url="file://` ~ upstream ~ `"/>
+    <snapshot remote="file://` ~ upstream ~ `"/>
+  </maven>
+</micdn>`);
+  installSnapshot(SnapshotRepo.build(parseFile(xmlPath)), makeJar(buildPath(home,
+      "in"), "org.beangle", "tool", "1.0.0-SNAPSHOT", "20250803.132600-4"));
+  auto service = new MavenService(parseFile(xmlPath));
+
+  HTTPStatusException err;
+
+  // TTL 内：不探测上游，别名仍指本地 build 4
+  auto fresh = exchange(service, "/maven" ~ vdir ~ "/tool-1.0.0-SNAPSHOT.jar", HTTPMethod.GET, err);
+  assert(err is null && fresh.res.statusCode == HTTPStatus.found);
+  assert(fresh.res.headers["Location"] == "/maven" ~ vdir ~ "/tool-1.0.0-20250803.132600-4.jar",
+      fresh.res.headers["Location"]);
+
+  // 让本地元数据过期 → 重新探测上游，别名改指 build 9（该文件尚未落入本地）
+  auto localMeta = buildPath(home, "maven") ~ vdir ~ "/maven-metadata.xml";
+  setTimes(localMeta, SysTime.fromUnixTime(0), SysTime.fromUnixTime(0));
+  auto bumped = exchange(service, "/maven" ~ vdir ~ "/tool-1.0.0-SNAPSHOT.jar", HTTPMethod.GET, err);
+  assert(err is null && bumped.res.statusCode == HTTPStatus.found);
+  assert(bumped.res.headers["Location"] == "/maven" ~ vdir ~ "/" ~ newJar,
+      bumped.res.headers["Location"]);
+
+  // 元数据内容换成上游那份（新构建可见）
+  auto meta = exchange(service, "/maven" ~ vdir ~ "/maven-metadata.xml", HTTPMethod.GET, err);
+  assert(err is null && meta.body.canFind("<buildNumber>9</buildNumber>"));
+
+  // 按别名指向的时间戳路径取件 → 回源成功
+  auto jar = exchange(service, "/maven" ~ vdir ~ "/" ~ newJar, HTTPMethod.GET, err);
+  assert(err is null && jar.body == "snapshot-build-9");
+}
+
+@("artifact-level metadata lists locally installed SNAPSHOT versions")
+unittest {
+  auto home = tempHome();
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+
+  auto upstream = buildPath(home, "upstream");
+  auto adir = "/org/beangle/tool";
+  mkdirRecurse(upstream ~ adir);
+  auto upstreamMeta = `<?xml version="1.0" encoding="UTF-8"?>
+<metadata modelVersion="1.1.0">
+  <groupId>org.beangle</groupId>
+  <artifactId>tool</artifactId>
+  <versioning>
+    <latest>1.0.0</latest>
+    <release>1.0.0</release>
+    <versions><version>1.0.0</version></versions>
+    <lastUpdated>20240101000000</lastUpdated>
+  </versioning>
+</metadata>
+`;
+  writeUpstream(upstream, adir ~ "/maven-metadata.xml", upstreamMeta);
+
+  auto xmlPath = buildPath(home, "micdn.xml");
+  std.file.write(xmlPath, `<?xml version="1.0"?><micdn listen="127.0.0.1:8888">
+  <maven base="` ~ buildPath(home, "maven") ~ `">
+    <remote url="file://` ~ upstream ~ `"/>
+  </maven>
+</micdn>`);
+  installSnapshot(SnapshotRepo.build(parseFile(xmlPath)), makeJar(buildPath(home,
+      "in"), "org.beangle", "tool", "1.1.0-SNAPSHOT", "20240102.120000-1"));
+  auto service = new MavenService(parseFile(xmlPath));
+
+  HTTPStatusException err;
+  auto first = exchange(service, "/maven" ~ adir ~ "/maven-metadata.xml", HTTPMethod.GET, err);
+  assert(err is null);
+  assert(first.body.canFind("<version>1.0.0</version>"), first.body);
+  assert(first.body.canFind("<version>1.1.0-SNAPSHOT</version>"), first.body);
+  assert(first.body.canFind("<latest>1.1.0-SNAPSHOT</latest>"), first.body);
+  assert(first.body.canFind("<release>1.0.0</release>"), first.body);
+
+  // 幂等：再取一次内容不变（不会每次刷新 lastUpdated / sha1）
+  auto again = exchange(service, "/maven" ~ adir ~ "/maven-metadata.xml", HTTPMethod.GET, err);
+  assert(err is null && again.body == first.body);
+
+  // 没有本地快照版本的 artifact：上游元数据字节级透传
+  auto otherMeta = upstreamMeta.replace("tool", "other");
+  mkdirRecurse(upstream ~ "/org/beangle/other");
+  writeUpstream(upstream, "/org/beangle/other/maven-metadata.xml", otherMeta);
+  auto pass = exchange(service, "/maven/org/beangle/other/maven-metadata.xml", HTTPMethod.GET, err);
+  assert(err is null && pass.body == otherMeta);
 }
 
 /// 在上游仓库写一个构件及其 sha1（回源走 GavRepo 的 sha1 校验）。
 private void writeUpstream(string upstream, string uri, string body) {
   std.file.write(upstream ~ uri, body);
-  std.file.write(upstream ~ uri ~ ".sha1", toHexString(sha1Of(cast(ubyte[]) body)));
+  std.file.write(upstream ~ uri ~ ".sha1", toHexString(sha1Of(cast(ubyte[])
+      body)));
 }

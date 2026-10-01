@@ -16,6 +16,7 @@
 
 module micdn.maven.web;
 /// Maven 代理 HTTP 服务入口，转发并缓存上游 Maven 仓库（正式版与 SNAPSHOT 同一个入口）。
+/// 正式版与 SNAPSHOT 共用 `/maven` 与同一仓库根，设计见 `docs/merged_repo.md`。
 
 import std.exception;
 import std.path;
@@ -65,12 +66,22 @@ class MavenService {
       3. 本地缺失时按 uri 选上游回源（`GavRepo.upstreamsFor`）：SNAPSHOT 只走 `<snapshot remote=...>`，
          其余走 `<maven><remote>`；未配置对应上游即 404。只回源文件型路径，目录型 URL 不探测上游。
 
+      SNAPSHOT 的 maven-metadata.xml 与别名另有两点：
+      - 交付前按 TTL 从 `<snapshot remote>` 重新探测版本目录的元数据（`GavRepo.refreshSnapshotMetadata`），
+        上游新 deploy 的构建才能在别名与元数据上可见；
+      - artifact 级 maven-metadata.xml（`{group}/{artifact}/maven-metadata.xml`）若本地有 `*-SNAPSHOT`
+        版本目录，则把本地快照版本并进 `<versions>`（`SnapshotRepo.mergeArtifactMetadata`），
+        让 `LATEST` / 版本范围也能看到本地装入的开发版；纯正式版 artifact 的元数据原样透传。
+
       缓存策略沿用 `mavenArtifactCachePolicy`：`maven-metadata.xml*` 为 `public, no-cache`，
       快照构件（路径含 SNAPSHOT）为 `no-store`——同一路径可能被重新发布覆盖。
   */
   void service(HTTPServerRequest req, HTTPServerResponse res) {
     const uri = getResourceUri(endpoint, req);
     const ruri = repositoryUri(uri);
+
+    // SNAPSHOT 元数据/别名：按 TTL 重新探测上游，让新构建可见（未配置 <snapshot remote> 时为空操作）
+    repo.refreshSnapshotMetadata(ruri);
 
     auto latest = snapshots.latestAlias(ruri);
     if (latest !is null) {
@@ -98,18 +109,14 @@ class MavenService {
       if (ruri.endsWith("/") || !looksLikeMavenArtifactFile(ruri)) {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
-      if (repo.fetch(ruri)) {
-        FileInfo ffi;
-        try
-          ffi = getFileInfo(file);
-        catch (Exception)
-          throw new HTTPStatusException(HTTPStatus.notFound);
-        auto info = IndexedFileInfo.fromFileInfo(ffi);
-        sendFile(req, res, file, info, mavenArtifactCachePolicy(ruri));
-      } else {
+      // 上游拿不到时，artifact 级元数据仍可由本地快照版本目录生成（没有本地快照目录则 404）
+      if (!repo.fetch(ruri) && snapshots.mergeArtifactMetadata(ruri) is null) {
         throw new HTTPStatusException(HTTPStatus.notFound);
       }
-      return;
+      try
+        fi = getFileInfo(file);
+      catch (Exception)
+        throw new HTTPStatusException(HTTPStatus.notFound);
     }
 
     if (fi.isDirectory) {
@@ -124,6 +131,12 @@ class MavenService {
         res.redirect(directoryUri(endpoint, uri));
       }
     } else {
+      // artifact 级元数据：把本地 SNAPSHOT 版本并进 <versions>（无本地快照目录时不改动）
+      if (snapshots.mergeArtifactMetadata(ruri) !is null)
+        try
+          fi = getFileInfo(file);
+        catch (Exception)
+          throw new HTTPStatusException(HTTPStatus.notFound);
       auto info = IndexedFileInfo.fromFileInfo(fi);
       sendFile(req, res, file, info, mavenArtifactCachePolicy(ruri));
     }

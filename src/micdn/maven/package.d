@@ -16,11 +16,16 @@
 
 module micdn.maven;
 /// Maven 代理服务配置解析与远程仓库列表管理。
+///
+/// 正式版与 SNAPSHOT **共用** `/maven` 入口与 `<maven base>` 目录树（按版本目录名区分），回源时按路径选上游。
+/// 整体设计（含元数据合并与缓存策略）见 `docs/merged_repo.md`。
 
 import std.algorithm;
 import std.conv;
+import std.datetime : Clock, Duration, dur;
 import std.exception;
 import std.file;
+import std.path : baseName, dirName;
 import std.stdio;
 import std.string;
 
@@ -35,6 +40,11 @@ import micdn.web.file;
 import micdn.web : normalizeBasePath;
 import micdn.xml;
 
+/** Maven 仓库根：本地缓存与上游回源（正式版 `remotes` / 快照 `snapshotRemote`）。
+
+    正式版与快照**共用**同一 `base`，按请求路径选上游（`isSnapshotUri` / `upstreamsFor`）。入口 `/maven`
+    见 `micdn.maven.web.MavenService`；整体设计见 `docs/merged_repo.md`。
+*/
 class GavRepo {
   /** artifact 本地仓库根目录（绝对路径） */
   const string base;
@@ -42,6 +52,8 @@ class GavRepo {
   const string[] remotes = [];
   /** SNAPSHOT 专用上游；空串表示不代理 SNAPSHOT（只发本地已装入的构件） */
   const string snapshotRemote = "";
+  /** SNAPSHOT 版本目录 maven-metadata.xml 的缓存有效期（见 `refreshSnapshotMetadata`）。 */
+  Duration snapshotMetadataTtl = dur!"seconds"(60);
 
   static Sha1Postfix = ".sha1";
 
@@ -57,9 +69,18 @@ class GavRepo {
     return new GavRepo(config.maven.base, config.maven.remotes, config.maven.snapshotRemote);
   }
 
-  /// 相对 uri 是否为 SNAPSHOT 构件（版本号含 `SNAPSHOT`，maven 的约定）。
+  /** 相对 uri 是否为 SNAPSHOT 路径：存在以 `-SNAPSHOT` 结尾的路径段。
+
+      版本目录（`.../1.0.0-SNAPSHOT/...`）与同目录下不带时间戳的别名文件名
+      （`tool-1.0.0-SNAPSHOT.jar`）都满足；只认「段以 `-SNAPSHOT` 结尾」而不是全文包含
+      `SNAPSHOT`，artifactId 里含 `SNAPSHOT` 的正式版构件（如 `SNAPSHOTter-1.0.jar`）
+      因而不会被误判成 SNAPSHOT、走错上游。
+  */
   static bool isSnapshotUri(string uri) {
-    return uri.indexOf("SNAPSHOT") >= 0;
+    foreach (seg; uri.split("/"))
+      if (seg.endsWith("-SNAPSHOT") && seg.length > "-SNAPSHOT".length)
+        return true;
+    return false;
   }
 
   /** 该 uri 适用的上游列表：SNAPSHOT 只走 `<snapshot remote=...>`（未配置则空 = 不代理，
@@ -69,6 +90,55 @@ class GavRepo {
     if (isSnapshotUri(uri))
       return snapshotRemote.length > 0 ? [snapshotRemote] : [];
     return remotes;
+  }
+
+  /// `ruri` 所在 SNAPSHOT 版本目录的 maven-metadata.xml 相对 uri；不在 SNAPSHOT 版本目录下返回 null。
+  static string snapshotMetadataUri(string ruri) {
+    auto dir = dirName(ruri);
+    return dir.endsWith("-SNAPSHOT") ? dir ~ "/maven-metadata.xml" : null;
+  }
+
+  /** 按 TTL 从 `<snapshot remote>` 刷新 SNAPSHOT 版本目录的元数据（best effort）。
+
+      SNAPSHOT 的 maven-metadata.xml 描述「最新构建」，上游每次 deploy 都会变；只发本地副本会让
+      客户端永远解析到第一次取回的那个构建。因此在交付 SNAPSHOT 元数据/别名前调用本方法：
+
+      - 未配置 `<snapshot remote>`、或路径不在 SNAPSHOT 版本目录下：什么都不做，返回 false；
+      - 本地副本还在 `snapshotMetadataTtl` 内：不动，返回 true；
+      - 过期：重新下载并（若上游带 `.sha1`）校验；下载或校验失败**保留本地旧副本**——
+        SNAPSHOT 宁可稍旧，也不能因为上游抖动而删掉可用缓存。
+
+      返回「本地现在是否有可用的元数据」。
+  */
+  bool refreshSnapshotMetadata(string ruri) const {
+    auto metaUri = snapshotMetadataUri(ruri);
+    if (metaUri is null || snapshotRemote.length == 0)
+      return false;
+    auto local = this.base ~ metaUri;
+    if (exists(local) && Clock.currTime() - timeLastModified(local) < snapshotMetadataTtl)
+      return true;
+    auto incoming = dirName(local) ~ "/." ~ baseName(local) ~ ".incoming";
+    scope (exit)
+      if (exists(incoming))
+        std.file.remove(incoming);
+    if (!curlDownload(snapshotRemote ~ metaUri, incoming)) {
+      logWarn("SNAPSHOT metadata refresh failed for %s, keeping cached copy", metaUri);
+      return exists(local);
+    }
+    auto incomingSha1 = incoming ~ Sha1Postfix;
+    scope (exit)
+      if (exists(incomingSha1))
+        std.file.remove(incomingSha1);
+    if (curlDownload(snapshotRemote ~ metaUri ~ Sha1Postfix, incomingSha1)) {
+      auto actual = toHexString(sha1Of(cast(const(ubyte)[]) read(incoming))).idup.toLower;
+      if (readText(incomingSha1).toLower.indexOf(actual) < 0) {
+        logWarn("SNAPSHOT metadata sha1 mismatch for %s, keeping cached copy", metaUri);
+        return exists(local);
+      }
+    }
+    mkdirRecurse(dirName(local));
+    rename(incoming, local);
+    return true;
   }
 
   bool fetch(string uri) const {

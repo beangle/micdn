@@ -24,17 +24,23 @@ module micdn.maven.snapshot;
     与 npm 侧同口径：**元数据由写入方产出**——`micdn install` 复制构件、写 `.sha1` 并扫目录合成
     `maven-metadata.xml`；HTTP 侧负责发文件、解析「不带时间戳的别名」到最新构建，不接受上传。
 
-    入口只有一个 `/maven`：正式版与 SNAPSHOT 共用同一目录树，按版本区分，回源时由 `GavRepo` 按
-    uri 是否含 `SNAPSHOT` 选择上游（见 `GavRepo.upstreamsFor`）。
+    入口只有一个 `/maven`：正式版与 SNAPSHOT 共用同一目录树，按版本目录区分，回源时由 `GavRepo` 按
+    「是否存在以 `-SNAPSHOT` 结尾的路径段」选择上游（见 `GavRepo.isSnapshotUri` / `upstreamsFor`）。
+    SNAPSHOT 版本目录的元数据按 TTL 从 `<snapshot remote>` 刷新（`GavRepo.refreshSnapshotMetadata`），
+    artifact 级元数据则把本地 `*-SNAPSHOT` 版本目录并入 `<versions>`（`mergeArtifactMetadata`）。
+
+    整体设计（单一入口、本地布局与元数据合并规则、为什么 npm 拆不开）见 `docs/merged_repo.md`。
 */
 
 import std.algorithm;
 import std.array;
 import std.ascii : isDigit;
 import std.conv;
+import std.datetime : Clock;
 import std.digest : toHexString;
 import std.digest.sha : sha1Of;
 import std.file;
+import std.format : format;
 import std.path;
 import std.string;
 import std.zip;
@@ -120,8 +126,16 @@ class SnapshotRepo {
 
       匹配规则：候选文件名去掉可选的 `.sha1` 后必须解析成快照名（`parseSnapshotName`），且
       ——除时间戳与 build 号外——与请求的 `[-{classifier}].{ext}` 完全一致（`-sources.jar` 不会
-      命中 `.jar`，`.jar` 请求不会命中 `.jar.sha1`）。同一目录下取 (timestamp, build) 最大者；
-      并列时保留先遇到的那个（内容等价，文件名只差 build 号的场景不会出现）。
+      命中 `.jar`，`.jar` 请求不会命中 `.jar.sha1`）。
+
+      取两者中更新的那个构建：
+      - 版本目录 `maven-metadata.xml` 里 `<snapshotVersions>` 声明的构建（`metadataNewest`）——
+        它可能来自刚按 TTL 刷新过的上游，指向上游最新构建，本地还没有对应文件；别名照样指向它，
+        后续的带时间戳请求会回源拿到；
+      - 本地目录里已有的时间戳文件（时间戳、build 都取最大者）。
+
+      两者并列时取目录里的文件（本地已存在，不必再回源）。目录里一个候选都没有、元数据也没有
+      匹配条目时返回 null。
 
       目录名（`ver` 不以 `-SNAPSHOT` 结尾）或路径不存在时返回 null，由调用方按普通文件处理（404）。
   */
@@ -174,7 +188,96 @@ class SnapshotRepo {
         bestParsed = parsed;
       }
     }
+    auto fromMeta = metadataNewest(dirPath, artifact, ver, tailBase, wantSha1, bestParsed);
+    if (fromMeta.length > 0)
+      return dir ~ "/" ~ fromMeta;
     return best.length > 0 ? dir ~ "/" ~ best : null;
+  }
+
+  /// artifact 级元数据路径（`{group}/{artifact}/maven-metadata.xml`，父目录不是 `-SNAPSHOT` 版本目录）。
+  static bool isArtifactMetadata(string ruri) {
+    return baseName(ruri) == metadataFileName && !baseName(dirName(ruri)).endsWith("-SNAPSHOT");
+  }
+
+  /** 把本地 `*-SNAPSHOT` 版本目录并进 artifact 级 maven-metadata.xml，返回该元数据文件路径；
+      没有本地快照版本（或路径不是 artifact 级元数据、对应目录不存在）时返回 null、不改动任何文件。
+
+      artifact 级元数据由正式版上游提供，`<versions>` 里只有正式版；本地装入的 SNAPSHOT 版本
+      因此对 `LATEST` / 版本范围（`[1.0,2.0)` 之类）不可见。这里读出现有元数据（本地副本或刚
+      代理来的上游文档）的 `<versions>`/`<release>`，追加本地快照版本后整体重写：
+
+      - `<versions>`：上游顺序原样保留，本地快照版本按 `compareMavenVersions` 升序追加；
+      - `<latest>`：所有版本里的最大者（SNAPSHOT 也参与，故新快照会成为 latest）；
+      - `<release>`：沿用上游的；上游没有时取最大的非快照版本，仍没有则省略；
+      - `<lastUpdated>`：当前 UTC 时间，`yyyyMMddHHmmss`。
+
+      只有确实存在本地快照版本目录时才重写——纯正式版 artifact 的元数据保持上游原样（字节级透传）。
+      元数据不可读时按空处理（只有本地快照版本，也一样能生成一份可用文档）。已经并入过（版本集与
+      `<latest>` 都不变）时直接返回、不重写，避免每个请求都刷新 `<lastUpdated>` 与 sha1。
+  */
+  string mergeArtifactMetadata(string ruri) const {
+    if (!isArtifactMetadata(ruri))
+      return null;
+    auto artifactDir = repositoryPathOf(dirName(ruri));
+    if (!exists(artifactDir) || !isDir(artifactDir))
+      return null;
+    string[] snapshots;
+    foreach (entry; dirEntries(artifactDir, SpanMode.shallow))
+      if (entry.isDir && baseName(entry.name).endsWith("-SNAPSHOT"))
+        snapshots ~= baseName(entry.name);
+    if (snapshots.length == 0)
+      return null;
+    snapshots.sort!((a, b) => compareMavenVersions(a, b) < 0);
+
+    auto metadataFile = repositoryPathOf(ruri);
+    auto versions = readMetadataVersions(metadataFile);
+    auto release = readMetadataRelease(metadataFile);
+    bool changed;
+    foreach (ver; snapshots)
+      if (!versions.canFind(ver)) {
+        versions ~= ver;
+        changed = true;
+      }
+    if (versions.length == 0)
+      return null;
+
+    string latest;
+    foreach (ver; versions)
+      if (latest.length == 0 || compareMavenVersions(latest, ver) < 0)
+        latest = ver;
+    if (latest != readMetadataLatest(metadataFile))
+      changed = true;
+    if (!changed)
+      return metadataFile;
+    if (release.length == 0)
+      foreach (ver; versions)
+        if (!ver.endsWith("-SNAPSHOT") && (release.length == 0
+            || compareMavenVersions(release, ver) < 0))
+          release = ver;
+
+    auto app = appender!string;
+    app.put("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    app.put("<metadata modelVersion=\"1.1.0\">\n");
+    app.put("  <groupId>" ~ dirName(dirName(ruri))[1 .. $].replace("/", ".") ~ "</groupId>\n");
+    app.put("  <artifactId>" ~ baseName(dirName(ruri)) ~ "</artifactId>\n");
+    app.put("  <versioning>\n");
+    app.put("    <latest>" ~ latest ~ "</latest>\n");
+    if (release.length > 0)
+      app.put("    <release>" ~ release ~ "</release>\n");
+    app.put("    <versions>\n");
+    foreach (ver; versions)
+      app.put("      <version>" ~ ver ~ "</version>\n");
+    app.put("    </versions>\n");
+    auto now = Clock.currTime().toUTC;
+    app.put("    <lastUpdated>" ~ format("%04d%02d%02d%02d%02d%02d", now.year,
+        now.month, now.day, now.hour, now.minute, now.second) ~ "</lastUpdated>\n");
+    app.put("  </versioning>\n");
+    app.put("</metadata>\n");
+
+    mkdirRecurse(dirName(metadataFile));
+    std.file.write(metadataFile, app.data);
+    writeSha1(metadataFile);
+    return metadataFile;
   }
 
   /// 相对 uri → 仓库内绝对路径（调用方须保证 uri 已由 `micdn.web` 消解，无 `.`/`..`）。
@@ -362,6 +465,182 @@ private bool isSnapshotTimestamp(string value) {
 private int compareSnapshot(const SnapshotFile a, const SnapshotFile b) {
   auto ts = cmp(a.timestamp, b.timestamp);
   return ts != 0 ? ts : (a.build < b.build ? -1 : (a.build > b.build ? 1 : 0));
+}
+
+/** 版本目录 `maven-metadata.xml` 里与 `tailBase`（`.jar` / `-sources.jar` 等）匹配的构建文件名，
+    且要比 `bestLocal` 更新；没有匹配条目、或元数据不带该文件时返回 null。
+
+    元数据由上游（或 install）产出、描述「最新构建」，可能比本地已有的文件更新：此时别名要指向
+    元数据里的文件名，后续带时间戳请求再回源，而不是把客户端引到本地的旧构建。元数据损坏时返回
+    null，由调用方退回纯目录扫描。
+*/
+private string metadataNewest(string dirPath, string artifact, string ver,
+    string tailBase, bool wantSha1, SnapshotFile bestLocal) {
+  auto metadata = dirPath ~ "/" ~ metadataFileName;
+  if (!exists(metadata) || isDir(metadata))
+    return null;
+  DOMEntity!string root;
+  try {
+    root = parseDomRoot(cast(string) read(metadata), metadata);
+  } catch (Exception) {
+    return null;
+  }
+  auto stampVer = ver.endsWith("-SNAPSHOT") ? ver[0 .. $ - "-SNAPSHOT".length] : ver;
+  foreach (versioning; children(root, "versioning"))
+    foreach (snapshotVersions; children(versioning, "snapshotVersions"))
+      foreach (snapshotVersion; children(snapshotVersions, "snapshotVersion")) {
+        string classifier, ext, value;
+        foreach (node; children(snapshotVersion, "classifier"))
+          classifier = elementText(node);
+        foreach (node; children(snapshotVersion, "extension"))
+          ext = elementText(node);
+        foreach (node; children(snapshotVersion, "value"))
+          value = elementText(node);
+        if (ext.length == 0 || value.length == 0)
+          continue;
+        if ((classifier.length > 0 ? "-" ~ classifier : "") ~ "." ~ ext != tailBase)
+          continue;
+        SnapshotFile parsed;
+        if (!parseSnapshotValue(value, stampVer, parsed))
+          continue;
+        if (bestLocal.timestamp.length > 0 && compareSnapshot(bestLocal, parsed) >= 0)
+          continue;
+        return artifact ~ "-" ~ value ~ (classifier.length > 0 ? "-" ~ classifier
+            : "") ~ "." ~ ext ~ (wantSha1 ? sha1Postfix : "");
+      }
+  return null;
+}
+
+/// 解析 `<snapshotVersion><value>`（`{version-without-SNAPSHOT}-{timestamp}-{build}`）。
+private bool parseSnapshotValue(string value, string stampVer, out SnapshotFile parsed) {
+  auto prefix = stampVer ~ "-";
+  if (!value.startsWith(prefix))
+    return false;
+  auto rest = value[prefix.length .. $];
+  auto dash = rest.indexOf('-');
+  if (dash <= 0)
+    return false;
+  auto timestamp = rest[0 .. dash];
+  auto buildText = rest[dash + 1 .. $];
+  if (!isSnapshotTimestamp(timestamp) || buildText.length == 0 || !buildText.all!isDigit)
+    return false;
+  parsed = SnapshotFile(timestamp, buildText.to!int, "", "");
+  return true;
+}
+
+/// 读 artifact 级 `maven-metadata.xml` 的 `<versioning><versions><version>` 列表（不可读返回空数组）。
+private string[] readMetadataVersions(string metadataFile) {
+  bool ok;
+  auto root = readMetadataRoot(metadataFile, ok);
+  if (!ok)
+    return [];
+  string[] versions;
+  foreach (versioning; children(root, "versioning"))
+    foreach (versionsNode; children(versioning, "versions"))
+      foreach (versionNode; children(versionsNode, "version"))
+        versions ~= elementText(versionNode);
+  return versions;
+}
+
+/// 读 artifact 级 `maven-metadata.xml` 的 `<versioning><release>`（不可读 / 缺失返回空串）。
+private string readMetadataRelease(string metadataFile) {
+  bool ok;
+  auto root = readMetadataRoot(metadataFile, ok);
+  if (!ok)
+    return "";
+  foreach (versioning; children(root, "versioning"))
+    foreach (node; children(versioning, "release"))
+      return elementText(node);
+  return "";
+}
+
+/// 读 artifact 级 `maven-metadata.xml` 的 `<versioning><latest>`（不可读 / 缺失返回空串）。
+private string readMetadataLatest(string metadataFile) {
+  bool ok;
+  auto root = readMetadataRoot(metadataFile, ok);
+  if (!ok)
+    return "";
+  foreach (versioning; children(root, "versioning"))
+    foreach (node; children(versioning, "latest"))
+      return elementText(node);
+  return "";
+}
+
+/// 解析元数据文件的 DOM 根；缺失或不可读时 `ok=false`（合并按「没有上游元数据」处理）。
+private DOMEntity!string readMetadataRoot(string metadataFile, out bool ok) {
+  ok = false;
+  if (!exists(metadataFile) || isDir(metadataFile))
+    return DOMEntity!string.init;
+  try {
+    auto root = parseDomRoot(cast(string) read(metadataFile), metadataFile);
+    ok = true;
+    return root;
+  } catch (Exception) {
+    return DOMEntity!string.init;
+  }
+}
+
+/// Maven 版本里的一个段：`text` 为内容，`sep` 为它前面的分隔符（`.` / `-`，首段为 `\0`）。
+private struct VersionToken {
+  string text;
+  char sep;
+}
+
+/// 按 `.` 与 `-` 把版本号切成段，保留每段前面的分隔符。
+private VersionToken[] versionTokens(string ver) {
+  VersionToken[] tokens;
+  size_t start;
+  char sep = '\0';
+  foreach (i, c; ver) {
+    if (c != '.' && c != '-')
+      continue;
+    tokens ~= VersionToken(ver[start .. i], sep);
+    sep = c;
+    start = i + 1;
+  }
+  if (start <= ver.length)
+    tokens ~= VersionToken(ver[start .. $], sep);
+  return tokens;
+}
+
+/// 纯数字段比较：先去掉前导零，再按长度、字典序（避免溢出）。
+private int compareNumericText(string a, string b) {
+  auto x = a;
+  while (x.length > 1 && x[0] == '0')
+    x = x[1 .. $];
+  auto y = b;
+  while (y.length > 1 && y[0] == '0')
+    y = y[1 .. $];
+  return x.length != y.length ? (x.length < y.length ? -1 : 1) : cmp(x, y);
+}
+
+/** 粗略的 Maven 版本比较（只用于给 artifact 级元数据排 `<versions>`、挑 `<latest>`）。
+
+    按 `.` 与 `-` 切段：数字段按数值比较，非数字段按字典序（忽略大小写）。一方是另一方的前缀时，
+    多出来的段以 `.` 开头则该侧更大（`1.0.1` > `1.0`），以 `-` 开头则该侧更小
+    （`1.0.0` > `1.0.0-SNAPSHOT`）。maven 的完整版本语法（range、限定符权重等）复杂得多，
+    但 artifact 级元数据只要求把本地快照排到对应正式版附近、挑出最大值，这个近似足够，
+    也不会误改上游已有的 `<release>`。
+*/
+private int compareMavenVersions(string a, string b) {
+  auto ta = versionTokens(a);
+  auto tb = versionTokens(b);
+  auto common = ta.length < tb.length ? ta.length : tb.length;
+  foreach (i; 0 .. common) {
+    auto x = ta[i].text, y = tb[i].text;
+    int c;
+    if (x.length > 0 && y.length > 0 && x.all!isDigit && y.all!isDigit)
+      c = compareNumericText(x, y);
+    else
+      c = cmp(x.toLower, y.toLower);
+    if (c != 0)
+      return c;
+  }
+  if (ta.length == tb.length)
+    return 0;
+  auto longer = ta.length > tb.length ? ta : tb;
+  auto sign = longer[common].sep == '-' ? -1 : 1; // 多出来的是限定符则更小
+  return ta.length > tb.length ? sign : -sign;
 }
 
 /// 写 `{file}.sha1`（hex，小写，无换行）。

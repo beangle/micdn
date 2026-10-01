@@ -211,7 +211,7 @@
   <!-- snapshotType：SNAPSHOT 上游（挂在 /maven 下，与 <maven base> 共用目录）；省略则不代理 SNAPSHOT，只发本地已装入的构件 -->
   <xs:complexType name="snapshotType">
     <xs:annotation>
-      <xs:documentation> SNAPSHOT 专用上游：/maven 下版本含 SNAPSHOT 的路径本地优先，缺失时按此回源并按 sha1 校验（正式版路径不会回落到这里）。 </xs:documentation>
+      <xs:documentation> SNAPSHOT 专用上游：/maven 下路径段以 -SNAPSHOT 结尾的构件本地优先，缺失时按此回源并按 sha1 校验；版本目录的 maven-metadata.xml 还会按 TTL（默认 60 秒）重新探测（正式版路径不会回落到这里）。 </xs:documentation>
     </xs:annotation>
     <xs:attribute name="remote" type="xs:string" use="required" />
   </xs:complexType>
