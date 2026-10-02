@@ -119,8 +119,12 @@
 | 开发版 | 配了 | 无 | 按 `<snapshot remote>` / `<dev remote>` 回源；仍无 → 404 |
 | 开发版 | 未配 | 有 | 直接发本地（`micdn install` 的产物无需外部 registry） |
 | 开发版 | 未配 | 无 | **404**（不回落正式版上游） |
+| native | —（无上游） | 有 | 直接发本地；目录可列出 |
+| native | — | 无 | **404**（没有回源，迁移期由上传/运维补齐） |
 
-`<dev>` 未配置只影响「回源」，本地仓库与默认 base 始终可用（见上）。
+`<dev>` 未配置只影响「回源」，本地仓库与默认 base 始终可用（见上）。native 完全没有上游，
+所以连「回源」这一列都不适用：未声明 `<native>` 时不挂 `/native`（与 maven/npm 同口径），
+声明后 base 默认 `${micdn.home}/native`。
 
 两套上游互不回落：混着试会让「这个版本到底从哪来」不可预期。
 
@@ -131,9 +135,10 @@
 | maven release 构件、npm release tgz | `public, max-age=31536000, immutable` | 版本号与内容一一对应 |
 | `maven-metadata.xml*` | `public, no-cache` | 每次回源校验 |
 | npm packument、npm 预发布 tgz（版本号含 `-`）、目录列表 | `public, no-cache` | 元数据随时变；开发版同版本号可能被覆盖重发 |
-| maven SNAPSHOT 路径、`*.lastUpdated`、`resolver-status.properties` | `no-store` | 同一路径可能被重新发布覆盖 |
+| maven SNAPSHOT 路径、native SNAPSHOT 路径（构件与补丁）、`*.lastUpdated`、`resolver-status.properties` | `no-store` | 同一路径可能被重新发布覆盖 |
+| native release 构件 | `public, max-age=31536000, immutable` | 文件名即版本，内容一一对应 |
 
-分别由 `mavenArtifactCachePolicy` / `npmArtifactCachePolicy` 判定；反代侧注意事项见
+分别由 `mavenArtifactCachePolicy` / `npmArtifactCachePolicy` / `nativeArtifactCachePolicy` 判定；反代侧注意事项见
 [reverse_proxy.md](reverse_proxy.md)。
 
 ## 为什么 npm 不能像 maven 那样按目录拆
@@ -152,15 +157,29 @@
 
 所以选择「一个根 + 落盘时合并」：合并只在拉取/发布时发生一次，交付路径就是发文件。
 
+## native：单根、无通道（也没有上游）
+
+native 发行包仓库（`/native`，声明 `<native>` 才挂载——与 maven/npm 同一套「元素即端点开关」的规则）把「单根」
+推到极致：它**连上游都没有**，因此不存在「按通道选上游」的问题，只有一个本地根（默认 `${micdn.home}/native`）。正式版与开发版（`-SNAPSHOT`）同样共用一个根、按版本目录名区分，
+与 `/maven` 完全同口径——这也是把 sashub 时代的 `~/.m2/repository` / `~/.m2/snapshots` 两个根合并的动机：
+
+- native 构件（native-image 的 `tar.gz`）没有 pom、也没有 `maven-metadata.xml`，坐标完全由路径决定，
+  所以既没有「元数据跨根合并」的代价，也没有「兄弟版本目录」之类需要特殊处理的场景；
+- 若还按通道分两个根，上传侧就必须先判断版本、再选根，下载侧还要在两个根里找同一个构件——单根后这些判断
+  都退化成「按路径读写」，`PUT /native/{仓库内相对路径}` 一条规则即可；
+- 代价只有一个：**客户端必须自己对每份构件负责**。因为没有元数据与 `.pending` 配对，micdn 不做校验文件与构件
+  的一致性检查，约定先传构件、再传 `.sha1`（见 [native.md](native.md)）。
+
 ## 相关实现
 
-- 入口：`src/micdn/routes.d`（`mountMaven` / `mountNpm`）
+- 入口：`src/micdn/routes.d`（`mountMaven` / `mountNpm` / `mountNative`）
 - maven：`src/micdn/maven/package.d`（`GavRepo.isSnapshotUri` / `upstreamsFor` / `refreshSnapshotMetadata`）、
   `src/micdn/maven/snapshot.d`（`SnapshotRepo.installSnapshot` / `latestAlias` / `mergeArtifactMetadata`）、
   `src/micdn/maven/web.d`（`MavenService`）
 - npm：`src/micdn/npm/package.d`（`NpmRepo.upstreamsFor` / `allUpstreams` / `resolveVersion` / `fetchNpmTarball`）、
   `src/micdn/npm/packument.d`（`installTarball` / `mergeUpstreamPackument` / `refreshPackument`）
-- 发布端点：`src/micdn/web/publish.d`（令牌校验）、`src/micdn/npm/publish.d`（`npm publish` 请求体）、
-  `src/micdn/maven/publish.d`（原样落盘）——上传与 CLI 走同一套落盘/合并逻辑；未声明 `<publish>` 不挂 PUT，
-  见 README「发布端点」
+- native：`src/micdn/native/package.d`（`NativeRepo` / `latestAlias`）、`src/micdn/native/web.d`（`NativeService`）
+- 发布端点：`src/micdn/web/publish.d`（令牌校验、请求体读取、`storeUpload` 原子落盘；maven 与 native 共用）、
+  `src/micdn/npm/publish.d`（`npm publish` 请求体）——上传与 CLI 走同一套落盘/合并逻辑；PUT 端点（`/maven`、
+  `/npm`、`/native`）都只在声明 `<publish>` 时注册，见 README「发布端点」
 - CLI：`micdn install`

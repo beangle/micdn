@@ -15,9 +15,9 @@ micdn **不维护响应级的共享缓存**：每个请求都直接读磁盘返�
 
 | 内容 | `Cache-Control` | 说明 |
 |------|-----------------|------|
-| Maven/npm release 构件、static bundle、WebJar | `public, max-age=31536000, immutable` | 版本化/指纹资源，可长期缓存 |
+| Maven/npm release 构件、native release 构件、static bundle、WebJar | `public, max-age=31536000, immutable` | 版本化/指纹资源，可长期缓存 |
 | `maven-metadata.xml` | `public, no-cache` | 每次回源校验 |
-| `SNAPSHOT`、`*.lastUpdated`、`resolver-status.properties` | `no-store` | 禁止缓存 |
+| `SNAPSHOT`、`*.lastUpdated`、`resolver-status.properties`（含 native 的 `SNAPSHOT` 路径） | `no-store` | 禁止缓存 |
 | static `<dir>` dyna bundle | `public, no-cache` | 回源校验 |
 | www 文档 `*.html` | `public, no-cache` | 回源校验 |
 | www 其余静态文件 | `public, max-age=604800` | 7 天 |
@@ -47,6 +47,16 @@ micdn **不维护响应级的共享缓存**：每个请求都直接读磁盘返�
 （可能指向上游刚发布、本地还没缓存的构建，需要反代放行该 302 及后续的时间戳路径），属正常的缓存（反代按 302
 处理即可，别名本身不产生响应体）。快照路径的构件响应一律 `Cache-Control: no-store`（`maven-metadata.xml` 为
 `public, no-cache`），因为同一路径可能被重新发布覆盖；若反代要缓存，按 no-store 语义跳过或极短 TTL 即可。
+
+### native 发行包（`/native`）与缓存
+
+native 发行包仓库只有一个入口 `/native`（声明 `<native>` 才挂载；也不需要单独反代 `/snapshot` 之类），与正式版共用同一个根。缓存策略按
+路径判定（`nativeArtifactCachePolicy`）：路径含 `SNAPSHOT` 的构件（发行包与增量补丁）`no-store`，其余
+`public, max-age=31536000, immutable`。补丁别名（不带时间戳的 `-SNAPSHOT` 名）会回 `302` 到同目录时间戳最新的
+文件，`HEAD` 以 `latest` 头返回实际文件名并给 `Last-Modified`——jstart 用 `curl -I -L` 探测补丁是否存在，反代需放行
+该 302 与 `latest` 头（别名本身没有响应体）。上传（`PUT`，令牌在 `Authorization: Bearer`）只应在 HTTPS 或反代的
+HTTPS 终止后暴露，且 `<publish maxSize>` 要调到 `128M` 以上（默认 `64M` 装不下几十 MB 的发行包）。完整说明见
+[native.md](native.md)。
 
 ### 开发版 npm（`<npm><dev remote="..."/>`）与缓存
 

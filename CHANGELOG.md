@@ -2,7 +2,7 @@
 
 ## v0.4.0 (2026-10-02)
 
-概要：正式版与开发版（maven SNAPSHOT / npm dev）合并为**一个入口、一个本地仓库根**，本地发布（`micdn install`）与上游代理共用同一份元数据；同时有一批修复、打包与文档更新。**Breaking**：`<repo>` 别名移除、未声明 `<maven>` / `<npm>` 不再挂载端点（v0.3.3 未声明时会挂默认仓库）、默认 base 由 `~/maven`、`~/npm` 改为 `${micdn.home}/maven`、`${micdn.home}/npm`。**新增（v0.3.3 没有）**：maven SNAPSHOT 支持（`<snapshot remote="..."/>`，与正式版共用 `/maven`）、npm dev 上游（`<dev remote="..."/>`）、npm packument 交付与本地发布、PUT 发布端点（`npm publish` / `mvn deploy`，需声明 `<publish token="..."/>`）。
+概要：正式版与开发版（maven SNAPSHOT / npm dev）合并为**一个入口、一个本地仓库根**，本地发布（`micdn install`）与上游代理共用同一份元数据；同时有一批修复、打包与文档更新。**Breaking**：`<repo>` 别名移除、未声明 `<maven>` / `<npm>` 不再挂载端点（v0.3.3 未声明时会挂默认仓库）、默认 base 由 `~/maven`、`~/npm` 改为 `${micdn.home}/maven`、`${micdn.home}/npm`。**新增（v0.3.3 没有）**：maven SNAPSHOT 支持（`<snapshot remote="..."/>`，与正式版共用 `/maven`）、npm dev 上游（`<dev remote="..."/>`）、npm packument 交付与本地发布、PUT 发布端点（`npm publish` / `mvn deploy` / native 发行包，需声明 `<publish token="..."/>`）、native 发行包仓库 `/native`（承接 sashub 的 `/repo/native`）。
 
 ### 配置
 
@@ -30,8 +30,17 @@
 - **发布端点（需显式声明 `<publish>`）**：声明 `<publish token="…"/>` 后 `/npm`、`/maven` 接受 HTTP PUT（`registerEndpointGetHeadPut`）——`npm publish` 与 `mvn deploy`（`-DaltDeploymentRepository` / `deploy:deploy-file`）可直接把产物推入仓库；**不声明则完全不挂 PUT**（只有 GET/HEAD），服务器上即便有反代也不会凭空多出写入口
 - **令牌是唯一写权限凭据**：`Authorization: Bearer`（npm `_authToken`）、`Authorization: Basic`（Maven `settings.xml` server 凭据；实测客户端直接预置该头）或 `X-Micdn-Token`；缺失/不符 401 并带 `WWW-Authenticate: Basic` 挑战供 Maven 重试。**不限制来源地址**：本机反代（HAProxy 绑 `0.0.0.0` → `127.0.0.1:8080`，TCP 模式）下「对端环回」根本区分不出远端请求，而令牌与来源无关，前端开发机可带令牌直接推到远端实例。令牌等同写权限，故发布端点只应经 HTTPS 暴露
 - **npm publish 协议**：`micdn.npm.publish.installPublishedPackument` 解析 npm 的 publish 文档（`_attachments` 内嵌 Base64 tgz），复用 `installTarball` 落盘并刷新 packument；`npm publish --tag` 的自定义 tag 写入 `dist-tags`，`latest` 与通道 tag 仍由 `refreshPackument` 推导。包名与 URI 不一致、非 JSON、缺附件、坏 Base64 一律 400
-- **maven 上传**：`micdn.maven.publish.storeUpload` 把 PUT 请求体原子写入 `<maven base>`（临时文件 + rename），**不解析内容**——客户端自带的带时间戳文件名与 `maven-metadata.xml` 原样落盘，`/maven` 读路径的快照别名 302 与 artifact 级元数据合并照常生效；目录路径/点段 400
+- **maven 上传**：`micdn.web.publish.storeUpload`（与 native 共用）把 PUT 请求体原子写入 `<maven base>`（临时文件 + rename），**不解析内容**——客户端自带的带时间戳文件名与 `maven-metadata.xml` 原样落盘，`/maven` 读路径的快照别名 302 与 artifact 级元数据合并照常生效；目录路径/点段 400
 - **请求体上限**：上传体不超过 `<publish maxSize>`（默认 `64M`，`PublishConfig.maxSize`），非法请求体 400、超出 413；未配置 `<blob>` 时它同时作为服务器 `maxRequestSize`（vibe 默认 2 MiB 不够），配置了 `<blob>` 则沿用其 `maxSize`
+
+### native 发行包（`/native`）
+
+- **新增 `/native` 端点，承接 sashub 的 `/repo/native`**：GraalVM native-image 的发行包（`.tar.gz`）与 bsdiff 增量补丁（`.diff`）由 `micdn.native.NativeRepo` + `micdn.native.web.NativeService` 提供；与 `/maven` 同口径**单根**（`{group 点转斜杠}/{artifact}/{version}/{文件名}`），正式版与开发版共用，靠版本目录名里的 `-SNAPSHOT` 区分，不再按 `~/.m2/repository` / `~/.m2/snapshots` 分两个根
+- **上传是「全路径 URL」**：`PUT /native/{仓库内相对路径}`（复用 `<publish>` 的令牌与 `micdn.web.publish` 的授权/落盘），**不再像 sashub 那样把 path 塞进 query string**，也没有 `/upload` 一段；构件是 tar.gz、没有 MANIFEST 可解析坐标，坐标完全由路径决定
+- **不做校验文件配对**：sashub 在 `.sha1` 先到时暂存 `.pending`、待构件到达再归位；micdn 只做原子落盘，要求客户端**先传构件、再传 `.sha1`**（`NativeImagePlugin` / `SnapshotPlugin` 已按此顺序，见 beangle/build）
+- **读取与别名**：`GET|HEAD` 取件、目录（含仓库根）可列出且缺尾斜杠先 302 补 `/`；文件名里不含时间戳的 `-SNAPSHOT` 请求解析到同目录时间戳最新的同名文件（`HEAD` 用 `latest` 头返回实际文件名并给 `Last-Modified`，`GET` 302 到该文件），供 jstart 用 `curl -I` 探测补丁别名；补丁构建号按**数字**比较（`…-9` 早于 `…-10`）。native 侧没有元数据（无 pom / 无 `maven-metadata.xml`），也没有上游代理
+- **端点由元素开关**：与 `<maven>` / `<npm>` 同口径，未声明 `<native>` 不挂 `/native`（默认仓库仍在，base 为 `${micdn.home}/native`）；声明 `<native/>` 即挂载，`<native base="…"/>` 可把仓库根挪到别处；PUT 另需声明 `<publish>`。路径含 `SNAPSHOT` 的响应 `no-store`，其余 `public, max-age=31536000, immutable`
+- **注意**：`<publish maxSize>` 默认 `64M`，而 native 发行包常有几十 MB（实测 ems-portal / otk-ws 约 53–62MB），部署时需调到 `128M` 以上，否则上传 413
 
 ### CLI 与交付
 
@@ -50,6 +59,8 @@
 ### 文档
 
 - 文档：明确 `manifest.json` 是部署快路径的**唯一判据**（只比对源文件 `inner` / `size` / `mtime` / `artifact`，不看部署产物本身），以及部署产物被外部改动后不自愈的现象与手工恢复方式（`deploy … --force` + reload）。曾评估过“校验部署目录”（文件计数 / 目录指纹 / 目录 mtime）以自动重新部署，因复杂度和收益不成比例而放弃，详见 `docs/maintenance.md`
+- 文档：新增 [docs/native.md](docs/native.md)——native 发行包仓库（`/native`）的完整说明（单根布局、PUT/GET/HEAD 与补丁别名解析、缓存策略、配置与 `maxSize` 上限、与 beangle/build 和 jstart 的对接、从 sashub `/repo/native` 迁移、实现文件索引）；README 的功能/端点段落与 [docs/reverse_proxy.md](docs/reverse_proxy.md) 给出简要说明与缓存口径；`resources/micdn.xsd` 的 `nativeType` 与 `publishType` 同步（含 base / maxSize 的注解），发布到网站的 `beangle.github.io/public/schema/micdn-1.0.0.xsd` 一并刷新
+- 文档：同步 beangle/build 的 `NativeImagePlugin` 文档（`nativePublishUrl` 改为 micdn 基地址、上传顺序先构件后 `.sha1`）与 jstart 的默认 `--remote`（改为 `https://sas.openurp.net/native`）
 - 文档：新增 [docs/merged_repo.md](docs/merged_repo.md)——正式版/开发版合并仓库与单一入口的设计（通道与配置、本地布局与冲突、npm packument 并入式落盘、maven 版本目录 TTL 保鲜与 artifact 级元数据合并、回源路由与缓存策略，以及 npm 为什么不能按目录拆分）。README 的功能/端点段落给出简要说明，`GavRepo` / `NpmRepo` / `SnapshotRepo` / `MavenService` / `NpmService` 的模块注释均指向该文
 
 完整说明见 docs/release-v0.4.0.md

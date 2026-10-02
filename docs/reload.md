@@ -29,7 +29,7 @@
 2. **重新解析**：`parseFile` 完整解析并校验（XSD、名称/base、try-file、重复 doc 等）。
 3. **解析监听**：`parseListen` 读取新 `host:port`（仅用于 metrics，见「生效范围」）。
 4. **应用限制**：`applyLimits` 把新 `blob.maxSize`、`keepAliveTimeout` 写回共享 `HTTPServerSettings`，对新连接生效。
-5. **重建路由**：`buildRouter` 新建 admin/static/maven/npm/blob/www 全套服务对象；www 经 `WwwRepo.build` **重建发布期索引**。
+5. **重建路由**：`buildRouter` 按新配置新建 admin/static/maven/npm/native/blob/www 服务对象（未声明的元素不挂对应端点）；www 经 `WwwRepo.build` **重建发布期索引**。
 6. **原子替换**：`_currentRouter = router`——替换只发生在事件循环线程，无需加锁（`src/micdn/main.d` `ReloadableDispatcher`）。
 7. **收尾同步**：`reloadAndSync` 更新 metrics 的 `listenPort`，并 `wwwAutoDeploy.restart` 按新配置重建 inotify 监听。
 8. **内存回收**：成功后立即 `runGcMinimize`（与启动期重活后回收一致），让旧路由/索引垃圾占用的 RSS 回落，日志 `Reload GC reclaim: …`。

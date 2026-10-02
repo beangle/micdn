@@ -18,8 +18,11 @@ v0.4.0 的主题是「正式版与开发版合流」。v0.3.3 的 `/maven`、`/n
   （`/npm/{pkg}`）支持 `{origin}` 占位符（不写死主机）；dev 与 release 的上游文档**并入同一份** packument。
 - **maven 快照（新增）**：`micdn install ARTIFACT.jar|war|pom` 装入带时间戳构件并写元数据；版本目录元数据按 TTL
   回上游保鲜，别名 302 到最新构建；artifact 级元数据并入本地 `*-SNAPSHOT` 版本。
-- **发布端点**：声明 `<publish token="…"/>` 后 `/npm`、`/maven` 接受 PUT 上传（`npm publish` / `mvn deploy`）；
-  令牌必需（未声明则不挂 PUT）。
+- **发布端点**：声明 `<publish token="…"/>` 后 `/npm`、`/maven`、`/native` 接受 PUT 上传（`npm publish` /
+  `mvn deploy` / native 发行包）；令牌必需，未声明 `<publish>` 不挂 PUT。
+- **native 发行包（新增）**：`/native` 承接 sashub 的 `/repo/native`——native-image 的 `tar.gz` 与 bsdiff
+  增量补丁单根存放（正式版/开发版共用），PUT 用全路径 URL、不做校验文件配对，GET/HEAD 取件并支持补丁别名 302
+  （见 [native.md](native.md)）。
 - **配置**：移除 `<repo>` 别名；`<maven>` / `<npm>` 只决定是否挂端点，未声明时仍有默认仓库（provider 与 install
   仍可用），但不再挂 `/maven`、`/npm`。
 - 另有仓库根路径 404 修复、CLI 子命令识别、npm 缓存策略细分、版本号改由 git tag 推导等。
@@ -81,6 +84,58 @@ v0.4.0 的主题是「正式版与开发版合流」。v0.3.3 的 `/maven`、`/n
   `--tag` 写入 `dist-tags`。**maven**：PUT 请求体原样原子写入 `<maven base>`，客户端自带的带时间戳文件名与
   `maven-metadata.xml` 直接可用。上传体不超过 `<publish maxSize>`（默认 `64M`，超出 `413`），非法请求体 `400`。
 
+### native 发行包仓库（`/native`，新增）
+
+v0.3.3 的 native 发行包（GraalVM native-image 的 `tar.gz`）只有 sashub 的 `/repo/native` 一个去处：上传是
+`POST /repo/native/upload/{path}` + Basic，本地按 `~/.m2/repository` / `~/.m2/snapshots` 分两个根，校验文件先到
+还要靠 `.pending` 暂存配对。本版把它整体搬到 micdn 的 `/native`，与 `/maven`、`/npm` 用同一套配置与发布令牌：
+
+```xml
+<native base="${micdn.home}/native" />          <!-- 端点开关；base 省略即 ${micdn.home}/native -->
+<publish token="…" maxSize="128M" />            <!-- native 发行包几十 MB，默认 64M 会被 413 -->
+```
+
+```bash
+# 上传 = 全路径 URL（不再把 path 放 query string，也没有 /upload 段）
+curl -T portal-4.20.14-SNAPSHOT-linux-amd64.tar.gz -H "Authorization: Bearer $TOKEN" \
+  http://micdn:8888/native/org/beangle/ems/portal/4.20.14-SNAPSHOT/portal-4.20.14-SNAPSHOT-linux-amd64.tar.gz
+```
+
+```text
+${micdn.home}/native/org/beangle/ems/portal/4.20.14-SNAPSHOT/   # 单根：正式版与开发版共用
+  portal-4.20.14-SNAPSHOT-linux-amd64.tar.gz                    # 发行包：同名覆盖
+  portal-4.20.13_4.20.14-SNAPSHOT-20260913.101500-1-linux-amd64.tar.gz.diff   # 补丁：带时间戳
+```
+
+- **承接 sashub 的 `/repo/native`**：GraalVM native-image 的发行包（`.tar.gz`）与 bsdiff 增量补丁（`.diff`）
+  由 `micdn.native.NativeRepo`（布局）与 `micdn.native.web.NativeService`（HTTP）提供；与 `/maven` 同口径**单根**
+  （`{group 点转斜杠}/{artifact}/{version}/{文件名}`），正式版与开发版共用同一个 base，靠版本目录名的 `-SNAPSHOT`
+  区分，不再像 sashub 的 `NativeHelper` 那样按 `~/.m2/repository` / `~/.m2/snapshots` 分两个根。native 构件没有
+  pom / `maven-metadata.xml`，所以这里既没有元数据也没有上游代理，坐标完全由路径决定。
+- **上传 = 全路径 URL**：`PUT /native/{仓库内相对路径}`，复用 `<publish>` 的令牌与
+  `micdn.web.publish`（`authorizePublish` / `readUploadBody` / `storeUpload`，与 maven 上传同一个实现），
+  不再像 sashub 那样把 path 放进 query string，也没有 `/upload` 一段。
+- **不做校验文件配对**：sashub 在 `.sha1` 先于构件到达时把它挪进 `.pending`，等构件到达再归位；micdn 只做
+  原子落盘（临时文件 + rename），因此约定客户端**先传构件、再传 `.sha1`**，服务端不校验先后与配对
+  （beangle/build 的 `NativeImagePlugin.nativeDistUpload/nativeDeltaUpload`、`SnapshotPlugin.snapshotUpload`
+  已按此顺序调整）。
+- **读取、目录与别名**：`GET|HEAD` 取件，目录（含仓库根 `/native`）可列出、缺尾斜杠先 302 补 `/`；文件名里不含
+  时间戳的 `-SNAPSHOT` 请求解析到同目录时间戳最新的同名文件——`HEAD` 用 `latest` 响应头返回实际文件名并给
+  `Last-Modified`（jstart 用 `curl -I -L` 探测补丁是否存在，要求最终 200），`GET` 302 到该文件；补丁名的构建号
+  按**数字**比较（`…-9` 早于 `…-10`）。发行包本身不带时间戳（同名覆盖），因此不触发别名。
+- **端点开关与配置**：与 `<maven>` / `<npm>` 同口径，未声明 `<native>` 不挂 `/native`（默认仓库配置仍在，
+  base 为 `${micdn.home}/native`，只是没有端点）；`<native/>` 即挂载，`<native base="…"/>` 换仓库根
+  （构件几十 MB 起，可能要挪到大盘）。PUT 另需声明 `<publish>`。路径含 `SNAPSHOT` 的响应 `no-store`，
+  其余 `public, max-age=31536000, immutable`。
+- **上限提醒**：`<publish maxSize>` 默认 `64M`，native 发行包常有几十 MB（实测 ems-portal / otk-ws 约 53–62MB），
+  部署时请调到 `128M` 以上，否则上传会被 `413` 拒绝。
+- **客户端**：jstart 的默认 `--remote` 由 `https://sas.openurp.net/sas/repo/native` 改为
+  `https://sas.openurp.net/native`（`jstart/distrepo.d` 的 `defaultDistRemote`）；构建侧 `nativePublishUrl`
+  改为 micdn 基地址（如 `https://sas.openurp.net/native`），上传 URL 由「基地址 + 仓库内相对路径 + 文件名」拼出。
+
+完整说明（布局、别名解析规则、缓存策略、与构建/客户端对接、从 sashub 迁移）见 [native.md](native.md)；
+XSD 的 `nativeType` 与 `<publish>` 文档同步更新。
+
 ### 配置、CLI 与工程
 
 - **`<repo>` 别名移除**：v0.3.3 的 `parseMaven` 会把 `<repo>` 也当成 `<maven>`（`children(micdnDom, "repo")`），
@@ -117,6 +172,8 @@ v0.4.0 的主题是「正式版与开发版合流」。v0.3.3 的 `/maven`、`/n
   POM 里一个 `<repository>` 指向 `/maven` 并同时开启 `<releases>` 与 `<snapshots>` 即可取到两版。
 - npm dev 上游：`<npm><dev remote="https://.../dev"/></npm>`，开发版与正式版共用 `/npm`。
 - npm 本地发布：`micdn -f CONFIG install PKG.tgz`（预发布自动打通道 tag）。
+- native 发行包仓库：声明 `<native/>` 后挂载 `/native`（base 省略时为 `${micdn.home}/native`）；要接收上传需
+  同时声明 `<publish token="…" maxSize="128M"/>`（默认 `64M` 装不下几十 MB 的发行包）。
 
 > `<snapshot>` / `<dev>` 都是本版新增的可选配置，采用属性形式 `remote`、无独立 `base`；v0.3.3 没有对应元素，
 > 无需迁移。
@@ -127,6 +184,18 @@ v0.4.0 的主题是「正式版与开发版合流」。v0.3.3 的 `/maven`、`/n
   （`1.2.0-dev.1`）或通道 tag（`@pkg@rc`、`@pkg@next`）。
 - SNAPSHOT 版本目录的元数据会按 TTL（默认 60 秒）产生周期性回源；反代侧需放行（见 [reverse_proxy.md](reverse_proxy.md)）。
 - 容器镜像标签由构建脚本从 git tag 推导（`micdn:0.4.0` / `micdn:0.4.0-scratch`）。
+
+**下游迁移（native 发行包）**
+
+- **jstart**：默认 `--remote` 由 `https://sas.openurp.net/sas/repo/native` 改为 `https://sas.openurp.net/native`；
+  脚本里显式写了旧地址的也要改（`docs/commands.md` 已同步）。
+- **beangle/build 插件**：`nativePublishUrl` 由「含 `{path}`/`{fileName}` 的 sashub POST 模板」改为 **micdn 基地址**
+  （如 `https://sas.openurp.net/native`），上传改成全路径 PUT + `Authorization: Bearer`；上传顺序固定为
+  **先构件、后 `.sha1`**（`SnapshotPlugin.basicAuthorization` 与 sashub 专用分支已删除，
+  `~/.sbt/snapshot_credentials` 只保留 `token` 一项）。
+- **sashub `/repo/native`（`NativeWS` / `NativeHelper`）**：能力已被 micdn 的 `/native` 覆盖（上传、下载、
+  补丁别名解析），可以退役；继续保留也不会与 micdn 冲突（两边各自维护一份存储）。注意 micdn 侧要**显式声明
+  `<native/>`** 才挂 `/native`，否则上传/下载都是 404。
 
 ---
 
@@ -152,12 +221,15 @@ v0.4.0 相对 v0.3.3 共 14 个提交 + 发布提交，其后又补齐发布端�
 - `0e78ab2` Add npm and maven publish (PUT upload) endpoints（发布端点实现）
 - `ccbb748` Test the publish endpoints, token gate and upload limits（发布端点测试）
 - 本次文档提交：release notes 补记发布端点与提交统计
+- 其后又把 sashub 的 native 发行包仓库迁入 `/native`（`NativeRepo` / `NativeService`，上传实现与 maven 共用
+  `micdn.web.publish.storeUpload`，`<native>` 与 maven/npm 一样是端点开关、`base` 可换根），并把 `NativeImagePlugin` 的上传
+  改为 micdn 的全路径 PUT + Bearer、顺序改为先构件后 `.sha1`，jstart 默认 `--remote` 改为 `/native`（提交见 `git log`）
 
 ---
 
 ## 测试
 
-`dub test --compiler=ldc2`：**215 passed, 0 failed**（较 v0.3.3 的 151 增加 64 个）。
+`dub test --compiler=ldc2`：**218 passed, 0 failed**（较 v0.3.3 的 151 增加 67 个）。
 
 新增/更新的覆盖：
 
@@ -167,11 +239,15 @@ v0.4.0 相对 v0.3.3 共 14 个提交 + 发布提交，其后又补齐发布端�
   artifact 级元数据并入与幂等、`-SNAPSHOT` 路径段判定。
 - 配置（`test/micdn/config_test.d`）：`<dev>`/`<snapshot>` 属性、`<repo>` 不再解析、未声明 `<maven>`/`<npm>` 时
   仍有默认仓库但不挂端点、`<publish>` 令牌必填与上限解析（含 `toXml` 往返）。
-- 端点（`test/micdn/main_test.d`）：未声明元素不注册 `/maven`、`/npm`。
+- 端点（`test/micdn/main_test.d`）：未声明元素不注册 `/maven`、`/npm`、`/native`；声明 `<native/>` 或
+  `<native base="…"/>` 即注册（空元素用默认 base）。
 - 发布端点：`test/micdn/npm/publish_test.d`（publish 文档解析、自定义 tag、名不符/坏 Base64 拒绝）、
-  `test/micdn/maven/publish_test.d`（上传落盘与覆盖、目录/点段拒绝）、`test/micdn/web/publish_test.d`
-  （请求体读取与 413、Bearer/Basic/X-Micdn-Token 判定）、`test/micdn/npm/web_test.d`（PUT 的 401/400：
-  缺令牌/错令牌被挡下、令牌正确则放行（来源地址无关）、未声明 `<publish>` 时一律 401）。
+  `test/micdn/web/publish_test.d`（`storeUpload` 的落盘与覆盖、目录/点段拒绝；请求体读取与 413；
+  Bearer/Basic/X-Micdn-Token 判定）、`test/micdn/npm/web_test.d`（PUT 的 401/400：缺令牌/错令牌被挡下、
+  令牌正确则放行（来源地址无关）、未声明 `<publish>` 时一律 401）。
+- native（`test/micdn/native/web_test.d`）：PUT 的令牌门与「落盘路径 = 请求路径」（全路径 URL）、同名覆盖、
+  目录路径 400；GET/HEAD 取件、目录列表与缺尾斜杠 302、缺失 404、目录 HEAD 405；补丁别名解析到时间戳最新
+  文件（`.sha1` 别名同一规则、构建号按数字比、无时间戳的发行包不触发别名）。
 
 本地烟雾验证（`--build=release-nobounds`，配置对照 `resources/micdn.xml`）：
 
