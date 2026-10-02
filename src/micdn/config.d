@@ -47,7 +47,7 @@ private string resolveHome(string homeAttr, string defaultDir) {
 /** 展开 include 后校验：maven、npm、blob、static、www、publish 各至多出现一次。
 */
 private void validateMicdnServiceElementsUnique(T)(ref DOMEntity!T dom) {
-  foreach (name; ["maven", "npm", "blob", "static", "www", "publish"]) {
+  foreach (name; ["maven", "npm", "native", "blob", "static", "www", "publish"]) {
     size_t n = 0;
     foreach (c; dom.children) {
       if (isNamedElement(c.type) && c.name == name)
@@ -124,6 +124,7 @@ MicdnConfig parse(string defaultHome, string content, const string sourceFile = 
   AssetConfig asset;
   MavenRepoConfig maven;
   NpmRepoConfig npm;
+  NativeRepoConfig native;
   BlobConfig blob;
   WwwConfig www;
   PublishConfig publish;
@@ -132,10 +133,13 @@ MicdnConfig parse(string defaultHome, string content, const string sourceFile = 
   // 让 <jar>/<npm> provider 与 `micdn install` 不必为了下载而强制声明该元素（见 MicdnConfig.mavenDeclared）。
   bool mavenDeclared = dom.children.any!(c => c.name == "maven");
   bool npmDeclared = dom.children.any!(c => c.name == "npm");
+  bool nativeDeclared = dom.children.any!(c => c.name == "native");
   maven = mavenDeclared ? parseMaven(home, dom) : new MavenRepoConfig(
       normalizeBasePath(home ~ "/maven"), [defaultMavenRemote]);
   npm = npmDeclared ? parseNpm(home, dom) : new NpmRepoConfig(
       normalizeBasePath(home ~ "/npm"), [defaultNpmRemote]);
+  native = nativeDeclared ? parseNative(home, dom)
+    : new NativeRepoConfig(normalizeBasePath(home ~ "/native"));
   if (dom.children.any!(c => c.name == "static")) {
     asset = parseAsset(home, dom);
   }
@@ -151,7 +155,7 @@ MicdnConfig parse(string defaultHome, string content, const string sourceFile = 
     publish = parsePublish(dom);
   }
   return new MicdnConfig(asset, maven, blob, www, npm, listen, remote, home, logFile, logLevel,
-      mavenDeclared, npmDeclared, publish);
+      mavenDeclared, npmDeclared, publish, nativeDeclared, native);
 }
 
 /** 从本地 XML 文件解析 MicdnConfig。
@@ -210,6 +214,11 @@ string toXml(const MicdnConfig config) {
     if (config.npm.devRemote.length > 0)
       app.put(i`    <dev remote="$(config.npm.devRemote)"/>`.text ~ "\n");
     app.put("  </npm>\n");
+  }
+
+  if (config.nativeDeclared) {
+    app.put(i`  <native base="$(config.native.base)"/>`.text);
+    app.put("\n");
   }
 
   if (config.publish) {
@@ -332,6 +341,18 @@ NpmRepoConfig parseNpm(T)(string home, ref DOMEntity!T micdnDom) {
     remoteRepos ~= defaultNpmRemote;
   }
   return new NpmRepoConfig(base, remoteRepos, parseSingleRemote(dom, "dev"));
+}
+
+/** 解析 native 发行包仓库配置（只有本地 base，没有上游；HTTP 前缀见 `mountNative`）。
+
+    native 构件（tar.gz / 增量补丁）由 `/native` 的 PUT 上传，micdn 不做镜像代理，
+    因此这里不需要 remote。
+*/
+NativeRepoConfig parseNative(T)(string home, ref DOMEntity!T micdnDom) {
+  auto dom = children(micdnDom, "native").front;
+  auto attrs = getAttrs(dom);
+
+  return new NativeRepoConfig(parseRepoBase(home, attrs, "/native"));
 }
 
 /// 从 DOM 节点解析静态资源配置（bundle 及 zip/dir/jar 等 provider）。

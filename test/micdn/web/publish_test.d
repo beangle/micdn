@@ -10,11 +10,14 @@ module test.micdn.web.publish_test;
 
 import std.base64 : Base64;
 import std.exception : assertThrown;
+import std.file;
+import std.path : buildPath;
+import std.uuid : randomUUID;
 
 import vibe.http.common : HTTPStatus, HTTPStatusException;
 import vibe.stream.memory : createMemoryStream;
 
-import micdn.web.publish : decodeBase64Loose, readUploadBody, secureEquals, tokenAccepted;
+import micdn.web.publish : decodeBase64Loose, readUploadBody, secureEquals, storeUpload, tokenAccepted;
 
 private ubyte[] sampleBytes(size_t n) {
   auto data = new ubyte[n];
@@ -69,4 +72,42 @@ unittest {
   assert(decodeBase64Loose("aGVsbG8=") == cast(const(ubyte)[]) "hello");
   assert(decodeBase64Loose("aGVsbG8") == cast(const(ubyte)[]) "hello");
   assertThrown(decodeBase64Loose("!!!"));
+}
+
+private string tempBase() {
+  auto dir = buildPath(tempDir(), "micdn_publish_" ~ randomUUID().toString());
+  mkdirRecurse(dir);
+  return dir;
+}
+
+@("storeUpload writes the uploaded file under the repository root")
+unittest {
+  auto work = tempBase();
+  scope (exit)
+    if (exists(work))
+      rmdirRecurse(work);
+
+  auto ruri = "/org/beangle/tool/1.0.0-SNAPSHOT/tool-1.0.0-20250101.120000-1.jar";
+  auto path = storeUpload(work, ruri, cast(const(ubyte)[]) "jar-bytes");
+  assert(path == work ~ ruri);
+  assert(readText(path) == "jar-bytes");
+  // 临时文件不能残留
+  assert(!exists(path ~ ".incoming"));
+  // 覆盖上传（同一路径重复 deploy / 重复 install）
+  assert(storeUpload(work, ruri, cast(const(ubyte)[]) "second") == path);
+  assert(readText(path) == "second");
+}
+
+@("storeUpload rejects directories and dot segments")
+unittest {
+  auto work = tempBase();
+  scope (exit)
+    if (exists(work))
+      rmdirRecurse(work);
+
+  assertThrown(storeUpload(work, "/", cast(const(ubyte)[]) "x"));
+  assertThrown(storeUpload(work, "/a/b/", cast(const(ubyte)[]) "x"));
+  assertThrown(storeUpload(work, "/a/../b.jar", cast(const(ubyte)[]) "x"));
+  assertThrown(storeUpload(work, "/a/./b.jar", cast(const(ubyte)[]) "x"));
+  assertThrown(storeUpload(work, "", cast(const(ubyte)[]) "x"));
 }

@@ -7,10 +7,10 @@
  */
 
 module micdn.web.publish;
-/** 发布（上传）端点的公共支持：令牌校验与请求体读取。
+/** 发布（上传）端点的公共支持：令牌校验、请求体读取与按路径原子落盘。
 
-    发布端点（npm 的 `PUT /npm/{pkg}`、maven 的 `PUT /maven/{path}`）**只在配置了
-    `<publish token="…"/>` 时挂载**，每次上传都必须携带与配置一致的令牌。
+    发布端点（npm 的 `PUT /npm/{pkg}`、maven 的 `PUT /maven/{path}`、native 的
+    `PUT /native/{path}`）**只在配置了 `<publish token="…"/>` 时挂载**，每次上传都必须携带与配置一致的令牌。
 
     **为什么以令牌而非对端地址作为写权限凭据**：对端地址在本机反代（如 HAProxy 绑 `0.0.0.0`
     转发到 `127.0.0.1:8080`）下必然失效——远端请求由代理以环回源地址转发，TCP 模式也不留下任何
@@ -22,9 +22,13 @@ module micdn.web.publish;
 
 import eventcore.driver : IOMode;
 
+import std.algorithm.searching : any;
+import std.algorithm : endsWith;
 import std.base64;
 import std.array : replicate;
-import std.string : icmp, indexOf, strip;
+import std.file;
+import std.path : dirName;
+import std.string : icmp, indexOf, split, strip;
 
 import vibe.core.stream : InputStream;
 import vibe.http.common : HTTPStatus;
@@ -120,4 +124,31 @@ ubyte[] readUploadBody(InputStream input, size_t maxSize) {
     total ~= buffer[0 .. n];
   }
   return total;
+}
+
+/** 把上传体原子写入 `base + ruri`，返回落盘绝对路径；路径非法时抛异常。
+
+    服务端不解析、不重写上传内容——`mvn deploy` 自己生成时间戳文件名与 `maven-metadata.xml`，
+    native 的 tar.gz/增量补丁同样按客户端给的路径原样落盘，因此读路径（快照别名解析、元数据合并、
+    目录列表）拿到的就是客户端写的那一份。`ruri` 一般来自 `repositoryUri(ResourceUri.segs)`（已消解
+    点段），这里再防一手直接调用方。
+
+    写入方式与仓库其余写入一致（元数据/上游下载）：先写同目录 `.incoming` 临时文件，再 rename
+    原子替换。同路径重复上传按覆盖处理（开发版构件本来就会反复重发）。
+*/
+string storeUpload(string base, string ruri, const(ubyte)[] body) {
+  if (ruri.length == 0 || ruri == "/" || ruri.endsWith("/"))
+    throw new Exception("publish requires a file path: " ~ ruri);
+  if (ruri.split("/").any!(seg => seg == ".." || seg == "."))
+    throw new Exception("publish rejects dot segments: " ~ ruri);
+
+  auto path = base ~ ruri;
+  mkdirRecurse(dirName(path));
+  auto tmp = path ~ ".incoming";
+  scope (failure)
+    if (exists(tmp))
+      remove(tmp);
+  std.file.write(tmp, body);
+  rename(tmp, path);
+  return path;
 }

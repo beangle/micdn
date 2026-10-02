@@ -49,6 +49,7 @@ import micdn.blob.web;
 import micdn.maven.snapshot;
 import micdn.maven.web;
 import micdn.model;
+import micdn.native.web;
 import micdn.npm;
 import micdn.npm.packument;
 import micdn.npm.web;
@@ -164,6 +165,15 @@ URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
       registerEndpointGetHead(router, mountNpm, &npmService.service);
   }
 
+  // native 发行包仓库（tar.gz / 增量补丁）：单根，声明 <native> 才挂载，PUT 另需声明 <publish>
+  if (config.nativeDeclared) {
+    auto nativeService = new NativeService(config);
+    if (config.publish !is null)
+      registerEndpointGetHeadPut(router, mountNative, &nativeService.service);
+    else
+      registerEndpointGetHead(router, mountNative, &nativeService.service);
+  }
+
   if (config.blob !is null) {
     auto blobRepo = new BlobRepo(config.blob);
     auto blobService = new BlobService(blobRepo);
@@ -196,6 +206,8 @@ string[] registeredEndpoints(MicdnConfig config) {
     parts ~= mountMaven;
   if (config.npmDeclared)
     parts ~= mountNpm;
+  if (config.nativeDeclared)
+    parts ~= mountNative;
   if (config.blob !is null) {
     parts ~= mountBlob;
     parts ~= mountS3;
@@ -212,8 +224,17 @@ string[] registeredEndpoints(MicdnConfig config) {
 /// 打印已挂载的 HTTP 端点。
 void logRegisteredEndpoints(MicdnConfig config) {
   logInfo("Registered HTTP endpoints: %s", registeredEndpoints(config).join(", "));
-  if (config.publish !is null && (config.mavenDeclared || config.npmDeclared))
-    logInfo("Publish (PUT) enabled on /maven,/npm: token required");
+  if (config.publish !is null) {
+    string[] mounts;
+    if (config.mavenDeclared)
+      mounts ~= mountMaven;
+    if (config.npmDeclared)
+      mounts ~= mountNpm;
+    if (config.nativeDeclared)
+      mounts ~= mountNative;
+    if (mounts.length > 0)
+      logInfo("Publish (PUT) enabled on %s: token required", mounts.join(", "));
+  }
 }
 
 // 跑 dub test 时由测试运行器提供 main，此处不编译

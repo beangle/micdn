@@ -75,11 +75,23 @@ class MicdnConfig {
       **未声明时不挂载 PUT**；声明后 `/maven`、`/npm` 才接受上传，且每次上传都必须携带令牌。
   */
   const PublishConfig publish;
+  /** native 发行包仓库配置（base；HTTP 前缀见 `mountNative`）。
+
+      **始终存在**：未声明 `<native>` 时取默认仓库（base `${micdn.home}/native`），
+      只是不挂载 `/native`（见 `nativeDeclared`）——与 `<maven>` / `<npm>` 同口径。
+      与它们不同的是，native 目前没有 provider 也没有 `install` 入口，端点 `/native` 是唯一消费者；
+      保留默认配置只是让 `MicdnConfig.native` 恒非 null，且声明 `<native/>` 时不必重复写 base
+      （native 构件几十 MB 起步，要挪到大盘就写 `<native base="…"/>`）。
+  */
+  const NativeRepoConfig native;
+  /// `<native>` 是否声明（决定是否挂载 `/native`）；仓库配置本身始终可用
+  const bool nativeDeclared;
 
   this(AssetConfig asset, MavenRepoConfig maven, BlobConfig blob, WwwConfig www = null,
       NpmRepoConfig npm = null, string listen = "127.0.0.1:8888",
       string remote = null, string home = "", string logFile = "console", string logLevel = "info",
-      bool mavenDeclared = true, bool npmDeclared = true, PublishConfig publish = null) {
+      bool mavenDeclared = true, bool npmDeclared = true, PublishConfig publish = null,
+      bool nativeDeclared = true, NativeRepoConfig native = null) {
     this.listen = listen;
     this.remote = remote;
     this.home = home;
@@ -91,9 +103,11 @@ class MicdnConfig {
     this.www = www;
     this.npm = npm;
     this.publish = publish;
+    this.native = native;
     // 没有配置对象也就没有端点：把「声明」收敛为「声明且配置存在」，下游只看这一个标志
     this.mavenDeclared = mavenDeclared && maven !is null;
     this.npmDeclared = npmDeclared && npm !is null;
+    this.nativeDeclared = nativeDeclared && native !is null;
     validateEndpoints();
   }
 
@@ -112,6 +126,10 @@ class MicdnConfig {
     if (npmDeclared) {
       names ~= "npm";
       endpoints ~= mountNpm;
+    }
+    if (nativeDeclared) {
+      names ~= "native";
+      endpoints ~= mountNative;
     }
     if (blob !is null) {
       names ~= "blob";
@@ -305,6 +323,21 @@ class NpmRepoConfig {
     string tarballName = (scopePart.length > 0 && scopePart != "_") ? scopePart
       ~ "-" ~ namePart ~ "-" ~ versionPart ~ ".tgz" : namePart ~ "-" ~ versionPart ~ ".tgz";
     return base ~ "/" ~ scopePart ~ "/" ~ namePart ~ "/" ~ versionPart ~ "/" ~ tarballName;
+  }
+}
+
+/** native 发行包仓库配置（只有 base）。HTTP 前缀固定为 `micdn.routes.mountNative`。
+
+    与 maven/npm 不同，这里**没有上游**：native 构件不经 micdn 镜像代理，仓库内容完全来自
+    `/native` 的 PUT 上传（或运维按目录规范放入）。本地路径规则：
+    `{group 点转斜杠}/{artifact}/{version}/{文件名}`，正式版与 SNAPSHOT 共用同一个根。
+*/
+class NativeRepoConfig {
+  /// 本地 native 仓库根路径（如 `${micdn.home}/native`）
+  const string base;
+
+  this(string base) {
+    this.base = base;
   }
 }
 

@@ -29,26 +29,31 @@ import micdn.xml;
 
 auto CentralURL = "https://repo1.maven.org/maven2";
 
-@("maven/npm sections control the endpoint only; absent still has a default repo")
+@("maven/npm/native sections control the endpoint only; absent still has a default repo")
 unittest {
   auto config = parse("/srv/micdn", `<?xml version="1.0"?><micdn></micdn>`);
-  // 未声明元素：不挂端点，但仓库仍在（provider 与 install 可用），取与空元素同口径的默认值
-  assert(!config.mavenDeclared && !config.npmDeclared);
+  // 未声明元素：仓库仍在（provider 与 install 可用），取与空元素同口径的默认值；
+  // maven/npm/native 未声明即不挂端点（nativeDeclared 同时决定 toXml 是否回显元素）。
+  assert(!config.mavenDeclared && !config.npmDeclared && !config.nativeDeclared);
   assert(config.maven.base == "/srv/micdn/maven");
   assert(config.maven.remotes == [CentralURL]);
   assert(config.npm.base == "/srv/micdn/npm");
   assert(config.npm.remotes == ["https://registry.npmmirror.com"]);
+  assert(config.native.base == "/srv/micdn/native");
   auto xml = toXml(config);
   assert(!xml.canFind("<maven"), "未声明 <maven> 就不输出");
   assert(!xml.canFind("<npm"), "未声明 <npm> 就不输出");
+  assert(!xml.canFind("<native"), "未声明 <native> 就不输出");
 
   // 写了元素（哪怕是空元素）才挂端点，base 与未声明时相同
-  auto both = parse("/srv/micdn", `<?xml version="1.0"?><micdn><maven/><npm/></micdn>`);
-  assert(both.mavenDeclared && both.npmDeclared);
+  auto both = parse("/srv/micdn", `<?xml version="1.0"?><micdn><maven/><npm/><native/></micdn>`);
+  assert(both.mavenDeclared && both.npmDeclared && both.nativeDeclared);
   assert(both.maven.base == "/srv/micdn/maven");
   assert(both.maven.remotes == [CentralURL]);
   assert(both.npm.base == "/srv/micdn/npm");
   assert(both.npm.remotes == ["https://registry.npmmirror.com"]);
+  assert(both.native.base == "/srv/micdn/native");
+  assert(toXml(both).canFind(`<native base="/srv/micdn/native"/>`));
 }
 
 @("asset repo remote url")

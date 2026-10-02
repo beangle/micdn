@@ -15,7 +15,7 @@ import micdn.asset : AssetRepo;
 import micdn.config : parseFile;
 import micdn.main : commandArg, commandIndex, registeredEndpoints, runClean;
 
-@("only declared <maven>/<npm> sections register their endpoints")
+@("only declared <maven>/<npm>/<native> sections register their endpoints")
 unittest {
   auto home = buildPath(tempDir, "micdn-endpoints");
   scope (exit)
@@ -28,9 +28,11 @@ unittest {
   write(minimal, `<?xml version="1.0"?><micdn></micdn>`);
   auto minimalConfig = parseFile(minimal);
   assert(registeredEndpoints(minimalConfig) == ["/admin"],
-      "undeclared maven/npm must not register /maven or /npm");
+      "undeclared maven/npm/native must not register /maven, /npm or /native");
   assert(!minimalConfig.npmDeclared && minimalConfig.npm.base.length > 0,
       "undeclared npm must still have a usable default repo");
+  assert(!minimalConfig.nativeDeclared && minimalConfig.native.base.length > 0,
+      "undeclared native must still have a usable default repo");
 
   // 写了元素（哪怕没有子元素）才注册端点
   auto full = buildPath(home, "full.xml");
@@ -38,8 +40,22 @@ unittest {
   <static base="` ~ buildPath(home, "static") ~ `"/>
   <maven base="` ~ buildPath(home, "m2") ~ `"/>
   <npm base="` ~ buildPath(home, "npm") ~ `"/>
+  <native base="` ~ buildPath(home, "native") ~ `"/>
 </micdn>`);
-  assert(registeredEndpoints(parseFile(full)) == ["/admin", "/static", "/maven", "/npm"]);
+  assert(registeredEndpoints(parseFile(full)) == ["/admin", "/static", "/maven", "/npm", "/native"]);
+
+  // <native> 是端点开关，base 只换本地根目录（空元素即用默认 base）
+  auto nativeOnly = buildPath(home, "native-only.xml");
+  write(nativeOnly, `<?xml version="1.0"?><micdn><native base="/srv/native"/></micdn>`);
+  auto nativeConfig = parseFile(nativeOnly);
+  assert(registeredEndpoints(nativeConfig) == ["/admin", "/native"]);
+  assert(nativeConfig.nativeDeclared && nativeConfig.native.base == "/srv/native");
+
+  auto nativeDefault = buildPath(home, "native-default.xml");
+  write(nativeDefault, `<?xml version="1.0"?><micdn><native/></micdn>`);
+  auto defaultConfig = parseFile(nativeDefault);
+  assert(registeredEndpoints(defaultConfig) == ["/admin", "/native"]);
+  assert(defaultConfig.native.base == buildPath(home, "native"));
 }
 
 @("commandArg takes the first non-option argument as the subcommand")

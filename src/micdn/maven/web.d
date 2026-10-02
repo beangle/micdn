@@ -30,14 +30,13 @@ import vibe.http.router;
 import vibe.http.server;
 
 import micdn.maven;
-import micdn.maven.publish : storeUpload;
 import micdn.maven.snapshot;
 import micdn.model;
 import micdn.routes;
 import micdn.web;
 import micdn.web.cache;
 import micdn.web.file;
-import micdn.web.publish : authorizePublish, readUploadBody;
+import micdn.web.publish : authorizePublish, readUploadBody, storeUpload;
 import micdn.fs.index;
 import micdn.fs.browser;
 import micdn.xml;

@@ -24,6 +24,12 @@
     <bucket name="local" key="65KhzfJQme4jApTZ2EZ-58hKDUpZrbzwhsKd2dRPP08" />
   </blob>
 
+  <!-- native 发行包仓库（native-image tar.gz 与增量补丁）：单根，正式版与开发版共用。
+       内容来自 PUT /native/{group}/{artifact}/{version}/{文件名}（需下面的 <publish> 令牌），
+       GET/HEAD 读取、目录可列出；不写这个元素就不挂载 /native。
+       发行包体积较大（几十 MB 起），需要挪到大盘时在这里写 base。 -->
+  <!-- <native base="${micdn.home}/native" /> -->
+
   <!-- 发布端点（PUT 上传）：用于开发时直接 `npm publish` / `mvn deploy` 到这个实例。
        令牌必填（Authorization: Bearer/Basic 或 X-Micdn-Token），它就是写权限凭据，
        因此只应经 HTTPS（或反代的 HTTPS 终止）暴露，并选用足够长的随机令牌；

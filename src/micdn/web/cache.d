@@ -78,6 +78,16 @@ immutable(CachePolicy) npmArtifactCachePolicy(string uri) {
   return isPrereleaseVersion(ver) ? publicNoCache : publicMaxAge1yImmutable;
 }
 
+/**
+ * native 发行包仓库路径策略：路径含 `SNAPSHOT` 的构件 → `noStore`
+ * （开发版同名覆盖，tar.gz 与增量补丁都要及时拉到新构建）；其余 → `publicMaxAge1yImmutable`。
+ */
+immutable(CachePolicy) nativeArtifactCachePolicy(string uri) {
+  if (uri.indexOf("SNAPSHOT") >= 0)
+    return noStore;
+  return publicMaxAge1yImmutable;
+}
+
 /** 从 npm 工件文件名取出版本号：`{name}-{version}.tgz` 中最后一个「以数字开头的段」。
     两种形态都适用：官方 URL `{pkg}/-/{name}-{version}.tgz` 与缓存目录 `…/{version}/{name}-{version}.tgz`。
     取不到（非 tgz、无数字开头段）返回空串。 */
