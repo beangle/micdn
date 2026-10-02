@@ -19,6 +19,7 @@ module micdn.maven.web;
 /// 正式版与 SNAPSHOT 共用 `/maven` 与同一仓库根，设计见 `docs/merged_repo.md`。
 
 import std.exception;
+import std.file : exists, timeLastModified;
 import std.path;
 import std.stdio;
 import std.string;
@@ -28,6 +29,7 @@ import vibe.core.file;
 import vibe.core.log;
 import vibe.http.router;
 import vibe.http.server;
+import vibe.inet.message : toRFC822DateTimeString;
 
 import micdn.maven;
 import micdn.maven.publish : storeUpload;
@@ -103,6 +105,13 @@ class MavenService {
     auto latest = snapshots.latestAlias(ruri);
     if (latest !is null) {
       res.headers["latest"] = baseName(latest);
+      // 与 sashub `SnapshotWS.head` 同口径：别名探测也要给出实际构建的修改时间，
+      // Maven 的更新策略据此判断是否需要重新下载。
+      // 元数据指向上游新构建、文件尚未落入本地时别名照样 302，此时没有本地时间可取
+      auto latestPath = snapshots.repositoryPathOf(latest);
+      if (exists(latestPath))
+        // HTTP-date 必须是 GMT（`toRFC822DateTimeString` 原样输出本地偏移，与 sendFile 同口径先转 UTC）
+        res.headers["Last-Modified"] = toRFC822DateTimeString(timeLastModified(latestPath).toUTC());
       if (req.method == HTTPMethod.HEAD) {
         res.statusCode = HTTPStatus.ok;
         res.writeVoidBody();
