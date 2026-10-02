@@ -373,6 +373,7 @@ unittest {
   assert(err is null);
   assert(r.res.statusCode == HTTPStatus.found);
   assert(r.res.headers["latest"] == timestamped);
+  assert(r.res.headers["Last-Modified"].length > 0, "别名响应需带 Last-Modified（对标 sashub）");
   assert(r.res.headers["Location"] == "/maven" ~ vdir ~ "/" ~ timestamped);
 
   // HEAD 别名 → 200 + latest 头（sashub 语义）
@@ -380,6 +381,8 @@ unittest {
   assert(err is null);
   assert(h.res.statusCode == HTTPStatus.ok);
   assert(h.res.headers["latest"] == timestamped);
+  assert(h.res.headers["Last-Modified"].length > 0, "别名 HEAD 需带 Last-Modified（对标 sashub）");
+  assert(h.res.headers["Last-Modified"].endsWith("GMT"), "HTTP-date 必须是 GMT");
 
   // 时间戳文件 → 200 且内容一致
   auto f = exchange(service, "/maven" ~ vdir ~ "/" ~ timestamped, HTTPMethod.GET, err);
