@@ -10,6 +10,7 @@ module micdn.npm.web_test;
 
 import std.algorithm : canFind;
 import std.conv : to;
+import std.exception : collectException;
 import std.file;
 import std.path : absolutePath, buildPath;
 import std.socket : parseAddress;
@@ -234,13 +235,13 @@ private string publishConfig(string home, string publishElement) {
   return xmlPath;
 }
 
-@("npm PUT requires the publish token")
+@("npm PUT requires the publish-key")
 unittest {
   auto home = npmHome();
   scope (exit)
     if (exists(home))
       rmdirRecurse(home);
-  auto config = parseFile(publishConfig(home, `<publish token="s3cret"/>`));
+  auto config = parseFile(publishConfig(home, `<auth publish-key="s3cret"/>`));
 
   // 缺令牌：401 且带 Basic 挑战（Maven 靠它重试）；写完响应即返回，不看 body
   auto missing = npmPut(config, "127.0.0.1", "", "x");
@@ -261,14 +262,86 @@ unittest {
   assert(viaHeader.status == HTTPStatus.badRequest, viaHeader.status.to!string);
 }
 
-@("npm PUT stays closed when <publish> is absent")
+@("npm PUT stays closed when <auth> is absent")
 unittest {
   auto home = npmHome();
   scope (exit)
     if (exists(home))
       rmdirRecurse(home);
-  // 未声明 <publish>：服务端令牌为空，即便带上令牌也一律 401（路由层也不会注册 PUT）
+  // 未声明 <auth>：服务端令牌为空，即便带上令牌也一律 401（路由层也不会注册 PUT）
   auto config = parseFile(publishConfig(home, ""));
   auto outcome = npmPut(config, "127.0.0.1", "Bearer s3cret", "x");
   assert(outcome.status == HTTPStatus.unauthorized, outcome.status.to!string);
+}
+
+private struct GetResult {
+  HTTPStatus status;
+  string body;
+  string cacheControl;
+  string authenticate;
+}
+
+/// 直接调用 handler（Host 固定 cdn.example.com），把 HTTPStatusException 折算成 status。
+private GetResult npmGet(string xmlPath, string path, string[string] extraHeaders = null,
+    HTTPMethod method = HTTPMethod.GET) {
+  InetHeaderMap headers;
+  headers["Host"] = "cdn.example.com";
+  foreach (k, v; extraHeaders)
+    headers[k] = v;
+  auto service = new NpmService(parseFile(xmlPath));
+  auto output = createMemoryOutputStream();
+  auto req = createTestHTTPServerRequest(URL("http://cdn.example.com" ~ path), method, headers, null);
+  auto res = createTestHTTPServerResponse(output, null, TestHTTPResponseMode.bodyOnly);
+  auto err = collectException!HTTPStatusException(service.service(req, res));
+  return GetResult(cast(HTTPStatus)(err is null ? res.statusCode : err.status), cast(string) output.data,
+      res.headers.get("Cache-Control", ""), res.headers.get("WWW-Authenticate", ""));
+}
+
+@("npm download-key gates packument and tarball GETs but not HEAD or listings")
+unittest {
+  auto home = npmHome();
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  packumentBody(home, `{"name":"@xurp/manual","dist-tags":{"latest":"0.0.4"},` ~
+      `"versions":{"0.0.4":{"dist":{"tarball":"{origin}/npm/@xurp/manual/-/manual-0.0.4.tgz"}}}}`);
+  // 本地缓存的 tgz：布局 {base}/{scope 去 @}/{name}/{version}/{name}-{version}.tgz
+  auto tgzDir = buildPath(home, "npm", "xurp", "manual", "0.0.4");
+  mkdirRecurse(tgzDir);
+  write(buildPath(tgzDir, "manual-0.0.4.tgz"), "tgz-bytes");
+
+  auto xmlPath = buildPath(home, "micdn.xml");
+  write(xmlPath, `<?xml version="1.0"?><micdn listen="127.0.0.1:8888">
+  <maven/><npm base="` ~ buildPath(home, "npm") ~ `"/><auth download-key="r4"/></micdn>`);
+
+  // 无凭据读 packument：401 + Basic 挑战 + no-store
+  auto anon = npmGet(xmlPath, "/npm/@xurp/manual");
+  assert(anon.status == HTTPStatus.unauthorized);
+  assert(anon.authenticate.canFind("Basic"));
+  assert(anon.cacheControl == "no-store");
+
+  // 未缓存的包同样 401，且先鉴权后回源——不会为未授权请求抓取上游或落盘
+  auto absent = npmGet(xmlPath, "/npm/@xurp/absent");
+  assert(absent.status == HTTPStatus.unauthorized);
+  assert(!exists(buildPath(home, "npm", "@xurp", "absent")));
+
+  // tgz 同样受限
+  assert(npmGet(xmlPath, "/npm/@xurp/manual/-/manual-0.0.4.tgz").status == HTTPStatus.unauthorized);
+
+  // 带凭据放行；受限响应降级为 private（packument 是 no-cache，tgz 是不可变长缓存）
+  auto ok = npmGet(xmlPath, "/npm/@xurp/manual", ["Authorization": "Bearer r4"]);
+  assert(ok.status == HTTPStatus.ok && ok.body.canFind("@xurp/manual"));
+  assert(ok.cacheControl == "private, no-cache", ok.cacheControl);
+  auto tgz = npmGet(xmlPath, "/npm/@xurp/manual/-/manual-0.0.4.tgz", ["X-Micdn-Token": "r4"]);
+  assert(tgz.status == HTTPStatus.ok && tgz.body == "tgz-bytes");
+  assert(tgz.cacheControl == "private, max-age=31536000, immutable", tgz.cacheControl);
+
+  // 目录列表与 HEAD 不设限（npm 的 HEAD 用于探测包是否存在）
+  assert(npmGet(xmlPath, "/npm/@xurp/").status == HTTPStatus.ok);
+  assert(npmGet(xmlPath, "/npm/@xurp/manual", null, HTTPMethod.HEAD).status == HTTPStatus.ok);
+
+  // 未配置 download-key 时读路径与缓存策略都保持原样
+  auto openXml = npmConfig(home);
+  auto open = npmGet(openXml, "/npm/@xurp/manual");
+  assert(open.status == HTTPStatus.ok && open.cacheControl == "public, no-cache");
 }

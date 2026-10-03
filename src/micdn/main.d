@@ -125,12 +125,13 @@ class ReloadableDispatcher : HTTPServerRequestHandler {
 }
 
 private void applyLimits(HTTPServerSettings settings, MicdnConfig config) {
-  // 请求体上限：<blob> 的 maxSize（图片上传）或 <publish> 的 maxSize（npm 包 / maven 构件，
-  // vibe 默认 2 MiB 太小）。两者都未配置时不动默认值——此时没有大 body 的入口。
+  // 请求体上限：<blob> 的 max-size（图片上传）或 <auth> 的 max-size（npm 包 / maven 构件 /
+  // native 发行包，vibe 默认 2 MiB 太小）。都没配（含只配 download-key）时不动默认值——
+  // 此时没有大 body 的入口，不必为一个只读门禁抬高全局上限。
   if (config.blob !is null)
     settings.maxRequestSize = config.blob.maxSize;
-  else if (config.publish !is null)
-    settings.maxRequestSize = config.publish.maxSize;
+  else if (config.publishEnabled())
+    settings.maxRequestSize = config.auth.maxSize;
   setLimits(settings.maxRequestSize, settings.keepAliveTimeout.total!"seconds"());
 }
 
@@ -148,10 +149,10 @@ URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
   }
 
   // 未声明 <maven> / <npm> 就不注册对应端点；仓库本身仍有默认值（见 MicdnConfig.mavenDeclared / npmDeclared）
-  // PUT（发布）只在声明 <publish> 时注册；未声明时即使有 0.0.0.0 的反代也没有写入入口。
+  // PUT（发布）只在 `<auth publish-key>` 非空时注册；否则即使有 0.0.0.0 的反代也没有写入入口。
   if (config.mavenDeclared) {
     auto mavenService = new MavenService(config);
-    if (config.publish !is null)
+    if (config.publishEnabled())
       registerEndpointGetHeadPut(router, mountMaven, &mavenService.service);
     else
       registerEndpointGetHead(router, mountMaven, &mavenService.service);
@@ -159,16 +160,16 @@ URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
 
   if (config.npmDeclared) {
     auto npmService = new NpmService(config);
-    if (config.publish !is null)
+    if (config.publishEnabled())
       registerEndpointGetHeadPut(router, mountNpm, &npmService.service);
     else
       registerEndpointGetHead(router, mountNpm, &npmService.service);
   }
 
-  // native 发行包仓库（tar.gz / 增量补丁）：单根，声明 <native> 才挂载，PUT 另需声明 <publish>
+  // native 发行包仓库（tar.gz / 增量补丁）：单根，声明 <native> 才挂载，PUT 另需 <auth publish-key>
   if (config.nativeDeclared) {
     auto nativeService = new NativeService(config);
-    if (config.publish !is null)
+    if (config.publishEnabled())
       registerEndpointGetHeadPut(router, mountNative, &nativeService.service);
     else
       registerEndpointGetHead(router, mountNative, &nativeService.service);
@@ -224,17 +225,20 @@ string[] registeredEndpoints(MicdnConfig config) {
 /// 打印已挂载的 HTTP 端点。
 void logRegisteredEndpoints(MicdnConfig config) {
   logInfo("Registered HTTP endpoints: %s", registeredEndpoints(config).join(", "));
-  if (config.publish !is null) {
-    string[] mounts;
-    if (config.mavenDeclared)
-      mounts ~= mountMaven;
-    if (config.npmDeclared)
-      mounts ~= mountNpm;
-    if (config.nativeDeclared)
-      mounts ~= mountNative;
-    if (mounts.length > 0)
-      logInfo("Publish (PUT) enabled on %s: token required", mounts.join(", "));
-  }
+  string[] mounts;
+  if (config.mavenDeclared)
+    mounts ~= mountMaven;
+  if (config.npmDeclared)
+    mounts ~= mountNpm;
+  if (config.nativeDeclared)
+    mounts ~= mountNative;
+  if (mounts.length == 0)
+    return;
+  if (config.publishEnabled())
+    logInfo("Publish (PUT) enabled on %s: publish-key required", mounts.join(", "));
+  if (config.downloadGated())
+    logInfo("Download token required on %s: download-key (HEAD and directory listings stay open)",
+        mounts.join(", "));
 }
 
 // 跑 dub test 时由测试运行器提供 main，此处不编译

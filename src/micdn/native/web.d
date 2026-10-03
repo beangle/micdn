@@ -18,7 +18,7 @@ module micdn.native.web;
 /** native 发行包仓库的 HTTP 服务：GET/HEAD 读取（含目录列表）与令牌授权的 PUT 上传。
 
     承接 sashub 的 `/repo/native`：上传 `PUT /native/{仓库内相对路径}`（**全路径 URL**，
-    不用 query string 传 path），令牌同 `<publish token="…"/>`；下载 `GET|HEAD /native/{相对路径}`。
+    不用 query string 传 path），令牌同 `<auth publish-key="…"/>`；下载 `GET|HEAD /native/{相对路径}`。
     native 没有元数据文件，坐标与文件名都由客户端决定，因此落盘路径就是请求路径，
     micdn 只做原子写入与别名解析（见 `micdn.native.NativeRepo`）。
 */
@@ -43,21 +43,24 @@ import micdn.routes;
 import micdn.web;
 import micdn.web.cache;
 import micdn.web.file;
-import micdn.web.publish : authorizePublish, readUploadBody, storeUpload;
+import micdn.web.publish : authorizeRead, authorizeWrite, readNeedsToken, readUploadBody, storeUpload;
 
 class NativeService {
   private enum string endpoint = mountNative;
   private const NativeRepo repo;
-  /** 上传令牌（`<publish token="…"/>`）；空表示未启用发布，PUT 一律 401。 */
-  private string publishToken;
-  /** 上传体上限（来自 `<publish maxSize>`）——native 发行包是几十 MB 量级，需按需调大。 */
+  /** 上传令牌（`<auth publish-key="…"/>`）；空表示未启用发布，PUT 一律 401。 */
+  private string publishKey;
+  /** 下载令牌（`<auth download-key="…"/>`）；空表示读不认证。 */
+  private string downloadKey;
+  /** 上传体上限（来自 `<auth max-size>`）——native 发行包是几十 MB 量级，需按需调大。 */
   private size_t publishMaxSize;
 
   this(MicdnConfig config) {
     this.repo = NativeRepo.build(config);
-    if (config.publish !is null) {
-      this.publishToken = config.publish.token;
-      this.publishMaxSize = config.publish.maxSize;
+    if (config.auth !is null) {
+      this.publishKey = config.auth.publishKey;
+      this.downloadKey = config.auth.downloadKey;
+      this.publishMaxSize = config.auth.maxSize;
     }
   }
 
@@ -74,13 +77,17 @@ class NativeService {
   void service(HTTPServerRequest req, HTTPServerResponse res) {
     if (req.method == HTTPMethod.PUT) {
       // 写路径的唯一入口：先校验令牌，再做任何路径解析与 body 读取
-      if (!authorizePublish(req, res, publishToken))
+      if (!authorizeWrite(req, res, publishKey))
         return;
       publish(req, res);
       return;
     }
     const uri = getResourceUri(endpoint, req);
     const ruri = repositoryUri(uri);
+    // `<auth download-key>`：受保护的 GET 先鉴权（HEAD/目录/302 放行，见 micdn.web.publish）
+    if (!authorizeRead(req, res, downloadKey, ruri))
+      return;
+    const gated = readNeedsToken(req, downloadKey, ruri);
 
     auto latest = repo.latestAlias(ruri);
     if (latest !is null) {
@@ -116,7 +123,8 @@ class NativeService {
       }
     } else {
       auto info = IndexedFileInfo.fromFileInfo(fi);
-      sendFile(req, res, file, info, nativeArtifactCachePolicy(ruri));
+      auto policy = nativeArtifactCachePolicy(ruri);
+      sendFile(req, res, file, info, gated ? gatedPolicy(policy) : policy);
     }
   }
 
@@ -124,7 +132,7 @@ class NativeService {
 
       客户端须**先传构件、再传 `.sha1`**：micdn 只做原子落盘，不实现 sashub 的
       `.pending` 暂存与「校验文件先到时归位」。
-      调用方（`service` 的 PUT 分支）已通过 `authorizePublish` 校验令牌。
+      调用方（`service` 的 PUT 分支）已通过 `authorizeWrite` 校验令牌。
   */
   private void publish(HTTPServerRequest req, HTTPServerResponse res) {
     const uri = getResourceUri(endpoint, req);

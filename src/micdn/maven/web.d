@@ -36,7 +36,7 @@ import micdn.routes;
 import micdn.web;
 import micdn.web.cache;
 import micdn.web.file;
-import micdn.web.publish : authorizePublish, readUploadBody, storeUpload;
+import micdn.web.publish : authorizeRead, authorizeWrite, readNeedsToken, readUploadBody, storeUpload;
 import micdn.fs.index;
 import micdn.fs.browser;
 import micdn.xml;
@@ -50,9 +50,11 @@ private bool looksLikeMavenArtifactFile(string uri) {
 class MavenService {
   private enum string endpoint = mountMaven;
   private const GavRepo repo;
-  /** 上传令牌（`<publish token="…"/>`）；空表示未启用发布，PUT 一律 401。 */
-  private string publishToken;
-  /** 上传体上限（来自 `<publish maxSize>`）。 */
+  /** 上传令牌（`<auth publish-key="…"/>`）；空表示未启用发布，PUT 一律 401。 */
+  private string publishKey;
+  /** 下载令牌（`<auth download-key="…"/>`）；空表示读不认证。 */
+  private string downloadKey;
+  /** 上传体上限（来自 `<auth max-size>`）。 */
   private size_t publishMaxSize;
   /** 本地快照布局与「不带时间戳的别名 → 最新时间戳文件」解析（与 `repo` 共用同一 base）。 */
   private const SnapshotRepo snapshots;
@@ -60,9 +62,10 @@ class MavenService {
   this(MicdnConfig config) {
     this.repo = GavRepo.build(config);
     this.snapshots = SnapshotRepo.build(config);
-    if (config.publish !is null) {
-      this.publishToken = config.publish.token;
-      this.publishMaxSize = config.publish.maxSize;
+    if (config.auth !is null) {
+      this.publishKey = config.auth.publishKey;
+      this.downloadKey = config.auth.downloadKey;
+      this.publishMaxSize = config.auth.maxSize;
     }
   }
 
@@ -88,13 +91,17 @@ class MavenService {
   void service(HTTPServerRequest req, HTTPServerResponse res) {
     if (req.method == HTTPMethod.PUT) {
       // 写路径的唯一入口：先校验令牌，再做任何路径解析与 body 读取
-      if (!authorizePublish(req, res, publishToken))
+      if (!authorizeWrite(req, res, publishKey))
         return;
       publish(req, res);
       return;
     }
     const uri = getResourceUri(endpoint, req);
     const ruri = repositoryUri(uri);
+    // `<auth download-key>`：先鉴权再回源/落盘，未授权请求不会触发上游抓取
+    if (!authorizeRead(req, res, downloadKey, ruri))
+      return;
+    const gated = readNeedsToken(req, downloadKey, ruri);
 
     // SNAPSHOT 元数据/别名：按 TTL 重新探测上游，让新构建可见（未配置 <snapshot remote> 时为空操作）
     repo.refreshSnapshotMetadata(ruri);
@@ -154,7 +161,8 @@ class MavenService {
         catch (Exception)
           throw new HTTPStatusException(HTTPStatus.notFound);
       auto info = IndexedFileInfo.fromFileInfo(fi);
-      sendFile(req, res, file, info, mavenArtifactCachePolicy(ruri));
+      auto policy = mavenArtifactCachePolicy(ruri);
+      sendFile(req, res, file, info, gated ? gatedPolicy(policy) : policy);
     }
   }
 
@@ -162,7 +170,7 @@ class MavenService {
 
       服务端不解析内容——客户端负责生成时间戳文件名与 `maven-metadata.xml`，落盘后
       `/maven` 的读路径（快照别名、artifact 级元数据合并）即可照常服务。
-      调用方（`service` 的 PUT 分支）已通过 `authorizePublish` 校验令牌。
+      调用方（`service` 的 PUT 分支）已通过 `authorizeWrite` 校验令牌。
       注意：为某 SNAPSHOT 版本目录配置了 `<snapshot remote>` 时，本地写入的
       `maven-metadata.xml` 会在 TTL 到期后被上游刷新覆盖（本地发布场景通常不配上游客）。
   */

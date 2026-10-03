@@ -32,7 +32,7 @@ import micdn.web;
 import micdn.web.cache;
 import micdn.web.file;
 import micdn.web.origin;
-import micdn.web.publish : authorizePublish, readUploadBody;
+import micdn.web.publish : authorizeRead, authorizeWrite, readNeedsToken, readUploadBody;
 import micdn.fs.index;
 
 /** npm registry：版本化 tarball 与 packument（本地文件优先，缺失时按同一路径从上游拉取）。
@@ -47,29 +47,36 @@ import micdn.fs.index;
 class NpmService {
   private enum string endpoint = mountNpm;
   private const NpmRepo repo;
-  /** 上传令牌（`<publish token="…"/>`）；空表示未启用发布，PUT 一律 401。 */
-  private string publishToken;
-  /** 上传体上限（来自 `<publish maxSize>`）。 */
+  /** 上传令牌（`<auth publish-key="…"/>`）；空表示未启用发布，PUT 一律 401。 */
+  private string publishKey;
+  /** 下载令牌（`<auth download-key="…"/>`）；空表示读不认证。 */
+  private string downloadKey;
+  /** 上传体上限（来自 `<auth max-size>`）。 */
   private size_t publishMaxSize;
 
   this(MicdnConfig config) {
     this.repo = NpmRepo.build(config);
-    if (config.publish !is null) {
-      this.publishToken = config.publish.token;
-      this.publishMaxSize = config.publish.maxSize;
+    if (config.auth !is null) {
+      this.publishKey = config.auth.publishKey;
+      this.downloadKey = config.auth.downloadKey;
+      this.publishMaxSize = config.auth.maxSize;
     }
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
     if (req.method == HTTPMethod.PUT) {
       // 写路径的唯一入口：先校验令牌，再做任何路径解析与 body 读取
-      if (!authorizePublish(req, res, publishToken))
+      if (!authorizeWrite(req, res, publishKey))
         return;
       publish(req, res);
       return;
     }
     const uri = getResourceUri(endpoint, req);
     const ruri = repositoryUri(uri);
+    // `<auth download-key>`：先鉴权再回源/落盘（packument 与 tgz 都算「会写出文件体」）
+    if (!authorizeRead(req, res, downloadKey, ruri))
+      return;
+    const gated = readNeedsToken(req, downloadKey, ruri);
     auto path = repositoryPath(repo.base, uri);
 
     // 支持 NPM 官方 tgz URL：{packageName}/-/{name}-{version}.tgz，不存在则下载后返回
@@ -84,7 +91,8 @@ class NpmService {
           catch (Exception)
             throw new HTTPStatusException(HTTPStatus.notFound);
           auto info = IndexedFileInfo.fromFileInfo(tfi);
-          sendFile(req, res, local, info, npmArtifactCachePolicy(ruri));
+          auto policy = npmArtifactCachePolicy(ruri);
+          sendFile(req, res, local, info, gated ? gatedPolicy(policy) : policy);
           return;
         }
         throw new HTTPStatusException(HTTPStatus.notFound);
@@ -120,10 +128,11 @@ class NpmService {
       // 包名路径按 registry 约定是 packument（JSON），交付时把 `{origin}` 换成实际 origin；
       // 其余（缓存目录下的 tgz 等）按文件发送。
       if (isPackageUri(ruri))
-        sendPackument(req, res, path, fi, ruri);
+        sendPackument(req, res, path, fi, ruri, gated);
       else {
         auto info = IndexedFileInfo.fromFileInfo(fi);
-        sendFile(req, res, path, info, npmArtifactCachePolicy(ruri));
+        auto policy = npmArtifactCachePolicy(ruri);
+        sendFile(req, res, path, info, gated ? gatedPolicy(policy) : policy);
       }
     }
   }
@@ -132,7 +141,7 @@ class NpmService {
 
       请求体是 npm 的 publish 文档（packument + `_attachments` 内嵌 Base64 tgz），
       交给 `installPublishedPackument` 解出后落盘并刷新 packument。
-      调用方（`service` 的 PUT 分支）已通过 `authorizePublish` 校验令牌。
+      调用方（`service` 的 PUT 分支）已通过 `authorizeWrite` 校验令牌。
       路径必须是包名（`PUT /npm/@scope/name`），否则 404。
   */
   private void publish(HTTPServerRequest req, HTTPServerResponse res) {
@@ -167,8 +176,9 @@ class NpmService {
       或把本路径的缓存策略改成 `private`/`no-store`。
   */
   private void sendPackument(scope HTTPServerRequest req, scope HTTPServerResponse res,
-      string path, FileInfo fi, string ruri) {
-    auto policy = npmArtifactCachePolicy(ruri);
+      string path, FileInfo fi, string ruri, bool gated) {
+    auto base = npmArtifactCachePolicy(ruri);
+    auto policy = gated ? gatedPolicy(base) : base;
     if (handleCacheFile(req, res, fi, policy.cacheControl, policy.maxAge))
       return;
 

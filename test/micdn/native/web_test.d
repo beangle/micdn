@@ -76,13 +76,13 @@ private void seed(string home, string ruri, string content) {
   write(path, content);
 }
 
-@("native PUT requires the publish token and stores the artifact at the request path")
+@("native PUT requires the publish-key and stores the artifact at the request path")
 unittest {
   auto home = nativeHome();
   scope (exit)
     if (exists(home))
       rmdirRecurse(home);
-  auto config = parseFile(nativeConfig(home, `<publish token="s3cret"/>`));
+  auto config = parseFile(nativeConfig(home, `<auth publish-key="s3cret"/>`));
   auto ruri = "/org/beangle/ems/portal/4.20.14-SNAPSHOT/portal-4.20.14-SNAPSHOT-linux-amd64.tar.gz";
 
   // 缺令牌：401 且带 Basic 挑战（Maven/curl 靠它重试）
@@ -209,4 +209,93 @@ unittest {
   assert(err is null && dirList.res.statusCode == HTTPStatus.ok);
   assert(dirList.body.canFind("portal-4.20.14-SNAPSHOT-linux-amd64.tar.gz"), dirList.body);
   assert(dirList.body.canFind(newer[1 .. $]), dirList.body);
+}
+
+@("native download-key gates file GETs but leaves HEAD and listings open")
+unittest {
+  auto home = nativeHome();
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  // 同时配两个 key：写走 publish-key，读走 download-key
+  auto config = parseFile(nativeConfig(home,
+      `<auth publish-key="w3" download-key="r3" max-size="128M"/>`));
+  auto dir = "/org/beangle/ems/portal/4.20.14-SNAPSHOT";
+  seed(home, dir ~ "/portal-4.20.14-SNAPSHOT-linux-amd64.tar.gz", "dist");
+  seed(home, dir ~ "/portal-4.20.13_4.20.14-SNAPSHOT-20260913.101500-3-linux-amd64.tar.gz.diff", "diff");
+  auto distPath = "/native" ~ dir ~ "/portal-4.20.14-SNAPSHOT-linux-amd64.tar.gz";
+  auto diffAlias = "/native" ~ dir ~ "/portal-4.20.13_4.20.14-SNAPSHOT-linux-amd64.tar.gz.diff";
+  // 正式版构件（路径不含 SNAPSHOT）用来看受限响应的缓存降级
+  seed(home, "/org/beangle/ems/portal/4.20.13/portal-4.20.13-linux-amd64.tar.gz", "release-dist");
+  auto releasePath = "/native/org/beangle/ems/portal/4.20.13/portal-4.20.13-linux-amd64.tar.gz";
+
+  HTTPStatusException err;
+
+  // 无凭据 GET 文件：401 + Basic 挑战 + no-store（挑战本身不得被缓存）
+  auto missing = exchange(config, releasePath, HTTPMethod.GET, err);
+  assert(err is null);
+  assert(missing.res.statusCode == HTTPStatus.unauthorized);
+  assert(missing.res.headers.get("WWW-Authenticate", "").canFind("Basic"));
+  assert(missing.res.headers.get("Cache-Control", "") == "no-store");
+
+  // 不存在的路径同样 401（先鉴权后碰文件系统），不泄漏路径是否存在
+  auto absent = exchange(config, "/native/org/beangle/ems/portal/9.9.9/x.tar.gz",
+      HTTPMethod.GET, err);
+  assert(absent.res.statusCode == HTTPStatus.unauthorized);
+
+  // 带凭据放行（Bearer 与 X-Micdn-Token 都可以）
+  auto ok = exchange(config, releasePath, HTTPMethod.GET, err, ["Authorization": "Bearer r3"]);
+  assert(err is null && ok.res.statusCode == HTTPStatus.ok && ok.body == "release-dist");
+  // 受限响应降级为 private：共享缓存不得把它交给未授权者
+  assert(ok.res.headers["Cache-Control"] == "private, max-age=31536000, immutable",
+      ok.res.headers["Cache-Control"]);
+  auto viaHeader = exchange(config, distPath, HTTPMethod.GET, err, ["X-Micdn-Token": "r3"]);
+  assert(viaHeader.res.statusCode == HTTPStatus.ok);
+  // SNAPSHOT 路径原本就是 no-store，降级函数不改变它（没有 public 前缀）
+  assert(viaHeader.res.headers["Cache-Control"] == "no-store", viaHeader.res.headers["Cache-Control"]);
+
+  // HEAD 不设限（jstart 用 `curl -I -L` 探测补丁）：普通文件与别名都一样
+  auto head = exchange(config, distPath, HTTPMethod.HEAD, err);
+  assert(err is null && head.res.statusCode == HTTPStatus.ok);
+  auto aliasHead = exchange(config, diffAlias, HTTPMethod.HEAD, err);
+  assert(err is null && aliasHead.res.statusCode == HTTPStatus.ok);
+  assert(aliasHead.res.headers.get("latest", "").canFind("20260913.101500-3"));
+
+  // 目录列表（尾斜杠）不设限；补尾斜杠的 302 在鉴权之后才发出（见下）
+  auto list = exchange(config, "/native" ~ dir ~ "/", HTTPMethod.GET, err);
+  assert(err is null && list.res.statusCode == HTTPStatus.ok);
+  // 目录路径不带尾斜杠时按「文件型 URI」判定（先鉴权、后 stat），授权后才 302 补 `/`：
+  // 这样判定只依赖 URI 形状，不泄露目录是否存在，也不需要回源前先 stat
+  auto redirect = exchange(config, "/native" ~ dir, HTTPMethod.GET, err, ["Authorization": "Bearer r3"]);
+  assert(err is null && redirect.res.statusCode == HTTPStatus.found);
+  auto anonDir = exchange(config, "/native" ~ dir, HTTPMethod.GET, err);
+  assert(anonDir.res.statusCode == HTTPStatus.unauthorized);
+  // 不带时间戳的补丁别名是「文件型 URI」：GET 需要凭据（HEAD 探测不受限，见上）
+  auto aliasGet = exchange(config, diffAlias, HTTPMethod.GET, err);
+  assert(err is null && aliasGet.res.statusCode == HTTPStatus.unauthorized);
+  auto aliasOk = exchange(config, diffAlias, HTTPMethod.GET, err, ["Authorization": "Bearer r3"]);
+  assert(err is null && aliasOk.res.statusCode == HTTPStatus.found);
+
+  // 写路径不受 download-key 影响：仍按 publish-key 判定
+  auto putNoToken = exchange(config, distPath, HTTPMethod.PUT, err, null, "x");
+  assert(putNoToken.res.statusCode == HTTPStatus.unauthorized);
+  auto put = exchange(config, distPath, HTTPMethod.PUT, err, ["Authorization": "Bearer w3"], "x");
+  assert(put.res.statusCode == HTTPStatus.created);
+}
+
+@("native responses stay public when download-key is not configured")
+unittest {
+  auto home = nativeHome();
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  auto config = parseFile(nativeConfig(home));
+  seed(home, "/org/beangle/ems/portal/4.20.13/portal-4.20.13-linux-amd64.tar.gz", "dist");
+
+  HTTPStatusException err;
+  auto file = exchange(config, "/native/org/beangle/ems/portal/4.20.13/portal-4.20.13-linux-amd64.tar.gz",
+      HTTPMethod.GET, err);
+  assert(err is null && file.res.statusCode == HTTPStatus.ok);
+  assert(file.res.headers["Cache-Control"] == "public, max-age=31536000, immutable",
+      file.res.headers["Cache-Control"]);
 }
