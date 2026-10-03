@@ -181,5 +181,5 @@ native 发行包仓库（`/native`，声明 `<native>` 才挂载——与 maven/
 - native：`src/micdn/native/package.d`（`NativeRepo` / `latestAlias`）、`src/micdn/native/web.d`（`NativeService`）
 - 发布端点：`src/micdn/web/publish.d`（令牌校验、请求体读取、`storeUpload` 原子落盘；maven 与 native 共用）、
   `src/micdn/npm/publish.d`（`npm publish` 请求体）——上传与 CLI 走同一套落盘/合并逻辑；PUT 端点（`/maven`、
-  `/npm`、`/native`）都只在声明 `<publish>` 时注册，见 README「发布端点」
+  `/npm`、`/native`）都只在 `<auth publish-key>` 非空时注册，读门禁见 README「读写访问控制（auth）」
 - CLI：`micdn install`

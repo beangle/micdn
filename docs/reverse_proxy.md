@@ -24,6 +24,11 @@ micdn **不维护响应级的共享缓存**：每个请求都直接读磁盘返�
 | blob 对象 | `public, max-age=604800` | 7 天 |
 
 - 可压缩内容统一带 `Vary: Accept-Encoding`（见 [README gzip 预压缩](../README.md)），缓存层会按 `Accept-Encoding` 分别缓存「原版」与「gz 版」，gzip 客户端命中压缩版、其余客户端命中原版，不会错发。
+- 配置了 `<auth download-key>` 时，受保护的响应被降级为 `Cache-Control: private`（`no-store` 不变），
+  共享缓存层必须尊重它：否则缓存会按 URL 命中，把受限内容交给没带凭据的请求者。**nginx `proxy_cache` 默认
+  不会因为请求带 `Authorization` 就跳过缓存**，此时要么不使用共享缓存，要么把凭据纳入缓存键
+  （如 `proxy_cache_key "$scheme$host$request_uri$http_authorization";`）；varnish 内置 VCL 会把带
+  `Authorization` 的请求 `pass`，自定义 VCL 也需遵守 `private`。详见 [auth.md](auth.md)。
 - 注意区分：maven/npm 的「本地缓存」是 micdn 把上游 remote 构件**落盘镜像**（避免重复回源下载），属于 micdn 内部行为，与 HTTP 响应缓存是两回事；后者才需要中间件。
 
 ### npm packument 的 tarball 地址按请求 origin 生成
@@ -55,7 +60,7 @@ native 发行包仓库只有一个入口 `/native`（声明 `<native>` 才挂载
 `public, max-age=31536000, immutable`。补丁别名（不带时间戳的 `-SNAPSHOT` 名）会回 `302` 到同目录时间戳最新的
 文件，`HEAD` 以 `latest` 头返回实际文件名并给 `Last-Modified`——jstart 用 `curl -I -L` 探测补丁是否存在，反代需放行
 该 302 与 `latest` 头（别名本身没有响应体）。上传（`PUT`，令牌在 `Authorization: Bearer`）只应在 HTTPS 或反代的
-HTTPS 终止后暴露，且 `<publish maxSize>` 要调到 `128M` 以上（默认 `64M` 装不下几十 MB 的发行包）。完整说明见
+HTTPS 终止后暴露，且 `<auth max-size>` 要调到 `128M` 以上（默认 `64M` 装不下几十 MB 的发行包）。完整说明见
 [native.md](native.md)。
 
 ### 开发版 npm（`<npm><dev remote="..."/>`）与缓存

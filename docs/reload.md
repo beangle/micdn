@@ -28,7 +28,7 @@
 1. **拉取配置**：`fetchRemoteIfNeeded`——本地配置含 `remote` 属性时先重新下载覆盖（`src/micdn/web/package.d`）。
 2. **重新解析**：`parseFile` 完整解析并校验（XSD、名称/base、try-file、重复 doc 等）。
 3. **解析监听**：`parseListen` 读取新 `host:port`（仅用于 metrics，见「生效范围」）。
-4. **应用限制**：`applyLimits` 把新 `blob.maxSize`、`keepAliveTimeout` 写回共享 `HTTPServerSettings`，对新连接生效。
+4. **应用限制**：`applyLimits` 把新 `blob.max-size`、`keepAliveTimeout` 写回共享 `HTTPServerSettings`，对新连接生效。
 5. **重建路由**：`buildRouter` 按新配置新建 admin/static/maven/npm/native/blob/www 服务对象（未声明的元素不挂对应端点）；www 经 `WwwRepo.build` **重建发布期索引**。
 6. **原子替换**：`_currentRouter = router`——替换只发生在事件循环线程，无需加锁（`src/micdn/main.d` `ReloadableDispatcher`）。
 7. **收尾同步**：`reloadAndSync` 更新 metrics 的 `listenPort`，并 `wwwAutoDeploy.restart` 按新配置重建 inotify 监听。
@@ -51,7 +51,7 @@
 
 - 路由与端点：www doc / static bundle / blob bucket 的新增、删除、属性调整。
 - 配置期校验：重复 doc name、非法 base / bundle / bucket 名、`try-file` 含路径等，reload 时同样报错。
-- 请求限制：`blob.maxSize`、`keepAliveTimeout`（对新连接）。
+- 请求限制：`blob.max-size`、`keepAliveTimeout`（对新连接）。
 - www 发布期索引：随 `buildRouter` 整体重建。
 - autodeploy 监听：zip 路径、`auto-deploy` 开关变更后按新配置重建。
 - `/admin/config.xml` 展示的配置同步为新配置。

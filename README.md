@@ -22,9 +22,9 @@
 
 | 前缀 | 说明 |
 |------|------|
-| `/maven` | maven：本地缓存 + 上游 remote 拉取；SNAPSHOT 路径本地优先、缺失时按 `<snapshot remote>` 回源（版本元数据按 TTL 刷新），别名请求 302 到最新时间戳文件，本地快照版本并入 artifact 级元数据；声明 `<publish>` 后可 PUT 上传（`mvn deploy`，见「发布端点」）。声明了 `<maven>` 才挂载；未声明时仍有默认仓库，见下 |
-| `/npm` | npm registry（正式版与开发版共用）：packument（交付时替换 `{origin}` 占位符）与 tgz；声明 `<publish>` 后可 PUT 上传（`npm publish`，见「发布端点」）。声明了 `<npm>` 才挂载；未声明时仍有默认仓库，见下 |
-| `/native` | native 发行包（tar.gz）与增量补丁（`.diff`）：单根、无上游，GET/HEAD 取件、目录可列出，不带时间戳的补丁别名 302 到最新的时间戳文件；声明 `<publish>` 后可 PUT 上传（见「发布端点」）。声明了 `<native>` 才挂载；未声明时仍有默认仓库，见下 |
+| `/maven` | maven：本地缓存 + 上游 remote 拉取；SNAPSHOT 路径本地优先、缺失时按 `<snapshot remote>` 回源（版本元数据按 TTL 刷新），别名请求 302 到最新时间戳文件，本地快照版本并入 artifact 级元数据；`<auth publish-key>` 非空后可 PUT 上传（`mvn deploy`，见「上传（publish-key）」）。声明了 `<maven>` 才挂载；未声明时仍有默认仓库，见下 |
+| `/npm` | npm registry（正式版与开发版共用）：packument（交付时替换 `{origin}` 占位符）与 tgz；`<auth publish-key>` 非空后可 PUT 上传（`npm publish`，见「上传（publish-key）」）。声明了 `<npm>` 才挂载；未声明时仍有默认仓库，见下 |
+| `/native` | native 发行包（tar.gz）与增量补丁（`.diff`）：单根、无上游，GET/HEAD 取件、目录可列出，不带时间戳的补丁别名 302 到最新的时间戳文件；`<auth publish-key>` 非空后可 PUT 上传（见「上传（publish-key）」）。声明了 `<native>` 才挂载；未声明时仍有默认仓库，见下 |
 | `/static` | 静态资源（配置了 `<static>` 时） |
 | `/blob`、`/s3` | 对象存储与 S3 兼容接口（配置了 `<blob>` 时） |
 | `/admin` | 本机只读指标 `/admin/metrics`、配置查看与 reload |
@@ -176,7 +176,7 @@ GraalVM native-image 的发行包（`tar.gz`）与 bsdiff 增量补丁（`.diff`
 native 构件没有 pom、也没有 `maven-metadata.xml`，坐标完全由路径决定，因此 micdn 在这里**不做任何元数据与
 上游代理**（迁移期由上传或运维同步补齐）：
 
-- 上传：`PUT /native/{仓库内相对路径}`——**全路径 URL**，不用 query string 传 path；需声明 `<publish>` 带令牌，
+- 上传：`PUT /native/{仓库内相对路径}`——**全路径 URL**，不用 query string 传 path；需声明 `<auth>` 带令牌，
   约定**先传构件、再传 `.sha1`**（micdn 只做原子落盘，不做 sashub 时代的 `.pending` 配对校验）；
 - 下载：`GET|HEAD /native/{仓库内相对路径}`；目录（含仓库根 `/native`）可列出；
 - 不带时间戳的 `-SNAPSHOT` 补丁别名解析到同目录时间戳最新的同名文件（`HEAD` 用 `latest` 响应头返回实际文件名
@@ -191,17 +191,42 @@ native 构件没有 pom、也没有 `maven-metadata.xml`，坐标完全由路径
 ```
 
 路径含 `SNAPSHOT` 的构件响应 `no-store`（同名会被重新发布覆盖），其余为
-`public, max-age=31536000, immutable`。**注意**：单次上传体上限由 `<publish maxSize>` 决定（默认 `64M`），
+`public, max-age=31536000, immutable`。**注意**：单次上传体上限由 `<auth max-size>` 决定（默认 `64M`），
 而 native 发行包常有几十 MB（实测 ems-portal / otk-ws 约 53–62MB），部署时请把它调到 128M 以上。
 
 单根布局、别名解析规则、与构建/客户端的对接、从 sashub 迁移等完整说明见 [docs/native.md](docs/native.md)。
 
-## 发布端点（publish）
+## 读写访问控制（auth）
 
-不必先 `npm pack` 再手动入库、也不必复制 maven 构件：声明 `<publish token="…"/>` 后，`/npm`、`/maven`、`/native` 同时
+`<auth>` 是 `/maven`、`/npm`、`/native` 三个端点的**唯一鉴权来源**，接管它们的 GET/HEAD/PUT：
+
+```xml
+<!-- 读开放、只锁写（默认口径；只写 publish-key 与引入 <auth> 之前完全等价） -->
+<auth publish-key="写令牌" max-size="64M" />
+
+<!-- 读写都锁：download-key 非空后，「会写出文件体的 GET」必须带凭据 -->
+<auth publish-key="写令牌" download-key="读令牌" max-size="128M" />
+```
+
+- `publish-key`：非空才挂载 **PUT** 上传（`npm publish` / `mvn deploy` / native 发行包）；不写就不挂 PUT，
+  服务器上即使有反代也不会凭空多出写入口。
+- `download-key`：**可选**。不写 = 读不认证（默认，与引入 `<auth>` 之前一致）；写了则构件、`.sha1`、
+  `maven-metadata.xml`、npm packument 与 `.tgz` 等「文件型 GET」必须带同一凭据。
+  **`HEAD` 与以 `/` 结尾的目录列表始终不设限**：`HEAD` 是 boot（`HttpUtils.isAlive`）与 jstart
+  （`curl -I -L`）探测存在性/增量补丁的常规手段，目录列表只暴露「有什么」而不交出字节。快照/补丁别名
+  与「补尾斜杠」的 302 都在鉴权之后才发出，因此别名 GET、以及不带尾斜杠的目录路径仍按文件型 URI 判定、
+  需要凭据（只有它们的 HEAD 例外）。代价是仓库内容（包名、版本、文件名、大小）对未授权者可见，
+  `download-key` 保护的是构件字节本身。
+- `max-size`：单次上传体上限，**仅在 `publish-key` 非空时生效**，同时作为未配置 `<blob>` 时服务器的
+  `maxRequestSize`（只配 `download-key` 不会抬高全局上限）。
+
+两个 key 都只应经 HTTPS（或反代的 HTTPS 终止）暴露，并选用足够长的随机串；只写一个也合法，两个都空则配置期报错
+（防 `publishkey=` 这类手误导致的「以为受控其实全开」）。完整说明与各客户端接法见 [docs/auth.md](docs/auth.md)。
+
+### 上传（publish-key）
+
+不必先 `npm pack` 再手动入库、也不必复制 maven 构件：声明 `publish-key` 后，`/npm`、`/maven`、`/native` 同时
 接受 **HTTP PUT** 上传，把 `npm publish` / `mvn deploy` 指向 micdn 即可（本地开发、或带令牌推到远端实例）。
-**不声明 `<publish>` 就完全不挂 PUT**（只有 GET/HEAD），因此服务器上即使有反代也不会凭空多出写入口。
-
 上传以**令牌**为唯一凭据：
 
 - `Authorization: Bearer <token>`（npm 的 `_authToken`）、`Authorization: Basic <base64>`
@@ -210,8 +235,9 @@ native 构件没有 pom、也没有 `maven-metadata.xml`，坐标完全由路径
 - **不限制来源地址**：令牌本来就与来源无关，前端开发机可以带令牌直接推给远端 micdn，反之本机发布也不用额外配置。
 
 为什么不用「只接受本机」来兜底：本机反代（如 HAProxy 绑 `0.0.0.0:80` 转发到 `127.0.0.1:8080`，TCP 模式）会把
-远端请求以环回源地址转给 micdn，报文里没有任何可区分的标记，那种判断等于没锁。代价是**令牌就是写权限**：
-发布端点只应经 HTTPS（或反向代理的 HTTPS 终止）暴露，并选用足够长的随机令牌，避免 Bearer 凭据在明文链路上被读走。
+远端请求以环回源地址转给 micdn，报文里没有任何可区分的标记，那种判断等于没锁。代价是**密钥等同权限**
+（`publish-key` 就是写权限、`download-key` 就是读权限）：这些端点只应经 HTTPS（或反向代理的 HTTPS 终止）暴露，
+并选用足够长的随机串，避免 Bearer 凭据在明文链路上被读走。
 
 npm——把令牌写进项目 `.npmrc`（或用 `--registry`/`--//…:_authToken` 临时给）：
 
@@ -248,14 +274,14 @@ mvn deploy:deploy-file -Durl=http://127.0.0.1:8888/maven -DrepositoryId=local \
 `/maven` 的读路径（快照别名 302、artifact 级元数据合并）即可照常服务。注意为某 SNAPSHOT 版本目录配置了
 `<snapshot remote>` 时，写入的 `maven-metadata.xml` 会在 TTL 到期后被上游刷新覆盖（本地发布场景通常不配上游客）。
 
-上限与状态码：单次上传体不超过 `<publish maxSize>`（默认 `64M`，同时也是未配置 `<blob>` 时服务器的
-`maxRequestSize`；配置了 `<blob>` 则沿用其 `maxSize`），超出 `413`，请求体不合法 `400`，未授权 `401`。
+上限与状态码：单次上传体不超过 `<auth max-size>`（默认 `64M`，同时也是未配置 `<blob>` 时服务器的
+`maxRequestSize`；配置了 `<blob>` 则沿用其 `max-size`），超出 `413`，请求体不合法 `400`，未授权 `401`。
 PUT 只在声明了 `<maven>` / `<npm>` / `<native>` 的端点上注册。
 
 配置就一段：
 
 ```xml
-<publish token="s3cret" maxSize="64M" />
+<auth publish-key="s3cret" max-size="64M" />
 ```
 
 ## 配置示例
@@ -282,11 +308,11 @@ PUT 只在声明了 `<maven>` / `<npm>` / `<native>` 的端点上注册。
     <doc name="manual" zip="${micdn.home}/releases/manual.zip"
          inner="dist" try-file="index.html" auto-deploy="true" />
   </www>
-  <blob base="${micdn.home}/blob" maxSize="50M">
+  <blob base="${micdn.home}/blob" max-size="50M">
     <bucket name="local" key="..." />
   </blob>
-  <!-- 发布端点（PUT 上传）：令牌必填；不写 <publish> 就完全不挂 PUT 端点 -->
-  <publish token="s3cret" maxSize="64M" />
+  <!-- 读写访问控制：publish-key 非空才挂 PUT；download-key 可选，非空则构件 GET 需要凭据 -->
+  <auth publish-key="s3cret" max-size="64M" />
 </micdn>
 ```
 
@@ -322,6 +348,7 @@ static / www 的文本类资源（js/css/html/svg/json 等）在**部署期**预
 | [docs/maintenance.md](docs/maintenance.md) | systemd、`micdn`/`beangle` 权限、resolve/deploy、auto-deploy |
 | [docs/reverse_proxy.md](docs/reverse_proxy.md) | nginx / varnish 缓存、haproxy 压缩等协作部署 |
 | [docs/merged_repo.md](docs/merged_repo.md) | 正式版/开发版合并仓库与单一入口设计（元数据合并、回源路由、缓存策略） |
+| [docs/auth.md](docs/auth.md) | 读写访问控制 `<auth>`：publish-key/download-key 语义、各客户端凭据接法、缓存降级与迁移 |
 | [docs/native.md](docs/native.md) | native 发行包仓库 `/native`：单根布局、上传/下载与补丁别名、缓存、与构建/客户端对接 |
 | [docs/stress_test.md](docs/stress_test.md) | 压测复测指南：环境、样例、场景与结果比较 |
 | [docs/release-v0.4.0.md](docs/release-v0.4.0.md) | 当前版本说明 |

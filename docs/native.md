@@ -61,13 +61,13 @@ curl -T portal-4.20.14-SNAPSHOT-linux-amd64.tar.gz.sha1 \
   http://micdn:8888/native/org/beangle/ems/portal/4.20.14-SNAPSHOT/portal-4.20.14-SNAPSHOT-linux-amd64.tar.gz.sha1
 ```
 
-- **需声明 `<publish token="…"/>` 才挂 PUT**；令牌是唯一写权限凭据，可用 `Authorization: Bearer` /
+- **需声明 `<auth publish-key="…"/>` 才挂 PUT**；令牌是唯一写权限凭据，可用 `Authorization: Bearer` /
   `Authorization: Basic`（用户名或口令任一同令牌）或 `X-Micdn-Token`，缺失/不符 `401` 并返回 Basic 挑战；
   与来源地址无关（本机反代下「对端为环回」区分不出远端请求）。只应经 HTTPS 暴露。
 - **只做原子落盘**：先写同目录 `.incoming` 临时文件再 rename，同名覆盖；不解析内容、**不做构件与校验文件的
   配对校验**（sashub 的 `.pending` 暂存已取消），因此约定客户端**先传构件、再传 `.sha1`**——
   校验文件先到也不会被暂存，只是先落一个文件而已。
-- 目录路径（尾斜杠）、含 `.`/`..` 的路径 `400`；超过 `<publish maxSize>` 的请求体 `413`。
+- 目录路径（尾斜杠）、含 `.`/`..` 的路径 `400`；超过 `<auth max-size>` 的请求体 `413`。
 
 ### 下载：`GET|HEAD /native/{仓库内相对路径}`
 
@@ -106,16 +106,16 @@ curl -T portal-4.20.14-SNAPSHOT-linux-amd64.tar.gz.sha1 \
 <!-- /native 的开关：与 <maven> / <npm> 同一套「元素即端点开关」规则，不写就不挂载 /native -->
 <native base="${micdn.home}/native" />
 
-<!-- 上传另需声明 <publish>；native 发行包常有几十 MB，maxSize 要调到 128M 以上 -->
-<publish token="…" maxSize="128M" />
+<!-- 上传另需声明 <auth>；native 发行包常有几十 MB，max-size 要调到 128M 以上 -->
+<auth publish-key="…" max-size="128M" />
 ```
 
 | 配置 | 默认 | 说明 |
 |---|---|---|
 | `<native>` | 不声明 | 端点开关。未声明时不挂 `/native`，但默认仓库配置仍在（base `${micdn.home}/native`）；native 没有 provider 与 `install` 入口，`/native` 是它唯一的消费者 |
 | `base` | `${micdn.home}/native` | 本地仓库根（单根，正式版与开发版共用）。发行包几十 MB 起，要挪到大盘时写这里 |
-| `<publish token>` | — | 挂 PUT 的开关与令牌；同 `/maven`、`/npm` |
-| `<publish maxSize>` | `64M` | 单次上传体上限，也是未配置 `<blob>` 时服务器的 `maxRequestSize`。**默认值装不下 native 发行包**（实测 ems-portal 约 53MB、otk-ws 约 62MB），要调到 `128M` 以上 |
+| `<auth publish-key>` | — | 挂 PUT 的开关与令牌；同 `/maven`、`/npm` |
+| `<auth max-size>` | `64M` | 单次上传体上限，也是未配置 `<blob>` 时服务器的 `maxRequestSize`。**默认值装不下 native 发行包**（实测 ems-portal 约 53MB、otk-ws 约 62MB），要调到 `128M` 以上 |
 
 `micdn install` 子命令只处理 npm 的 `tgz` 与 maven 的 `jar|war|pom`，**不处理 native 构件**；native 入仓只有
 `PUT`（构建插件）或运维按布局拷贝两条路。
@@ -140,9 +140,9 @@ curl -T portal-4.20.14-SNAPSHOT-linux-amd64.tar.gz.sha1 \
 
 ## 实现
 
-- 端点注册：`src/micdn/routes.d`（`mountNative`）、`src/micdn/main.d`（`<native>` 声明才挂，`<publish>` 声明才挂 PUT）
+- 端点注册：`src/micdn/routes.d`（`mountNative`）、`src/micdn/main.d`（`<native>` 声明才挂，`<auth>` 声明才挂 PUT）
 - 布局与别名：`src/micdn/native/package.d`（`NativeRepo` / `latestAlias`）
 - HTTP：`src/micdn/native/web.d`（`NativeService`）
-- 上传公共实现（maven 与 native 共用）：`src/micdn/web/publish.d`（`authorizePublish` / `readUploadBody` / `storeUpload`）
+- 上传公共实现（maven 与 native 共用）：`src/micdn/web/publish.d`（`authorizeWrite` / `readUploadBody` / `storeUpload`；读门禁见 `authorizeRead` / `readNeedsToken`）
 - 缓存策略：`src/micdn/web/cache.d`（`nativeArtifactCachePolicy`）
 - 测试：`test/micdn/native/web_test.d`（上传令牌与全路径落盘、目录/404/405、补丁别名与构建号比较）
