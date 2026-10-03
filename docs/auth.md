@@ -73,6 +73,10 @@ registry=http://127.0.0.1:8888/npm/
 读用的 key 与写用的 key 不同时，本机开发可以备两个 `.npmrc`（例如项目内一份带 `publish-key`、
 用户级一份带 `download-key`），或在 `npm publish` 时用 `--//127.0.0.1:8888/npm/:_authToken=写令牌` 临时覆盖。
 
+npm 端点只接受 **publish**（`PUT /npm/{包名}` 带 `_attachments` 的发布文档）；`unpublish`/`dist-tag`/`login`/
+`deprecate` 等管理接口一律不实现，因此 `_authToken` 在这里只用于「读受 `download-key` 限制」与「publish 校验
+`publish-key`」两种用途，不涉及 npmjs 的账号体系。
+
 ### maven
 
 `settings.xml` 的 `<server><id>` 与 `<repository>`/部署参数的 `id` 必须同名：

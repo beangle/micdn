@@ -791,7 +791,7 @@ Commands:
                          --force  删除已有部署目录后重新安装（忽略 manifest.json）
   clean                  清除 www/static 部署目录；交互终端下逐项确认；maven/npm 下载缓存与 blob 数据不清理
                          --yes  跳过确认（非交互/脚本）
-  install FILE           把本地开发版构件装入配置的仓库目录，并按目录内容刷新元数据；日志输出到控制台
+  install FILE           本地仓库安装：把本机构件装入配置的仓库目录，并按目录内容刷新元数据（不访问远端）；日志输出到控制台
                          FILE=PKG.tgz            装入 <npm base>，刷新 packument
                                                  --tag NAME  额外把本次版本挂到该 dist-tag（如 dev）
                                                  （dist.tarball 写 {origin} 占位符，交付时按请求 origin 替换）

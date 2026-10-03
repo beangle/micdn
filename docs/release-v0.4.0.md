@@ -85,8 +85,9 @@ v0.4.0 的主题是「正式版与开发版合流」。v0.3.3 的 `/maven`、`/n
   凭据重试（实测客户端本就预置该头）。不按对端地址限制：同机反代（HAProxy 绑 `0.0.0.0` 转发到 `127.0.0.1:8080`，
   TCP 模式）下远端请求的对端同样是环回且报文无可区分标记，密钥才是可靠凭据，也因此可以让开发机带令牌直接推到
   远端实例。密钥等同权限（`publish-key` 写、`download-key` 读），这些端点只应经 HTTPS 暴露。
-- **npm**：按 publish 协议解出 `_attachments` 内嵌的 Base64 tgz，复用 `installTarball` 落盘并刷新 packument，
-  `--tag` 写入 `dist-tags`。**maven**：PUT 请求体原样原子写入 `<maven base>`，客户端自带的带时间戳文件名与
+- **npm（只支持发布）**：按 publish 协议解出 `_attachments` 内嵌的 Base64 tgz，复用 `installTarball` 落盘并刷新 packument，
+  `--tag` 写入 `dist-tags`；`unpublish`/`dist-tag`/`login`/`deprecate` 等 npmjs 管理接口不实现，只在发布与分发层面兼容 npm。
+  **maven**：PUT 请求体原样原子写入 `<maven base>`，客户端自带的带时间戳文件名与
   `maven-metadata.xml` 直接可用。上传体不超过 `<auth max-size>`（默认 `64M`，超出 `413`），非法请求体 `400`。
 - **可选读门禁 `download-key`**：非空时「会写出文件体的 GET」（构件、tgz、packument、不带尾斜杠的目录路径）必须带
   令牌，HEAD 与以 `/` 结尾的目录列表开放（别名/补尾斜杠的 302 在鉴权之后才发出），包管理器的 HEAD 探测与 `curl -I` 不受影响；未授权 `401` +

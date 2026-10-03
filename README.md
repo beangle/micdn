@@ -23,7 +23,7 @@
 | 前缀 | 说明 |
 |------|------|
 | `/maven` | maven：本地缓存 + 上游 remote 拉取；SNAPSHOT 路径本地优先、缺失时按 `<snapshot remote>` 回源（版本元数据按 TTL 刷新），别名请求 302 到最新时间戳文件，本地快照版本并入 artifact 级元数据；`<auth publish-key>` 非空后可 PUT 上传（`mvn deploy`，见「上传（publish-key）」）。声明了 `<maven>` 才挂载；未声明时仍有默认仓库，见下 |
-| `/npm` | npm registry（正式版与开发版共用）：packument（交付时替换 `{origin}` 占位符）与 tgz；`<auth publish-key>` 非空后可 PUT 上传（`npm publish`，见「上传（publish-key）」）。声明了 `<npm>` 才挂载；未声明时仍有默认仓库，见下 |
+| `/npm` | npm registry（正式版与开发版共用）：packument（交付时替换 `{origin}` 占位符）与 tgz；`<auth publish-key>` 非空后可 PUT 上传（`npm publish`，见「上传（publish-key）」）。npm 侧**只实现发布**，不提供 unpublish / dist-tag / login / deprecate 等 npmjs 管理接口。声明了 `<npm>` 才挂载；未声明时仍有默认仓库，见下 |
 | `/native` | native 发行包（tar.gz）与增量补丁（`.diff`）：单根、无上游，GET/HEAD 取件、目录可列出，不带时间戳的补丁别名 302 到最新的时间戳文件；`<auth publish-key>` 非空后可 PUT 上传（见「上传（publish-key）」）。声明了 `<native>` 才挂载；未声明时仍有默认仓库，见下 |
 | `/static` | 静态资源（配置了 `<static>` 时） |
 | `/blob`、`/s3` | 对象存储与 S3 兼容接口（配置了 `<blob>` 时） |
@@ -55,7 +55,10 @@ dub build --build=release-nobounds --compiler=ldc2
 ## 本地发布 npm 包
 
 开发版/内网包不必发到公网 registry：把 `npm pack` 产出的 tgz 交给 **`micdn install`**，它按 npm 目录规范
-装入配置里的 `<npm base>`（`{scope|_}/{name}/{version}/`），并在 `{npm base}/{包名}` 写出 packument 元数据：
+装入配置里的 `<npm base>`（`{scope|_}/{name}/{version}/`），并在 `{npm base}/{包名}` 写出 packument 元数据。
+**`install` 定位就是「本地仓库的安装」**：只读本机的构件文件（tgz / jar / war / pom）、只写本机的
+`<npm base>` / `<maven base>`，不访问任何 registry 或远端仓库，也没有 `--registry` 之类的取远端参数；
+要把包放到另一台机器，先 `install` 到本机仓库再随 `<npm base>` 目录一起同步过去。
 
 ```bash
 npm pack                                                        # 产出 xxx-0.0.3-dev.1.tgz
@@ -253,6 +256,10 @@ npm publish --tag dev        # PUT /npm/{pkg}
 服务端按 npm publish 协议解析请求体（`_attachments` 内嵌 Base64 的 tgz），落盘并刷新 packument，逻辑与
 `micdn install` 完全一致：`dist.integrity`/`shasum` 由 tgz 字节算出，`latest` 与通道 tag 自动推导，`--tag` 的
 自定义 tag 写入 `dist-tags`，`dist.tarball` 写 `{origin}` 占位符、交付时替换。
+
+npm 侧**只实现这一条写协议**：`PUT /npm/{包名}` 的 publish 文档（必须带 `_attachments`）。`npm unpublish`
+（DELETE）、`npm dist-tag add/rm`、`npm login`/`adduser` 与 `npm deprecate` 等 npmjs 管理接口都不提供——
+micdn 是发布/分发入口，不做包管理；发错了版本就重新发布或直接改本地 `<npm base>`。
 
 maven——`~/.m2/settings.xml` 里配一个 server（`id` 与部署参数一致），再用 `mvn deploy` / `deploy:deploy-file`：
 
