@@ -34,6 +34,7 @@
 - **maven 上传**：`micdn.web.publish.storeUpload`（与 native 共用）把 PUT 请求体原子写入 `<maven base>`（临时文件 + rename），**不解析内容**——客户端自带的带时间戳文件名与 `maven-metadata.xml` 原样落盘，`/maven` 读路径的快照别名 302 与 artifact 级元数据合并照常生效；目录路径/点段 400
 - **下载鉴权（可选 `download-key`）**：`download-key` 非空时，「会写出文件体的 GET」（构件、tgz、packument、未以 `/` 结尾的目录路径）必须带令牌，HEAD 与以 `/` 结尾的目录列表不设限（别名/补尾斜杠的 302 在鉴权之后才发出，触发它们的 GET 仍需凭据）——这样包管理器的 HEAD 探测与 `curl -I` 不受影响。未授权返回 401 + `WWW-Authenticate: Basic` 挑战与 `Cache-Control: no-store`；授权响应把原来的 `public` 缓存策略降级为 `private`（`immutable` / `max-age` 保留），`no-store` 不变。**不配置 `download-key` 时读路径完全不认证，缓存策略与响应头保持不变**
 - **请求体上限**：`max-size` 限制单次上传体（默认 `64M`），非法请求体 400、超出 413；未配置 `<blob>` 时它同时作为服务器 `maxRequestSize`（vibe 默认 2 MiB 不够），配置了 `<blob>` 则沿用其 `max-size`
+- **配置 schema 升到 `1.1.0`**：`resources/micdn.xsd` 的 `version` 与配置示例 / `toXml` 输出的 `xsi:noNamespaceSchemaLocation` 都改为 `micdn-1.1.0.xsd`（`<auth>` 取代 `<publish>`、`maxSize` 改连字符属不兼容改动，`micdn-1.0.0.xsd` 保持已发布内容不动，避免旧配置在 IDE 里报错）
 
 ### native 发行包（`/native`）
 
@@ -61,7 +62,7 @@
 ### 文档
 
 - 文档：明确 `manifest.json` 是部署快路径的**唯一判据**（只比对源文件 `inner` / `size` / `mtime` / `artifact`，不看部署产物本身），以及部署产物被外部改动后不自愈的现象与手工恢复方式（`deploy … --force` + reload）。曾评估过“校验部署目录”（文件计数 / 目录指纹 / 目录 mtime）以自动重新部署，因复杂度和收益不成比例而放弃，详见 `docs/maintenance.md`
-- 文档：新增 [docs/native.md](docs/native.md)——native 发行包仓库（`/native`）的完整说明（单根布局、PUT/GET/HEAD 与补丁别名解析、缓存策略、配置与 `max-size` 上限、与 beangle/build 和 jstart 的对接、从 sashub `/repo/native` 迁移、实现文件索引）；README 的功能/端点段落与 [docs/reverse_proxy.md](docs/reverse_proxy.md) 给出简要说明与缓存口径；`resources/micdn.xsd` 的 `nativeType` 与 `authType` 同步（含 base / max-size 的注解），发布到网站的 `beangle.github.io/public/schema/micdn-1.0.0.xsd` 一并刷新
+- 文档：新增 [docs/native.md](docs/native.md)——native 发行包仓库（`/native`）的完整说明（单根布局、PUT/GET/HEAD 与补丁别名解析、缓存策略、配置与 `max-size` 上限、与 beangle/build 和 jstart 的对接、从 sashub `/repo/native` 迁移、实现文件索引）；README 的功能/端点段落与 [docs/reverse_proxy.md](docs/reverse_proxy.md) 给出简要说明与缓存口径；`resources/micdn.xsd` 的 `nativeType` 与 `authType` 同步（含 base / max-size 的注解），并作为 `micdn-1.1.0.xsd` 一并写入站点 schema 目录（`beangle.github.io/public/schema/`）
 - 文档：新增 [docs/auth.md](docs/auth.md)——`<auth>` 的属性表、请求是否需要凭据的判定、npm/.npmrc 与 maven/settings.xml 的凭据带法、jstart `micdn_token` / boot-sas 环境变量、缓存降级（含反代共享缓存对 `private` 的配合）、`<publish token>` 迁移 diff 与实现文件索引
 - 文档：同步 beangle/build 的 `NativeImagePlugin` 文档（`nativePublishUrl` 改为 micdn 基地址、上传顺序先构件后 `.sha1`）与 jstart 的默认 `--remote`（改为 `https://sas.openurp.net/native`）
 - 文档：新增 [docs/merged_repo.md](docs/merged_repo.md)——正式版/开发版合并仓库与单一入口的设计（通道与配置、本地布局与冲突、npm packument 并入式落盘、maven 版本目录 TTL 保鲜与 artifact 级元数据合并、回源路由与缓存策略，以及 npm 为什么不能按目录拆分）。README 的功能/端点段落给出简要说明，`GavRepo` / `NpmRepo` / `SnapshotRepo` / `MavenService` / `NpmService` 的模块注释均指向该文

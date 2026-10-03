@@ -179,7 +179,7 @@ string toXml(const MicdnConfig config) {
   app.put(i`<?xml version="1.0" encoding="UTF-8"?>
 <micdn xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xmlns:xi="http://www.w3.org/2001/XInclude"
-  xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.0.0.xsd"
+  xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.1.0.xsd"
   listen="$(
       config.listen)"`.text);
   if (config.remote !is null && config.remote.length > 0)

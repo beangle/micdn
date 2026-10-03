@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <micdn xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xmlns:xi="http://www.w3.org/2001/XInclude"
-  xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.0.0.xsd"
+  xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.1.0.xsd"
   home="/var/lib/micdn"
   listen="127.0.0.1:8080">
 

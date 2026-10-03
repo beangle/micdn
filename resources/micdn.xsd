@@ -2,7 +2,7 @@
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
   xmlns:xi="http://www.w3.org/2001/XInclude"
   elementFormDefault="qualified"
-  version="1.0.0">
+  version="1.1.0">
 
   <!-- www doc 名：不以 / 开头或结尾，段间用 /（如 manual、a/b） -->
   <xs:simpleType name="docNameType">
