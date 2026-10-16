@@ -203,8 +203,12 @@ journalctl -u micdn -b -n 30
 ### 配置文件
 
 - 首次安装：`/etc/micdn/micdn.xml` 由 `micdn.xml.default` 复制生成。
-- `PKGBUILD` 中 `backup=('etc/micdn/micdn.xml')`：升级时 pacman 会保留用户配置并生成 `.pacsave` / `.pacnew`（若有冲突）。
+- **不设 `backup`**：`/etc/micdn/micdn.xml` 由 `micdn.install` 首次安装时从 `/usr/share/micdn/micdn.xml.default` 生成，**不在包里**，pacman 跟踪不到它（写进 `backup` 只会得到 namcap 的 `File in backup array not found in package`，实际不做任何事）。升级与卸载都保留该文件，与 rpm/deb 行为一致。
 - **v0.2.3 起** www `<doc>` 格式变更（`location` + 子元素 → `name` + `npm|zip` 属性，可选 `try-file`）。升级包不会自动改配置，需对照 [release-v0.2.3.md](./release-v0.2.3.md) 手动迁移。
+
+### 卸载
+
+`micdn.install` 的 `pre_remove` 无条件 `systemctl stop` + `disable`，不做参数判断：pacman 只在**真正卸载**时调用 `pre_remove`（升级走的是 `pre_upgrade` / `post_upgrade`），并且传给它的 `$1` 是**被移除的版本号**（如 `0.4.0-1`），不是「剩余安装实例数」。写成 `[ "$1" -eq 0 ]` 只会让 bash 报 `integer expected`，判断永远不成立、服务不会被停。
 
 ### 离线安装静态资源（0.2.3+）
 
