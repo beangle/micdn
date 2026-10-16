@@ -23,7 +23,7 @@ micdn **不维护响应级的共享缓存**：每个请求都直接读磁盘返�
 | www 其余静态文件 | `public, max-age=604800` | 7 天 |
 | blob 对象 | `public, max-age=604800` | 7 天 |
 
-- 可压缩内容统一带 `Vary: Accept-Encoding`（见 [README gzip 预压缩](../README.md)），缓存层会按 `Accept-Encoding` 分别缓存「原版」与「gz 版」，gzip 客户端命中压缩版、其余客户端命中原版，不会错发。
+- 可压缩内容统一带 `Vary: Accept-Encoding`（见 [guide.md gzip 预压缩](guide.md#gzip-预压缩)），缓存层会按 `Accept-Encoding` 分别缓存「原版」与「gz 版」，gzip 客户端命中压缩版、其余客户端命中原版，不会错发。
 - 配置了 `<auth download-key>` 时，受保护的响应被降级为 `Cache-Control: private`（`no-store` 不变），
   共享缓存层必须尊重它：否则缓存会按 URL 命中，把受限内容交给没带凭据的请求者。**nginx `proxy_cache` 默认
   不会因为请求带 `Authorization` 就跳过缓存**，此时要么不使用共享缓存，要么把凭据纳入缓存键

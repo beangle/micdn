@@ -2,7 +2,7 @@
 
 本文介绍 micdn 对 `/maven`、`/npm`、`/native` 三个端点的**读写访问控制**：谁来读、谁来写、用什么凭据、
 哪些请求不设限，以及各客户端（npm / maven / jstart / boot / sas / beangle-build）怎么带这个凭据。
-配置项总览见 [README](../README.md)，端点各自的语义见 [native.md](native.md) 与 [merged_repo.md](merged_repo.md)。
+配置项总览见 [guide.md](guide.md)，端点各自的语义见 [native.md](native.md) 与 [merged_repo.md](merged_repo.md)。
 
 ---
 
@@ -139,7 +139,7 @@ boot 无需改动：它照旧读本地仓库；快照的解析与下载由 sas �
 
 ## 与发布端点（PUT）的关系
 
-写路径的行为没有变化：`publish-key` 非空才挂 PUT，未声明即 405/未注册（见 README「上传（publish-key）」）。
+写路径的行为没有变化：`publish-key` 非空才挂 PUT，未声明即 405/未注册（见 [guide.md](guide.md#上传publish-key)「上传（publish-key）」）。
 `download-key` **不授予任何写权限**，`publish-key` 也不影响读（除非把它同时写进 `download-key`）。
 
 ## 从 `<publish token="…"/>` 迁移（v0.4.0）

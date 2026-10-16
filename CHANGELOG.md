@@ -66,6 +66,7 @@
 - 文档：新增 [docs/auth.md](docs/auth.md)——`<auth>` 的属性表、请求是否需要凭据的判定、npm/.npmrc 与 maven/settings.xml 的凭据带法、jstart `micdn_token` / boot-sas 环境变量、缓存降级（含反代共享缓存对 `private` 的配合）、`<publish token>` 迁移 diff 与实现文件索引
 - 文档：同步 beangle/build 的 `NativeImagePlugin` 文档（`nativePublishUrl` 改为 micdn 基地址、上传顺序先构件后 `.sha1`）与 jstart 的默认 `--remote`（改为 `https://sas.openurp.net/native`）
 - 文档：新增 [docs/merged_repo.md](docs/merged_repo.md)——正式版/开发版合并仓库与单一入口的设计（通道与配置、本地布局与冲突、npm packument 并入式落盘、maven 版本目录 TTL 保鲜与 artifact 级元数据合并、回源路由与缓存策略，以及 npm 为什么不能按目录拆分）。README 的功能/端点段落给出简要说明，`GavRepo` / `NpmRepo` / `SnapshotRepo` / `MavenService` / `NpmService` 的模块注释均指向该文
+- 文档：README 改为简洁英文版（服务与端点总览、快速开始、CLI 子命令、配置示例、auth、gzip、下载、文档索引），原来篇幅很长的中文详解整体移入 [docs/guide.md](docs/guide.md)（仅改标题与相对链接）；[docs/auth.md](docs/auth.md)、[docs/native.md](docs/native.md)、[docs/merged_repo.md](docs/merged_repo.md)、[docs/reverse_proxy.md](docs/reverse_proxy.md) 中指向 README 的引用改指 guide.md 并补锚点
 
 完整说明见 docs/release-v0.4.0.md
 

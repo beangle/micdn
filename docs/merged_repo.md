@@ -2,7 +2,7 @@
 
 本文说明 micdn 为什么让「正式版」与「开发版（maven SNAPSHOT / npm dev）」**共用一个 URL 入口、一个本地仓库根**，
 两个通道的元数据如何合并，以及 npm 为什么不能像 maven 那样按目录拆分。使用方式与配置见
-[README](../README.md)，与反向代理/缓存的协作见 [reverse_proxy.md](reverse_proxy.md)。
+[guide.md](guide.md)，与反向代理/缓存的协作见 [reverse_proxy.md](reverse_proxy.md)。
 
 ---
 
@@ -181,5 +181,5 @@ native 发行包仓库（`/native`，声明 `<native>` 才挂载——与 maven/
 - native：`src/micdn/native/package.d`（`NativeRepo` / `latestAlias`）、`src/micdn/native/web.d`（`NativeService`）
 - 发布端点：`src/micdn/web/publish.d`（令牌校验、请求体读取、`storeUpload` 原子落盘；maven 与 native 共用）、
   `src/micdn/npm/publish.d`（`npm publish` 请求体）——上传与 CLI 走同一套落盘/合并逻辑；PUT 端点（`/maven`、
-  `/npm`、`/native`）都只在 `<auth publish-key>` 非空时注册，读门禁见 README「读写访问控制（auth）」
+  `/npm`、`/native`）都只在 `<auth publish-key>` 非空时注册，读门禁见 [guide.md](guide.md#读写访问控制auth)「读写访问控制（auth）」
 - CLI：`micdn install`

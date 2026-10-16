@@ -2,7 +2,7 @@
 
 本文介绍 micdn 的 **native 发行包仓库**：GraalVM native-image 的发行包（`tar.gz`）与 bsdiff 增量补丁
 （`.diff`）的存放、上传与下载。它是 v0.4.0 新增的端点，承接 sashub 时代的 `/repo/native`
-（`NativeWS` / `NativeHelper`）。配置项与端点总览见 [README](../README.md)，与正式版/开发版合流的设计见
+（`NativeWS` / `NativeHelper`）。配置项与端点总览见 [guide.md](guide.md)，与正式版/开发版合流的设计见
 [merged_repo.md](merged_repo.md)，与反向代理、缓存的协作见 [reverse_proxy.md](reverse_proxy.md)。
 
 ---
