@@ -11,7 +11,7 @@
 | 运行用户 | `micdn`（系统用户，无登录 shell） |
 | 运行组 | `beangle` |
 | 配置文件 | `/etc/micdn/micdn.xml`（首次安装由 `/usr/share/micdn/micdn.xml.default` 复制） |
-| 常见数据路径 | `/var/lib/micdn/`（blob、maven、npm、local 等）、`/var/cache/micdn/`（asset、www）、`/var/log/micdn/` |
+| 常见数据路径 | `/var/lib/micdn/`（blob、maven、npm、native、local 等）、`/var/cache/micdn/`（asset、www）、`/var/log/micdn/` |
 
 安装脚本会将上述 **`/var/*`** 目录 **`chown` 为 `micdn:beangle`**，并设为 **`2775`**（`rwxrwsr-x`：组可读写、**setgid** 使新建子目录继承 **`beangle` 组**）。systemd 单元中配置了 **`UMask=0002`**，进程新建文件对组可写。
 
@@ -45,7 +45,7 @@ sudo adduser "$USER" beangle
 ```bash
 sudo chown -R micdn:beangle /var/cache/micdn /var/lib/micdn /var/log/micdn
 sudo chmod 2775 /var/cache/micdn /var/cache/micdn/asset /var/cache/micdn/www
-sudo chmod 2775 /var/lib/micdn /var/lib/micdn/blob /var/lib/micdn/maven /var/lib/micdn/npm /var/lib/micdn/local
+sudo chmod 2775 /var/lib/micdn /var/lib/micdn/blob /var/lib/micdn/maven /var/lib/micdn/npm /var/lib/micdn/native /var/lib/micdn/local
 sudo chmod 2775 /var/log/micdn
 ```
 

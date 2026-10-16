@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <micdn xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xmlns:xi="http://www.w3.org/2001/XInclude"
-  xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.0.0.xsd"
+  xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.1.0.xsd"
   home="/var/lib/micdn"
   listen="127.0.0.1:8080">
 
@@ -20,15 +20,24 @@
     <dev remote="https://registry.example.com/dev" />
   </npm>
 
-  <blob base="${micdn.home}/blob" maxSize="50M">
+  <blob base="${micdn.home}/blob" max-size="50M">
     <bucket name="local" key="65KhzfJQme4jApTZ2EZ-58hKDUpZrbzwhsKd2dRPP08" />
   </blob>
 
-  <!-- 发布端点（PUT 上传）：用于开发时直接 `npm publish` / `mvn deploy` 到这个实例。
-       令牌必填（Authorization: Bearer/Basic 或 X-Micdn-Token），它就是写权限凭据，
-       因此只应经 HTTPS（或反代的 HTTPS 终止）暴露，并选用足够长的随机令牌；
-       不写这个元素就完全不挂 PUT 端点（只有 GET/HEAD）。 -->
-  <!-- <publish token="change-me" maxSize="64M" /> -->
+  <!-- native 发行包仓库（native-image tar.gz 与增量补丁）：单根，正式版与开发版共用。
+       内容来自 PUT /native/{group}/{artifact}/{version}/{文件名}（需下面的 <auth publish-key>），
+       GET/HEAD 读取、目录可列出；不写这个元素就不挂载 /native。
+       发行包体积较大（几十 MB 起），需要挪到大盘时在这里写 base。 -->
+  <!-- <native base="${micdn.home}/native" /> -->
+
+  <!-- 读写访问控制（/maven、/npm、/native 三个端点）：
+       publish-key 是写权限凭据（PUT 上传：`npm publish` / `mvn deploy` / native 发行包），
+       非空才挂 PUT；download-key 可选，非空则「会写出文件体的 GET」必须带凭据
+       （HEAD、目录列表与 302 不设限，boot/jstart 的探测照常可用），
+       此时受限响应降级为 private 缓存（共享缓存不会把受限内容转给未授权者）。
+       两个 key 都只应经 HTTPS（或反代的 HTTPS 终止）暴露，并选用足够长的随机串；
+       都不写就不挂 PUT、读也不认证（与引入该元素之前一致）。 -->
+  <!-- <auth publish-key="change-me" download-key="change-me-too" max-size="128M" /> -->
 
   <!-- static bundles 由 resources/a.xml（contexts）转换：context base="/foo" → bundle name="foo" -->
   <static base="/var/cache/micdn/asset">

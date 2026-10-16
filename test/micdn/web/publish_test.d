@@ -10,11 +10,25 @@ module test.micdn.web.publish_test;
 
 import std.base64 : Base64;
 import std.exception : assertThrown;
+import std.file;
+import std.path : buildPath;
+import std.uuid : randomUUID;
 
-import vibe.http.common : HTTPStatus, HTTPStatusException;
+import vibe.http.common : HTTPMethod, HTTPStatus, HTTPStatusException;
+import vibe.http.server : HTTPServerRequest, createTestHTTPServerRequest;
+import vibe.inet.message : InetHeaderMap;
+import vibe.inet.url : URL;
 import vibe.stream.memory : createMemoryStream;
 
-import micdn.web.publish : decodeBase64Loose, readUploadBody, secureEquals, tokenAccepted;
+import micdn.web.publish : decodeBase64Loose, readNeedsToken, readUploadBody, secureEquals,
+    storeUpload, tokenAccepted;
+
+/// 只用于 `readNeedsToken` 的测试请求：方法 + URI 形状是它仅有的输入。
+private HTTPServerRequest tokenReq(HTTPMethod method, string uri) {
+  InetHeaderMap headers;
+  headers["Host"] = "cdn.example.com";
+  return createTestHTTPServerRequest(URL("http://cdn.example.com" ~ uri), method, headers, null);
+}
 
 private ubyte[] sampleBytes(size_t n) {
   auto data = new ubyte[n];
@@ -69,4 +83,61 @@ unittest {
   assert(decodeBase64Loose("aGVsbG8=") == cast(const(ubyte)[]) "hello");
   assert(decodeBase64Loose("aGVsbG8") == cast(const(ubyte)[]) "hello");
   assertThrown(decodeBase64Loose("!!!"));
+}
+
+private string tempBase() {
+  auto dir = buildPath(tempDir(), "micdn_publish_" ~ randomUUID().toString());
+  mkdirRecurse(dir);
+  return dir;
+}
+
+@("storeUpload writes the uploaded file under the repository root")
+unittest {
+  auto work = tempBase();
+  scope (exit)
+    if (exists(work))
+      rmdirRecurse(work);
+
+  auto ruri = "/org/beangle/tool/1.0.0-SNAPSHOT/tool-1.0.0-20250101.120000-1.jar";
+  auto path = storeUpload(work, ruri, cast(const(ubyte)[]) "jar-bytes");
+  assert(path == work ~ ruri);
+  assert(readText(path) == "jar-bytes");
+  // 临时文件不能残留
+  assert(!exists(path ~ ".incoming"));
+  // 覆盖上传（同一路径重复 deploy / 重复 install）
+  assert(storeUpload(work, ruri, cast(const(ubyte)[]) "second") == path);
+  assert(readText(path) == "second");
+}
+
+@("storeUpload rejects directories and dot segments")
+unittest {
+  auto work = tempBase();
+  scope (exit)
+    if (exists(work))
+      rmdirRecurse(work);
+
+  assertThrown(storeUpload(work, "/", cast(const(ubyte)[]) "x"));
+  assertThrown(storeUpload(work, "/a/b/", cast(const(ubyte)[]) "x"));
+  assertThrown(storeUpload(work, "/a/../b.jar", cast(const(ubyte)[]) "x"));
+  assertThrown(storeUpload(work, "/a/./b.jar", cast(const(ubyte)[]) "x"));
+  assertThrown(storeUpload(work, "", cast(const(ubyte)[]) "x"));
+}
+
+@("readNeedsToken asks for the download-key only on body-bearing GETs")
+unittest {
+  const fileUri = "/maven/org/beangle/tool/1.0.0/tool-1.0.0.jar";
+
+  // 未配置 download-key：读一律不认证（与引入 <auth> 之前完全一致）
+  assert(!readNeedsToken(tokenReq(HTTPMethod.GET, fileUri), "", fileUri));
+
+  // 配置了 download-key：文件型 GET（构件、元数据、别名请求）必须带凭据
+  assert(readNeedsToken(tokenReq(HTTPMethod.GET, fileUri), "read-key", fileUri));
+  // 不带尾斜杠的目录路径按「文件型 URI」判定——保证判定只看 URI 形状，不 stat、不泄露存在性
+  assert(readNeedsToken(tokenReq(HTTPMethod.GET, "/maven/org/beangle/tool/1.0.0"), "read-key",
+      "/maven/org/beangle/tool/1.0.0"));
+
+  // HEAD 与目录型 URI 放行：boot 的 HttpUtils.isAlive、jstart 的 curl -I 与可浏览列表都靠它们
+  assert(!readNeedsToken(tokenReq(HTTPMethod.HEAD, fileUri), "read-key", fileUri));
+  assert(!readNeedsToken(tokenReq(HTTPMethod.GET, "/maven/org/beangle/tool/1.0.0/"), "read-key",
+      "/maven/org/beangle/tool/1.0.0/"));
 }

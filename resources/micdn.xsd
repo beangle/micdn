@@ -2,7 +2,7 @@
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
   xmlns:xi="http://www.w3.org/2001/XInclude"
   elementFormDefault="qualified"
-  version="1.0.0">
+  version="1.1.0">
 
   <!-- www doc 名：不以 / 开头或结尾，段间用 /（如 manual、a/b） -->
   <xs:simpleType name="docNameType">
@@ -24,7 +24,7 @@
     </xs:restriction>
   </xs:simpleType>
 
-  <!-- Root：maven/npm/blob/static/www/publish 彼此无顺序要求，各至多一次（xs:all）。xi:include 在 XSD 1.0 中不能与 all 混排，故列于前段；若需与服务块交错请依赖运行时。readXml 展开后由程序校验各服务元素至多一次。 -->
+  <!-- Root：maven/npm/native/blob/static/www/auth 彼此无顺序要求，各至多一次（xs:all）。xi:include 在 XSD 1.0 中不能与 all 混排，故列于前段；若需与服务块交错请依赖运行时。readXml 展开后由程序校验各服务元素至多一次。 -->
   <xs:element name="micdn">
     <xs:complexType>
       <xs:sequence>
@@ -32,10 +32,11 @@
         <xs:all>
           <xs:element name="maven" type="mavenType" minOccurs="0" maxOccurs="1" />
           <xs:element name="npm" type="npmRepoType" minOccurs="0" maxOccurs="1" />
+          <xs:element name="native" type="nativeType" minOccurs="0" maxOccurs="1" />
           <xs:element name="blob" type="blobType" minOccurs="0" maxOccurs="1" />
           <xs:element name="static" type="staticType" minOccurs="0" maxOccurs="1" />
           <xs:element name="www" type="wwwType" minOccurs="0" maxOccurs="1" />
-          <xs:element name="publish" type="publishType" minOccurs="0" maxOccurs="1" />
+          <xs:element name="auth" type="authType" minOccurs="0" maxOccurs="1" />
         </xs:all>
       </xs:sequence>
       <xs:attribute name="listen" type="xs:string" default="127.0.0.1:8888" use="optional">
@@ -242,6 +243,31 @@
     <xs:attribute name="remote" type="xs:string" use="required" />
   </xs:complexType>
 
+  <!-- nativeType：native 发行包仓库（GraalVM native-image 的 tar.gz 与 bsdiff 增量补丁），HTTP 前缀固定为 /native -->
+  <xs:complexType name="nativeType">
+    <xs:annotation>
+      <xs:documentation> GraalVM native-image 的发行包（&lt;name&gt;-&lt;version&gt;[-&lt;classifier&gt;].tar.gz）与 bsdiff 增量补丁
+        （&lt;name&gt;-&lt;旧版本&gt;_&lt;版本&gt;[-&lt;时间戳&gt;-&lt;构建号&gt;][-&lt;classifier&gt;].tar.gz.diff）的本地仓库，HTTP 前缀固定为 /native。
+        **单根**：正式版与开发版（版本目录名以 -SNAPSHOT 结尾）共用同一个 base，按 {group 点转斜杠}/{artifact}/{version}/ 归档，
+        与 /maven 同口径；构件没有 pom、也没有 maven-metadata.xml，坐标完全由路径决定，因此这里没有元数据、也没有上游回源
+        （迁移期由上传或运维同步补齐，缺失即 404）。
+        读写：PUT /native/{仓库内相对路径}（全路径 URL，不用 query string；需同时声明 &lt;auth publish-key&gt; 才挂 PUT，
+        且约定先传构件、再传 .sha1，服务端只做原子落盘、不校验先后与配对）；GET|HEAD /native/{仓库内相对路径}，
+        目录（含仓库根 /native）可列出、缺尾斜杠先 302 补 /；文件名里不含时间戳的 -SNAPSHOT 请求解析到同目录时间戳最新的
+        同名文件（HEAD 用 latest 响应头返回实际文件名并给 Last-Modified，GET 302 到该文件），供客户端用别名探测增量补丁；
+        路径含 SNAPSHOT 的响应 no-store，其余 public, max-age=31536000, immutable。
+        不写 &lt;native&gt; 则不挂载 /native（与 &lt;maven&gt; / &lt;npm&gt; 同一套「元素即端点开关」规则），但默认仓库配置仍在
+        （native 没有 provider 与 install 入口，/native 是它唯一的消费者）。客户端 jstart 的默认 --remote 即此端点；
+        上传侧见 beangle/build 的 nativeDistUpload / nativeDeltaUpload。
+        注意：上传体上限取自 &lt;auth max-size&gt;（默认 64M），而发行包常有几十 MB（实测 53–62MB），需要调到 128M 以上。 </xs:documentation>
+    </xs:annotation>
+    <xs:attribute name="base" type="xs:string" default="${micdn.home}/native" use="optional">
+      <xs:annotation>
+        <xs:documentation> 本地仓库根：正式版与开发版共用，不再像 sashub 那样按 repository / snapshots 分两个根；发行包几十 MB 起，需要挪到大盘时在这里写 </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
+  </xs:complexType>
+
   <xs:complexType name="blobType">
     <xs:annotation>
       <xs:documentation> 桶名由 path 风格解析：Blob HTTP 挂载在固定 /blob，URI 首段为桶名；S3 兼容挂载在固定 /s3，同样首段为桶名。 </xs:documentation>
@@ -250,22 +276,34 @@
       <xs:element name="bucket" type="blobBucketType" minOccurs="0" maxOccurs="unbounded" />
     </xs:sequence>
     <xs:attribute name="base" type="xs:string" default="~/blob" use="optional" />
-    <xs:attribute name="maxSize" type="xs:string" default="100M" use="optional" />
+    <xs:attribute name="max-size" type="xs:string" default="100M" use="optional" />
   </xs:complexType>
 
-  <!-- publishType：发布端点（npm publish / mvn deploy 的 PUT 上传）。不写 <publish> 则不挂载 PUT 端点。 -->
-  <xs:complexType name="publishType">
+  <!-- authType：/maven、/npm、/native 三个端点的读写访问控制。publish-key 非空才挂 PUT；download-key 非空才要求读凭据。 -->
+  <xs:complexType name="authType">
     <xs:annotation>
-      <xs:documentation> 上传令牌必填，且是唯一的写权限凭据（不限制来源地址：本机反代下「对端为环回」无法区分远端请求）。声明后 /maven、/npm 接受 PUT，需携带 Authorization: Bearer/Basic 或 X-Micdn-Token，缺失/不符 401 并返回 Basic 挑战；未声明该元素则不挂 PUT。只应经 HTTPS 暴露。 </xs:documentation>
+      <xs:documentation> 唯一鉴权来源，接管 /maven、/npm、/native 的 GET/HEAD/PUT：
+        publish-key 非空才挂载 PUT（npm publish、mvn deploy、native 发行包与补丁上传），每次上传都必须携带它；
+        download-key 可选，省略或为空表示读不认证（与引入本元素之前一致），非空则「会写出文件体的 GET」必须携带它，
+        而 HEAD 与目录列表（URI 以 / 结尾）不设限（别名/补尾斜杠的 302 在鉴权之后才发出，触发它们的 GET 仍需凭据）——
+        HEAD 是 boot（HttpUtils.isAlive）/jstart（curl -I -L）探测存在性与增量补丁的常规手段，目录列表只暴露「有什么」不交出字节。
+        两个 key 都允许与对方取同值；都为空视为配置错误（防手误导致的「以为受控其实全开」）。
+        凭据与来源地址无关（本机反代下「对端为环回」无法区分远端请求），因此不提供「仅本机」这种退化；
+        只应经 HTTPS（或反代的 HTTPS 终止）暴露。 </xs:documentation>
     </xs:annotation>
-    <xs:attribute name="token" type="xs:string" use="required">
+    <xs:attribute name="publish-key" type="xs:string" use="optional">
       <xs:annotation>
-        <xs:documentation> 非空上传令牌 </xs:documentation>
+        <xs:documentation> 上传令牌（写权限）：Authorization: Bearer/Basic（Basic 认用户名或口令任一侧等于该值）或 X-Micdn-Token。省略 = 不挂 PUT </xs:documentation>
       </xs:annotation>
     </xs:attribute>
-    <xs:attribute name="maxSize" type="xs:string" default="64M" use="optional">
+    <xs:attribute name="download-key" type="xs:string" use="optional">
       <xs:annotation>
-        <xs:documentation> 单次上传体上限，同时作为未配置 <blob> 时的服务器 maxRequestSize </xs:documentation>
+        <xs:documentation> 下载令牌（读权限）：省略 = 读不认证；非空则受保护的响应降级为 private 缓存（不得被共享缓存复用） </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
+    <xs:attribute name="max-size" type="xs:string" default="64M" use="optional">
+      <xs:annotation>
+        <xs:documentation> 单次上传体上限，仅在 publish-key 非空时生效，同时作为未配置 &lt;blob&gt; 时的服务器 maxRequestSize。默认 64M 对 npm 包与 maven 构件足够，但 native 发行包常有几十 MB（实测 53–62MB），需调到 128M 以上 </xs:documentation>
       </xs:annotation>
     </xs:attribute>
   </xs:complexType>

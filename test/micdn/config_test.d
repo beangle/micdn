@@ -29,26 +29,31 @@ import micdn.xml;
 
 auto CentralURL = "https://repo1.maven.org/maven2";
 
-@("maven/npm sections control the endpoint only; absent still has a default repo")
+@("maven/npm/native sections control the endpoint only; absent still has a default repo")
 unittest {
   auto config = parse("/srv/micdn", `<?xml version="1.0"?><micdn></micdn>`);
-  // 未声明元素：不挂端点，但仓库仍在（provider 与 install 可用），取与空元素同口径的默认值
-  assert(!config.mavenDeclared && !config.npmDeclared);
+  // 未声明元素：仓库仍在（provider 与 install 可用），取与空元素同口径的默认值；
+  // maven/npm/native 未声明即不挂端点（nativeDeclared 同时决定 toXml 是否回显元素）。
+  assert(!config.mavenDeclared && !config.npmDeclared && !config.nativeDeclared);
   assert(config.maven.base == "/srv/micdn/maven");
   assert(config.maven.remotes == [CentralURL]);
   assert(config.npm.base == "/srv/micdn/npm");
   assert(config.npm.remotes == ["https://registry.npmmirror.com"]);
+  assert(config.native.base == "/srv/micdn/native");
   auto xml = toXml(config);
   assert(!xml.canFind("<maven"), "未声明 <maven> 就不输出");
   assert(!xml.canFind("<npm"), "未声明 <npm> 就不输出");
+  assert(!xml.canFind("<native"), "未声明 <native> 就不输出");
 
   // 写了元素（哪怕是空元素）才挂端点，base 与未声明时相同
-  auto both = parse("/srv/micdn", `<?xml version="1.0"?><micdn><maven/><npm/></micdn>`);
-  assert(both.mavenDeclared && both.npmDeclared);
+  auto both = parse("/srv/micdn", `<?xml version="1.0"?><micdn><maven/><npm/><native/></micdn>`);
+  assert(both.mavenDeclared && both.npmDeclared && both.nativeDeclared);
   assert(both.maven.base == "/srv/micdn/maven");
   assert(both.maven.remotes == [CentralURL]);
   assert(both.npm.base == "/srv/micdn/npm");
   assert(both.npm.remotes == ["https://registry.npmmirror.com"]);
+  assert(both.native.base == "/srv/micdn/native");
+  assert(toXml(both).canFind(`<native base="/srv/micdn/native"/>`));
 }
 
 @("asset repo remote url")
@@ -243,7 +248,7 @@ unittest {
 unittest {
   auto content = `<?xml version="1.0"?>
 <micdn>
-  <blob base="/tmp/blob" maxSize="10G">
+  <blob base="/tmp/blob" max-size="10G">
     <bucket name="local" key="test-key-123"/>
     <bucket name="closed" key="k2" publicImages="false"/>
   </blob>
@@ -650,31 +655,50 @@ unittest {
   assertThrown!Exception(parse("~/tmp", dup));
 }
 
-@("publish section requires a token and controls the upload limit")
+@("auth section gates reads and writes with hyphenated attributes")
 unittest {
-  auto config = parse("/srv/micdn",
-      `<?xml version="1.0"?><micdn><publish token="s3cret" maxSize="8M"/></micdn>`);
-  assert(config.publish !is null);
-  assert(config.publish.token == "s3cret");
-  assert(config.publish.maxSize == 8 * 1024 * 1024);
+  // 只给 publish-key：挂 PUT、读不认证（与引入 <auth> 之前等价）
+  auto writeOnly = parse("/srv/micdn",
+      `<?xml version="1.0"?><micdn><auth publish-key="w" max-size="8M"/></micdn>`);
+  assert(writeOnly.auth !is null);
+  assert(writeOnly.auth.publishKey == "w" && writeOnly.auth.downloadKey.length == 0);
+  assert(writeOnly.auth.maxSize == 8 * 1024 * 1024);
+  assert(writeOnly.publishEnabled && !writeOnly.downloadGated);
 
-  // 省略 maxSize 时取默认 64 MiB；未声明 <publish> 则完全不启用上传
-  auto defaults = parse("/srv/micdn", `<?xml version="1.0"?><micdn><publish token="t"/></micdn>`);
-  assert(defaults.publish.maxSize == defaultPublishMaxSize);
-  assert(parse("/srv/micdn", `<?xml version="1.0"?><micdn></micdn>`).publish is null);
+  // 只给 download-key：读受保护、不挂 PUT，且不抬高上传体上限（max-size 不生效）
+  auto readOnly = parse("/srv/micdn",
+      `<?xml version="1.0"?><micdn><auth download-key="r"/></micdn>`);
+  assert(!readOnly.publishEnabled && readOnly.downloadGated);
+  assert(readOnly.auth.maxSize == defaultPublishMaxSize);
 
-  // 令牌缺失（空/无属性）与重复 <publish> 都在配置期报错
-  assertThrown!Exception(parse("/srv/micdn", `<?xml version="1.0"?><micdn><publish/></micdn>`));
+  // 两个 key 同给；省略 max-size 取默认 64 MiB；未声明 <auth> 则既不挂 PUT 也不认证
+  auto both = parse("/srv/micdn",
+      `<?xml version="1.0"?><micdn><auth publish-key="w" download-key="r"/></micdn>`);
+  assert(both.publishEnabled && both.downloadGated);
+  assert(both.auth.maxSize == defaultPublishMaxSize);
+  auto none = parse("/srv/micdn", `<?xml version="1.0"?><micdn></micdn>`);
+  assert(none.auth is null && !none.publishEnabled && !none.downloadGated);
+
+  // 空/空白/两者皆缺（如 `publishkey=` 这类旧驼峰写法）与重复 <auth> 都在配置期报错
+  assertThrown!Exception(parse("/srv/micdn", `<?xml version="1.0"?><micdn><auth/></micdn>`));
   assertThrown!Exception(parse("/srv/micdn",
-      `<?xml version="1.0"?><micdn><publish token=" "/></micdn>`));
+      `<?xml version="1.0"?><micdn><auth publish-key=" "/></micdn>`));
   assertThrown!Exception(parse("/srv/micdn",
-      `<?xml version="1.0"?><micdn><publish token="a"/><publish token="b"/></micdn>`));
+      `<?xml version="1.0"?><micdn><auth download-key=""/></micdn>`));
+  assertThrown!Exception(parse("/srv/micdn",
+      `<?xml version="1.0"?><micdn><auth publishKey="w"/></micdn>`));
+  assertThrown!Exception(parse("/srv/micdn",
+      `<?xml version="1.0"?><micdn><auth publish-key="a"/><auth publish-key="b"/></micdn>`));
 
-  // toXml 往返：令牌与上限都要保留（admin 的配置视图依赖它）
-  auto xml = config.toXml();
-  assert(xml.canFind(`<publish token="s3cret" maxSize="8M"/>`), xml);
+  // toXml 往返：两个 key 与上限都要保留（admin 的配置视图依赖它）；
+  // 未写出的属性不产生空属性
+  auto xml = writeOnly.toXml();
+  assert(xml.canFind(`<auth publish-key="w" max-size="8M"/>`), xml);
   auto reparsed = parse("/srv/micdn", xml);
-  assert(reparsed.publish.token == "s3cret" && reparsed.publish.maxSize == 8 * 1024 * 1024);
+  assert(reparsed.auth.publishKey == "w" && reparsed.auth.downloadKey.length == 0
+      && reparsed.auth.maxSize == 8 * 1024 * 1024);
+  assert(both.toXml().canFind(`<auth publish-key="w" download-key="r" max-size="64M"/>`),
+      both.toXml());
 }
 
 @("resolveMicdn checks configured service data roots")
@@ -696,7 +720,7 @@ unittest {
   <www base="` ~ home ~ `/www">
     <doc name="m" zip="` ~ home ~ `/m.zip"/>
   </www>
-  <blob base="` ~ home ~ `/blob" maxSize="1M">
+  <blob base="` ~ home ~ `/blob" max-size="1M">
     <bucket name="b" key="k"/>
   </blob>
 </micdn>`;

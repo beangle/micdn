@@ -7,24 +7,31 @@
  */
 
 module micdn.web.publish;
-/** 发布（上传）端点的公共支持：令牌校验与请求体读取。
+/** `/maven`、`/npm`、`/native` 的访问控制与上传公共支持：令牌校验、请求体读取与按路径原子落盘。
 
-    发布端点（npm 的 `PUT /npm/{pkg}`、maven 的 `PUT /maven/{path}`）**只在配置了
-    `<publish token="…"/>` 时挂载**，每次上传都必须携带与配置一致的令牌。
+    配置来自 `<auth publish-key="…" download-key="…" max-size="…"/>`（见 `micdn.model.AuthConfig`）：
+    - 写（PUT）：`publishKey` 非空才挂载上传端点（npm 的 `PUT /npm/{pkg}`、maven 的
+      `PUT /maven/{path}`、native 的 `PUT /native/{path}`），每次上传都必须携带它；
+    - 读（GET）：`downloadKey` **可选**，为空时不认证（默认，与引入本元素之前一致）；非空时
+      「会写出文件体的 GET」必须携带它，而 `HEAD`、目录列表与 302 不设限（见 `authorizeRead`）。
 
     **为什么以令牌而非对端地址作为写权限凭据**：对端地址在本机反代（如 HAProxy 绑 `0.0.0.0`
     转发到 `127.0.0.1:8080`）下必然失效——远端请求由代理以环回源地址转发，TCP 模式也不留下任何
     可区分的标记。反过来，令牌本来就与来源无关：前端开发机可以带令牌直接推给远端 micdn（npm 的
     `_authToken`、Maven `settings.xml` 的 server 凭据都会走 `Authorization`），因此不再限制对端接口。
-    代价是令牌等同写权限：**只应经 HTTPS（或反向代理的 HTTPS 终止）暴露发布端点**，并选用足够长的
-    随机令牌——明文 HTTP 会把 Bearer 凭据暴露在链路上。
+    代价是密钥等同权限：**只应经 HTTPS（或反向代理的 HTTPS 终止）暴露这些端点**，并选用足够长的
+    随机串——明文 HTTP 会把 Bearer 凭据暴露在链路上。
 */
 
 import eventcore.driver : IOMode;
 
+import std.algorithm.searching : any;
+import std.algorithm : endsWith;
 import std.base64;
 import std.array : replicate;
-import std.string : icmp, indexOf, strip;
+import std.file;
+import std.path : dirName;
+import std.string : icmp, indexOf, split, strip;
 
 import vibe.core.stream : InputStream;
 import vibe.http.common : HTTPStatus;
@@ -33,20 +40,62 @@ import vibe.http.server;
 /// 令牌缺失/不符时的挑战：Maven 收到 401 后才会带 `settings.xml` 的凭据重试。
 private enum wwwAuthenticateChallenge = `Basic realm="micdn"`;
 
-/** 发布授权：校验令牌（不符/缺失 401，并给出 Basic 挑战）。
+/** 写授权（PUT）：校验上传令牌（不符/缺失 401，并给出 Basic 挑战）。
 
     返回 false 时已写好完整响应，调用方直接 return 即可（不要再写 body）。
 */
-bool authorizePublish(scope HTTPServerRequest req, scope HTTPServerResponse res, string token) {
-  if (token.length > 0
-      && tokenAccepted(token, req.headers.get("X-Micdn-Token", ""),
-          req.headers.get("Authorization", "")))
+bool authorizeWrite(scope HTTPServerRequest req, scope HTTPServerResponse res, string publishKey) {
+  if (publishKey.length > 0 && tokenAccepted(publishKey, req.headers.get("X-Micdn-Token", ""),
+      req.headers.get("Authorization", "")))
     return true;
   res.headers["WWW-Authenticate"] = wwwAuthenticateChallenge;
   res.statusCode = HTTPStatus.unauthorized;
   res.writeBody("publish requires a token (Authorization: Bearer/Basic or X-Micdn-Token)",
       "text/plain; charset=utf-8");
   return false;
+}
+
+/** 读授权：受 `downloadKey` 保护的请求（见 `readNeedsToken`）凭据不符时写 401 并返回 false；
+    未配置 `downloadKey`、`HEAD`、目录型 URI 一律放行。
+
+    **判定在触碰文件系统与上游之前完成**：未授权请求既不会触发回源/落盘，也不会因为
+    404 与 401 的差异暴露某个路径是否存在。
+
+    挑战沿用写路径的 `Basic realm="micdn"`：Maven 收到 401 后才会带 `settings.xml` 的
+    server 凭据重试；npm 则对匹配的 registry 预置 `_authToken`，不依赖挑战。
+    401 带 `Cache-Control: no-store`，避免挑战本身被缓存下来。
+*/
+bool authorizeRead(scope HTTPServerRequest req, scope HTTPServerResponse res,
+    string downloadKey, string ruri) {
+  if (!readNeedsToken(req, downloadKey, ruri))
+    return true;
+  if (tokenAccepted(downloadKey, req.headers.get("X-Micdn-Token", ""),
+      req.headers.get("Authorization", "")))
+    return true;
+  res.headers["WWW-Authenticate"] = wwwAuthenticateChallenge;
+  res.headers["Cache-Control"] = "no-store";
+  res.statusCode = HTTPStatus.unauthorized;
+  res.writeBody("download requires a token (Authorization: Bearer/Basic or X-Micdn-Token)",
+      "text/plain; charset=utf-8");
+  return false;
+}
+
+/** 本次请求是否需要下载凭据：配置了 `downloadKey`，且是「会写出文件体」的 GET。
+
+    `HEAD` 与以 `/` 结尾的 URI（目录列表）不设限，理由：
+    - `HEAD` 是客户端探测存在性的常规手段——boot 的 `Repo.Remote.exists`（`HttpUtils.isAlive`）走
+      HEAD，jstart 用 `curl -I -L` 探测增量补丁；一旦要求凭据，这些探测（以及镜像选择）全部失效；
+    - 目录列表只暴露「有什么」，不交出构件字节。
+    代价是仓库内容（包名、版本、文件名、大小）对未授权者可见，`downloadKey` 保护的是字节本身。
+
+    服务端用同一判定的结果决定缓存策略（受限响应降级为 `private`，见 `micdn.web.cache.gatedPolicy`）。
+*/
+bool readNeedsToken(scope HTTPServerRequest req, string downloadKey, string ruri) {
+  if (downloadKey.length == 0)
+    return false;
+  if (req.method != HTTPMethod.GET)
+    return false;
+  return !ruri.endsWith("/");
 }
 
 /** 从 `X-Micdn-Token` 与 `Authorization` 头解析令牌。`expected` 为空表示未启用发布，一律拒绝。
@@ -120,4 +169,31 @@ ubyte[] readUploadBody(InputStream input, size_t maxSize) {
     total ~= buffer[0 .. n];
   }
   return total;
+}
+
+/** 把上传体原子写入 `base + ruri`，返回落盘绝对路径；路径非法时抛异常。
+
+    服务端不解析、不重写上传内容——`mvn deploy` 自己生成时间戳文件名与 `maven-metadata.xml`，
+    native 的 tar.gz/增量补丁同样按客户端给的路径原样落盘，因此读路径（快照别名解析、元数据合并、
+    目录列表）拿到的就是客户端写的那一份。`ruri` 一般来自 `repositoryUri(ResourceUri.segs)`（已消解
+    点段），这里再防一手直接调用方。
+
+    写入方式与仓库其余写入一致（元数据/上游下载）：先写同目录 `.incoming` 临时文件，再 rename
+    原子替换。同路径重复上传按覆盖处理（开发版构件本来就会反复重发）。
+*/
+string storeUpload(string base, string ruri, const(ubyte)[] body) {
+  if (ruri.length == 0 || ruri == "/" || ruri.endsWith("/"))
+    throw new Exception("publish requires a file path: " ~ ruri);
+  if (ruri.split("/").any!(seg => seg == ".." || seg == "."))
+    throw new Exception("publish rejects dot segments: " ~ ruri);
+
+  auto path = base ~ ruri;
+  mkdirRecurse(dirName(path));
+  auto tmp = path ~ ".incoming";
+  scope (failure)
+    if (exists(tmp))
+      remove(tmp);
+  std.file.write(tmp, body);
+  rename(tmp, path);
+  return path;
 }

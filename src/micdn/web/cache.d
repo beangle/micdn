@@ -78,6 +78,30 @@ immutable(CachePolicy) npmArtifactCachePolicy(string uri) {
   return isPrereleaseVersion(ver) ? publicNoCache : publicMaxAge1yImmutable;
 }
 
+/**
+ * native 发行包仓库路径策略：路径含 `SNAPSHOT` 的构件 → `noStore`
+ * （开发版同名覆盖，tar.gz 与增量补丁都要及时拉到新构建）；其余 → `publicMaxAge1yImmutable`。
+ */
+immutable(CachePolicy) nativeArtifactCachePolicy(string uri) {
+  if (uri.indexOf("SNAPSHOT") >= 0)
+    return noStore;
+  return publicMaxAge1yImmutable;
+}
+
+/**
+ * 把公共缓存策略降级为私有：给「受 `<auth download-key>` 保护的响应」用。
+ *
+ * 共享缓存按 URL 命中后会把响应交给未授权的请求者，因此受限响应只能由请求方自己的缓存保存
+ * （RFC 9111 §3.2：`private` 响应共享缓存 MUST NOT 存储）。`no-store` 之类没有 `public` 前缀的
+ * 策略原样返回。未配置 `download-key` 时不调用本函数，原有策略保持不变。
+ */
+immutable(CachePolicy) gatedPolicy(immutable(CachePolicy) policy) {
+  enum prefix = "public";
+  if (!policy.cacheControl.startsWith(prefix))
+    return policy;
+  return CachePolicy("private" ~ policy.cacheControl[prefix.length .. $], policy.maxAge);
+}
+
 /** 从 npm 工件文件名取出版本号：`{name}-{version}.tgz` 中最后一个「以数字开头的段」。
     两种形态都适用：官方 URL `{pkg}/-/{name}-{version}.tgz` 与缓存目录 `…/{version}/{name}-{version}.tgz`。
     取不到（非 tgz、无数字开头段）返回空串。 */

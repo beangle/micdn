@@ -49,6 +49,7 @@ import micdn.blob.web;
 import micdn.maven.snapshot;
 import micdn.maven.web;
 import micdn.model;
+import micdn.native.web;
 import micdn.npm;
 import micdn.npm.packument;
 import micdn.npm.web;
@@ -124,12 +125,13 @@ class ReloadableDispatcher : HTTPServerRequestHandler {
 }
 
 private void applyLimits(HTTPServerSettings settings, MicdnConfig config) {
-  // 请求体上限：<blob> 的 maxSize（图片上传）或 <publish> 的 maxSize（npm 包 / maven 构件，
-  // vibe 默认 2 MiB 太小）。两者都未配置时不动默认值——此时没有大 body 的入口。
+  // 请求体上限：<blob> 的 max-size（图片上传）或 <auth> 的 max-size（npm 包 / maven 构件 /
+  // native 发行包，vibe 默认 2 MiB 太小）。都没配（含只配 download-key）时不动默认值——
+  // 此时没有大 body 的入口，不必为一个只读门禁抬高全局上限。
   if (config.blob !is null)
     settings.maxRequestSize = config.blob.maxSize;
-  else if (config.publish !is null)
-    settings.maxRequestSize = config.publish.maxSize;
+  else if (config.publishEnabled())
+    settings.maxRequestSize = config.auth.maxSize;
   setLimits(settings.maxRequestSize, settings.keepAliveTimeout.total!"seconds"());
 }
 
@@ -147,10 +149,10 @@ URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
   }
 
   // 未声明 <maven> / <npm> 就不注册对应端点；仓库本身仍有默认值（见 MicdnConfig.mavenDeclared / npmDeclared）
-  // PUT（发布）只在声明 <publish> 时注册；未声明时即使有 0.0.0.0 的反代也没有写入入口。
+  // PUT（发布）只在 `<auth publish-key>` 非空时注册；否则即使有 0.0.0.0 的反代也没有写入入口。
   if (config.mavenDeclared) {
     auto mavenService = new MavenService(config);
-    if (config.publish !is null)
+    if (config.publishEnabled())
       registerEndpointGetHeadPut(router, mountMaven, &mavenService.service);
     else
       registerEndpointGetHead(router, mountMaven, &mavenService.service);
@@ -158,10 +160,19 @@ URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
 
   if (config.npmDeclared) {
     auto npmService = new NpmService(config);
-    if (config.publish !is null)
+    if (config.publishEnabled())
       registerEndpointGetHeadPut(router, mountNpm, &npmService.service);
     else
       registerEndpointGetHead(router, mountNpm, &npmService.service);
+  }
+
+  // native 发行包仓库（tar.gz / 增量补丁）：单根，声明 <native> 才挂载，PUT 另需 <auth publish-key>
+  if (config.nativeDeclared) {
+    auto nativeService = new NativeService(config);
+    if (config.publishEnabled())
+      registerEndpointGetHeadPut(router, mountNative, &nativeService.service);
+    else
+      registerEndpointGetHead(router, mountNative, &nativeService.service);
   }
 
   if (config.blob !is null) {
@@ -196,6 +207,8 @@ string[] registeredEndpoints(MicdnConfig config) {
     parts ~= mountMaven;
   if (config.npmDeclared)
     parts ~= mountNpm;
+  if (config.nativeDeclared)
+    parts ~= mountNative;
   if (config.blob !is null) {
     parts ~= mountBlob;
     parts ~= mountS3;
@@ -212,8 +225,20 @@ string[] registeredEndpoints(MicdnConfig config) {
 /// 打印已挂载的 HTTP 端点。
 void logRegisteredEndpoints(MicdnConfig config) {
   logInfo("Registered HTTP endpoints: %s", registeredEndpoints(config).join(", "));
-  if (config.publish !is null && (config.mavenDeclared || config.npmDeclared))
-    logInfo("Publish (PUT) enabled on /maven,/npm: token required");
+  string[] mounts;
+  if (config.mavenDeclared)
+    mounts ~= mountMaven;
+  if (config.npmDeclared)
+    mounts ~= mountNpm;
+  if (config.nativeDeclared)
+    mounts ~= mountNative;
+  if (mounts.length == 0)
+    return;
+  if (config.publishEnabled())
+    logInfo("Publish (PUT) enabled on %s: publish-key required", mounts.join(", "));
+  if (config.downloadGated())
+    logInfo("Download token required on %s: download-key (HEAD and directory listings stay open)",
+        mounts.join(", "));
 }
 
 // 跑 dub test 时由测试运行器提供 main，此处不编译
@@ -766,7 +791,7 @@ Commands:
                          --force  删除已有部署目录后重新安装（忽略 manifest.json）
   clean                  清除 www/static 部署目录；交互终端下逐项确认；maven/npm 下载缓存与 blob 数据不清理
                          --yes  跳过确认（非交互/脚本）
-  install FILE           把本地开发版构件装入配置的仓库目录，并按目录内容刷新元数据；日志输出到控制台
+  install FILE           本地仓库安装：把本机构件装入配置的仓库目录，并按目录内容刷新元数据（不访问远端）；日志输出到控制台
                          FILE=PKG.tgz            装入 <npm base>，刷新 packument
                                                  --tag NAME  额外把本次版本挂到该 dist-tag（如 dev）
                                                  （dist.tarball 写 {origin} 占位符，交付时按请求 origin 替换）

@@ -11,6 +11,7 @@ module micdn.routes;
 
 immutable string mountMaven = "/maven";
 immutable string mountNpm = "/npm";
+immutable string mountNative = "/native";
 immutable string mountStatic = "/static";
 immutable string mountBlob = "/blob";
 immutable string mountS3 = "/s3";

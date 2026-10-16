@@ -70,16 +70,30 @@ class MicdnConfig {
   const BlobConfig blob;
   /// WWW 文档配置（多 doc，每 doc 独立 endpoint）
   const WwwConfig www;
-  /** 发布（上传）配置（`<publish token="…"/>`；未声明为 null）。
+  /** 读写访问控制配置（`<auth publish-key="…" download-key="…"/>`；未声明为 null）。
 
-      **未声明时不挂载 PUT**；声明后 `/maven`、`/npm` 才接受上传，且每次上传都必须携带令牌。
+      `<auth>` 统一接管 `/maven`、`/npm`、`/native` 的 GET/HEAD/PUT 鉴权：
+      - `publish-key` 非空才挂载 PUT（客户端上传）；
+      - `download-key` 非空才要求读凭据，未配置时读路径与缓存策略都保持原样。
   */
-  const PublishConfig publish;
+  const AuthConfig auth;
+  /** native 发行包仓库配置（base；HTTP 前缀见 `mountNative`）。
+
+      **始终存在**：未声明 `<native>` 时取默认仓库（base `${micdn.home}/native`），
+      只是不挂载 `/native`（见 `nativeDeclared`）——与 `<maven>` / `<npm>` 同口径。
+      与它们不同的是，native 目前没有 provider 也没有 `install` 入口，端点 `/native` 是唯一消费者；
+      保留默认配置只是让 `MicdnConfig.native` 恒非 null，且声明 `<native/>` 时不必重复写 base
+      （native 构件几十 MB 起步，要挪到大盘就写 `<native base="…"/>`）。
+  */
+  const NativeRepoConfig native;
+  /// `<native>` 是否声明（决定是否挂载 `/native`）；仓库配置本身始终可用
+  const bool nativeDeclared;
 
   this(AssetConfig asset, MavenRepoConfig maven, BlobConfig blob, WwwConfig www = null,
       NpmRepoConfig npm = null, string listen = "127.0.0.1:8888",
       string remote = null, string home = "", string logFile = "console", string logLevel = "info",
-      bool mavenDeclared = true, bool npmDeclared = true, PublishConfig publish = null) {
+      bool mavenDeclared = true, bool npmDeclared = true, AuthConfig auth = null,
+      bool nativeDeclared = true, NativeRepoConfig native = null) {
     this.listen = listen;
     this.remote = remote;
     this.home = home;
@@ -90,11 +104,23 @@ class MicdnConfig {
     this.blob = blob;
     this.www = www;
     this.npm = npm;
-    this.publish = publish;
+    this.auth = auth;
+    this.native = native;
     // 没有配置对象也就没有端点：把「声明」收敛为「声明且配置存在」，下游只看这一个标志
     this.mavenDeclared = mavenDeclared && maven !is null;
     this.npmDeclared = npmDeclared && npm !is null;
+    this.nativeDeclared = nativeDeclared && native !is null;
     validateEndpoints();
+  }
+
+  /// 是否挂载 PUT 上传端点（`publish-key` 非空）；未配置时只有 GET/HEAD
+  bool publishEnabled() const {
+    return auth !is null && auth.publishKey.length > 0;
+  }
+
+  /// 读是否受 `download-key` 保护；未配置时读路径不认证（含 HEAD 与目录列表）
+  bool downloadGated() const {
+    return auth !is null && auth.downloadKey.length > 0;
   }
 
   /** 校验所有 endpoint 是否存在冲突（含默认 /admin）。冲突指一个为另一个的前缀。
@@ -112,6 +138,10 @@ class MicdnConfig {
     if (npmDeclared) {
       names ~= "npm";
       endpoints ~= mountNpm;
+    }
+    if (nativeDeclared) {
+      names ~= "native";
+      endpoints ~= mountNative;
     }
     if (blob !is null) {
       names ~= "blob";
@@ -308,6 +338,21 @@ class NpmRepoConfig {
   }
 }
 
+/** native 发行包仓库配置（只有 base）。HTTP 前缀固定为 `micdn.routes.mountNative`。
+
+    与 maven/npm 不同，这里**没有上游**：native 构件不经 micdn 镜像代理，仓库内容完全来自
+    `/native` 的 PUT 上传（或运维按目录规范放入）。本地路径规则：
+    `{group 点转斜杠}/{artifact}/{version}/{文件名}`，正式版与 SNAPSHOT 共用同一个根。
+*/
+class NativeRepoConfig {
+  /// 本地 native 仓库根路径（如 `${micdn.home}/native`）
+  const string base;
+
+  this(string base) {
+    this.base = base;
+  }
+}
+
 /** 静态资源 bundle，对应配置中的一个 <bundle> 节点。
 
     每个 bundle 有唯一名称和若干 provider（DirProvider、GavJarProvider、NpmProvider），
@@ -481,23 +526,28 @@ class BlobConfig {
 /** 发布默认上传体上限（64 MiB）：也是未配置 `<blob>` 时的服务器 `maxRequestSize`。 */
 enum defaultPublishMaxSize = 64 * 1024 * 1024;
 
-/** 发布（上传）配置（micdn.xml 根级 `<publish token="…" maxSize="…"/>`）。
+/** 读写访问控制（`<auth>`）：`/maven`、`/npm`、`/native` 三个端点的唯一鉴权来源。
 
-    声明后 `/npm`、`/maven` 接受 PUT 上传（npm publish / mvn deploy），未声明则完全不挂 PUT。
-    **令牌就是写权限凭据**，与来源无关：不按对端地址限制（本机反代会让远端请求看起来是环回，那套
-    判定不可靠），因此前端开发机可以带令牌直接推给远端 micdn。
-    令牌可放在 `Authorization: Bearer <token>`、`Authorization: Basic <base64>`（用户名或口令任一
-    与令牌相同，Maven 走这条）或 `X-Micdn-Token: <token>`；缺失/不符返回 401 并给出 Basic 挑战。
-    **只应经 HTTPS 暴露发布端点**——Bearer 凭据在明文 HTTP 上会被链路上的任何人读走。
+    XML 属性名统一用连字符（与 `log-file` / `auto-gzip` 等一致）：
+    - `publish-key`：上传（PUT）令牌，非空才挂载 PUT；每次上传都必须携带它。
+    - `download-key`：下载令牌，**可选**；为空表示不要求读凭据（默认），非空则「会写出文件体的 GET」
+      必须携带它（HEAD 与以 `/` 结尾的目录列表不设限，见 `micdn.web.publish.authorizeRead`）。
+    - `max-size`：单次上传体上限（字节），仅在 `publish-key` 非空时生效。
+
+    两个 key 允许取同值（不额外约束），但都应使用足够长的随机串：它是纯凭据、与来源地址无关，
+    因此只应经 HTTPS（或反代的 HTTPS 终止）暴露。
 */
-class PublishConfig {
-  /// 上传令牌（必填，非空）
-  const string token;
+class AuthConfig {
+  /// 上传令牌（可空：为空表示不挂 PUT）
+  const string publishKey;
+  /// 下载令牌（可空：为空表示读不认证）
+  const string downloadKey;
   /// 单次上传体上限（字节），默认 64 MiB
   ulong maxSize = defaultPublishMaxSize;
 
-  this(string token) {
-    this.token = token;
+  this(string publishKey, string downloadKey) {
+    this.publishKey = publishKey;
+    this.downloadKey = downloadKey;
   }
 }
 

@@ -16,7 +16,10 @@
 
 module test.micdn.web.cache_test;
 
-import micdn.web.cache : noStore, publicMaxAge1yImmutable, publicNoCache, npmArtifactCachePolicy;
+import std.datetime : Duration, days;
+
+import micdn.web.cache : gatedPolicy, noStore, publicMaxAge1yImmutable, publicMaxAge7d,
+    publicNoCache, npmArtifactCachePolicy;
 
 @("npmArtifactCachePolicy: release tarballs stay immutable in both uri forms")
 unittest {
@@ -50,4 +53,17 @@ unittest {
       "sidecar without .tgz suffix must not inherit immutable");
   assert(npmArtifactCachePolicy("/_/lodash/4.17.21/lodash-notaversion.tgz") == publicNoCache,
       "unparseable version must not be treated as a release");
+}
+
+@("gatedPolicy downgrades public responses to private and keeps the rest")
+unittest {
+  // 受限响应只能进请求方自己的缓存：共享缓存按 URL 命中会把内容交给未授权者
+  auto immutableGated = gatedPolicy(publicMaxAge1yImmutable);
+  assert(immutableGated.cacheControl == "private, max-age=31536000, immutable");
+  assert(immutableGated.maxAge == 365.days, "max-age 与 Expires 必须保持不变");
+  assert(gatedPolicy(publicNoCache).cacheControl == "private, no-cache");
+  assert(gatedPolicy(publicMaxAge7d).cacheControl == "private, max-age=604800");
+  // 没有 public 前缀（no-store / no-cache）原样返回，未配置 download-key 时也无所谓
+  assert(gatedPolicy(noStore) == noStore);
+  assert(gatedPolicy(publicNoCache).maxAge == Duration.zero);
 }
