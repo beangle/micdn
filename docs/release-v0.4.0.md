@@ -1,6 +1,6 @@
 # Micdn v0.4.0 Release Notes
 
-**发布日期：** 2026-10-02
+**发布日期：** 2026-10-16
 **对比基线：** [v0.3.3](https://github.com/beangle/micdn/compare/v0.3.3...v0.4.0)
 
 ---
