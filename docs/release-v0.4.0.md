@@ -212,7 +212,7 @@ XSD 的 `nativeType` 与 `<auth>` 文档同步更新。
 
 ## 提交统计
 
-v0.4.0 相对 v0.3.3 共 14 个提交 + 发布提交，其后又补齐发布端点（PUT 上传）2 个提交：
+v0.4.0 相对 v0.3.3 共 29 个提交（不含合并提交），以下为主要提交（完整列表见 `git log v0.3.3..v0.4.0`）：
 
 - `f179186` simplify readme（文档精简）
 - `0d9a4d3` Derive package version from git tag instead of dub.json（版本号改由 git tag 推导）
@@ -240,7 +240,7 @@ v0.4.0 相对 v0.3.3 共 14 个提交 + 发布提交，其后又补齐发布端�
 
 ## 测试
 
-`dub test --compiler=ldc2`：**218 passed, 0 failed**（较 v0.3.3 的 151 增加 67 个）。
+`dub test --compiler=ldc2`：**224 passed, 0 failed**（较 v0.3.3 的 151 增加 73 个）。
 
 新增/更新的覆盖：
 
