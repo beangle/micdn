@@ -100,6 +100,23 @@ objdump -T target/micdn | grep 'GCC_' | sort -u
 
 ---
 
+## 链接加固（FULL RELRO）
+
+`dub.json` 的 `executable` 配置带 `lflags: ["-z", "now"]`，链接出的 `micdn` 具备 **FULL RELRO**：GOT 在加载时一次性解析并置为只读，请求路径上的 GOT 覆写漏洞无法再被转换成任意写原语。
+
+```bash
+readelf -d target/micdn | grep -E 'BIND_NOW|FLAGS'   # 期望出现 BIND_NOW 与 NOW
+readelf -lW target/micdn | grep -i relro             # 期望出现 GNU_RELRO
+```
+
+说明：
+
+- 该参数只作用于默认配置 `executable`（`dub build`）；`executable-static` 的静态链接另有自己的 `lflags`（见 **[build_static_portable.md](./build_static_portable.md)**）。
+- 用**加固之前的 tag** 构建的包（如 v0.4.0）不带 FULL RELRO，`namcap` / `checksec` 会报 `lacks FULL RELRO`；要消除该告警须换用含该参数的版本重新构建，或由打包脚本自行补 `-z now`（`dub` 没有直传链接参数的选项，`LDFLAGS` 环境变量也不生效，只能改 `dub.json`）。
+- PIE 与 FULL RELRO 是两件事：PIE 取决于编译器/发行版默认值（Arch、Debian 出 PIE，LDC 在 Fedora 默认非 PIE）。
+
+---
+
 ## 打包脚本与发行版对应关系
 
 | 脚本 | 产物 | 典型环境 |

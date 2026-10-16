@@ -20,7 +20,8 @@
       "targetType": "executable",
       "targetPath": "target",
       "targetName": "micdn",
-      "versions": ["EventCoreSilenceLeakWarnings"]
+      "versions": ["EventCoreSilenceLeakWarnings"],
+      "lflags": ["-z", "now"]
     },
     {
       "name": "executable-static",
