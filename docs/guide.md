@@ -351,7 +351,7 @@ static / www 的文本类资源（js/css/html/svg/json 等）在**部署期**预
 | 文档 | 内容 |
 |------|------|
 | [build_linux.md](build_linux.md) | Linux 编译、RPM / deb / SRPM 打包 |
-| [container_build.md](container_build.md) | Podman / OCI 镜像 |
+| [build_container.md](build_container.md) | Podman / OCI 镜像 |
 | [build_static_portable.md](build_static_portable.md) | 全静态构建与可移植性说明 |
 | [build_aur.md](build_aur.md) | Arch AUR |
 | [maintenance.md](maintenance.md) | systemd、`micdn`/`beangle` 权限、resolve/deploy、auto-deploy |

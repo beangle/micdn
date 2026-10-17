@@ -57,7 +57,7 @@
 
 ### 打包与工程
 
-- **打包：版本号改为从 git tag 推导**：`dub.json` 去掉 `version` 字段（dub 从 tag `vX.Y.Z` / 分支 `~branch` 取版本，字段存在会让 registry 拒绝分支版本），`scripts/build_*.sh` 改用 `git describe --tags --abbrev=0`（去 `v` 前缀）并在无 tag 时报错；`docs/build_linux.md` / `container_build.md` / `build_aur.md` 的版本来源说明同步
+- **打包：版本号改为从 git tag 推导**：`dub.json` 去掉 `version` 字段（dub 从 tag `vX.Y.Z` / 分支 `~branch` 取版本，字段存在会让 registry 拒绝分支版本），`scripts/build_*.sh` 改用 `git describe --tags --abbrev=0`（去 `v` 前缀）并在无 tag 时报错；`docs/build_linux.md` / `build_container.md` / `build_aur.md` 的版本来源说明同步
 
 ### 文档
 

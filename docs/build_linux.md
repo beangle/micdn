@@ -125,7 +125,7 @@ readelf -lW target/micdn | grep -i relro             # 期望出现 GNU_RELRO
 | **`scripts/build_srpm.sh`** | `target/micdn-*.src.rpm` | 同上；用于 mock/koji 或 `rpmbuild --rebuild` 再出二进制 RPM |
 | **`scripts/build_deb.sh`** | `target/micdn_*_amd64.deb` | Debian / Ubuntu 等 **deb** 系 |
 | **AUR `PKGBUILD`** | `micdn-*.pkg.tar.zst` | **Arch Linux**（维护与发布见 **[build_aur.md](./build_aur.md)**） |
-| **`scripts/build_image.sh`** | OCI 镜像 `micdn:<version>` | 已安装 **Podman**（见 **[container_build.md](./container_build.md)**） |
+| **`scripts/build_image.sh`** | OCI 镜像 `micdn:<version>` | 已安装 **Podman**（见 **[build_container.md](./build_container.md)**） |
 
 所有脚本均在**仓库根目录**下执行（路径含 `dub.json`、`scripts/`）。
 
@@ -212,7 +212,7 @@ Download is performed unsandboxed as root as file '.../target/micdn_....deb' cou
 
 ## 容器镜像（任意带 Podman 的 Linux）
 
-不依赖宿主机 glibc 与 Alpine 一致的二进制，使用 **Podman** 在容器内构建，见 **[container_build.md](./container_build.md)**。
+不依赖宿主机 glibc 与 Alpine 一致的二进制，使用 **Podman** 在容器内构建，见 **[build_container.md](./build_container.md)**。
 
 ```bash
 ./scripts/build_image.sh

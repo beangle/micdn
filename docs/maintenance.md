@@ -148,4 +148,4 @@ sudo -u micdn micdn -f /etc/micdn/micdn.xml deploy www manual --force
 
 ## 与容器部署的区别
 
-**Podman/Docker** 镜像由 **`entrypoint`** 将数据目录 **`chown` 为 `micdn:beangle`**，见 **[container_build.md](./container_build.md)**。宿主机上的**组**与**权限**思路与上述一致：需要普通用户维护时，同样将用户加入 **`beangle`**，并保证挂载卷内权限与 **`micdn` 进程**一致。
+**Podman/Docker** 镜像由 **`entrypoint`** 将数据目录 **`chown` 为 `micdn:beangle`**，见 **[build_container.md](./build_container.md)**。宿主机上的**组**与**权限**思路与上述一致：需要普通用户维护时，同样将用户加入 **`beangle`**，并保证挂载卷内权限与 **`micdn` 进程**一致。
