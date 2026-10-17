@@ -18,16 +18,6 @@ ferror() {
   exit 1
 }
 
-sys_release_version() {
-  local os_id
-  os_id=$(source /etc/os-release && echo "$ID")
-  if [ "$os_id" == "fedora" ]; then
-    REVISION="1.fc$(source /etc/os-release && echo "$VERSION_ID")"
-  else
-    REVISION="1.el$(source /etc/os-release && echo "$VERSION_ID")"
-  fi
-}
-
 E=0
 LIST=""
 fcheck() {
@@ -54,12 +44,16 @@ if [ -z "$VERSION_RAW" ]; then
 fi
 # 与 build_rpm.sh 一致：RPM Version 中预发布号用 ~（仅替换首段 -）
 VERSION_RPM=$(sed 's/-/~/' <<<"$VERSION_RAW")
-REVISION=""
-sys_release_version
+# Release 用 %{?dist}，由目标发行版在构建时展开（如 fc44、el10），
+# 同一份 SRPM 可在 Fedora / RHEL 系 mock、COPR、koji 多目标重编。
+REVISION="1%{?dist}"
+# changelog 与产物文件名使用本机展开后的值，spec 的 Release 保留宏
+REVISION_EXPANDED=$(rpm --eval "${REVISION}")
 
 DESTDIR="$MICDN_HOME/target"
 RPMDIR="$DESTDIR/rpmbuild-src"
-SRPMFILE="micdn-${VERSION_RPM}-${REVISION}.src.rpm"
+# rpmbuild -bs 产物名中的 dist 已在本机展开，文件名须与之对齐
+SRPMFILE="micdn-${VERSION_RPM}-${REVISION_EXPANDED}.src.rpm"
 
 rm -f "$DESTDIR/$SRPMFILE"
 rm -rf "$RPMDIR"
@@ -97,12 +91,12 @@ if [ -f "$MICDN_HOME/CHANGELOG.md" ]; then
   done < "$MICDN_HOME/CHANGELOG.md"
 else
   DATE=$(LC_ALL=C date '+%a %b %d %Y')
-  changes="* $DATE $MAINTAINER - ${VERSION_RPM}-${REVISION}"$'\n'
+  changes="* $DATE $MAINTAINER - ${VERSION_RPM}-${REVISION_EXPANDED}"$'\n'
   changes+="  - micdn source package"$'\n'
 fi
 if [ -z "$changes" ]; then
   DATE=$(LC_ALL=C date '+%a %b %d %Y')
-  changes="* $DATE $MAINTAINER - ${VERSION_RPM}-${REVISION}"$'\n'
+  changes="* $DATE $MAINTAINER - ${VERSION_RPM}-${REVISION_EXPANDED}"$'\n'
   changes+="  - No changelog available"$'\n'
 fi
 
@@ -115,6 +109,8 @@ License: GPLv3+
 Vendor: Beangle
 URL: https://github.com/beangle/micdn
 Source0: %{name}-%{version}.tar.gz
+# LDC 产物无 debugedit 可识别的 DWARF，禁用自动生成的 debuginfo/debugsource 子包
+%global _enable_debug_packages 0
 # 重编二进制时：ldc、dub 等；CentOS7 上 ldc/dub 可能来自 EPEL/第三方仓库
 BuildRequires: ldc dub git gcc make zlib-devel openssl-devel curl binutils
 # 运行时：二进制不依赖 ldc 包；curl 为 micdn 下载/调用外部 curl 所需
