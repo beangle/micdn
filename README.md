@@ -132,6 +132,7 @@ file first and rename on success.
 |----------|----------|
 | [docs/guide.md](docs/guide.md) | Full reference: config, endpoints, local publishing, gzip, downloads (Chinese) |
 | [docs/build_linux.md](docs/build_linux.md) | Linux build, RPM / deb / SRPM packaging |
+| [docs/build_on_fedora.md](docs/build_on_fedora.md) | Fedora local RPM / SRPM and COPR publishing |
 | [docs/build_container.md](docs/build_container.md) | Podman / OCI images |
 | [docs/build_static_portable.md](docs/build_static_portable.md) | Fully static builds and portability |
 | [docs/build_aur.md](docs/build_aur.md) | Arch AUR |

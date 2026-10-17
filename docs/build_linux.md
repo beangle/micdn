@@ -133,6 +133,8 @@ readelf -lW target/micdn | grep -i relro             # 期望出现 GNU_RELRO
 
 ## Fedora / RHEL / openSUSE（RPM）：`build_rpm.sh` / `build_srpm.sh`
 
+在 **Fedora** 上打 RPM 并通过 **COPR** 分发给用户的完整流程（含 copr-cli 配置与常见失败排查），见 **[build_on_fedora.md](./build_on_fedora.md)**。
+
 ### 安装系统软件包
 
 脚本会先 **`dub clean`**、删除 **`target/`**，再 **`dub build --build=release-nobounds --compiler=ldc2`**，然后打 RPM；每次运行均为全量重建（逻辑见 **`scripts/build_common.sh`**）。
