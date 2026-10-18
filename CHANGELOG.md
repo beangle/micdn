@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## v0.4.1 (2026-10-18)
+
+概要：本版收紧远程配置的安全边界，并补齐发布链路。远程 XML 只在 reload 时通过同目录
+`micdn.conf` 下载，`micdn.xml` 不再携带 `remote`；默认二进制启用 FULL RELRO；SRPM 可在不同
+Fedora / RHEL 目标重编，并新增 Fedora / COPR 发布说明。
 
 ### 配置
 
@@ -13,9 +17,44 @@
   token = s3cret
   ```
 
-  只有 reload（SIGHUP / `/admin/reload`）读取它；启动与 `resolve` / `deploy` / `clean` / `install`
-  只读本地 `micdn.xml`。下载可带 `Authorization: Bearer`，先写临时文件，解析通过后才覆盖；下载或解析
-  失败时 reload 失败、旧路由继续服务。`resources/micdn.xsd` 同步移除 `remote` 属性。
+- **只有 reload 读取远程配置**：SIGHUP / `/admin/reload` 会检查同目录 `micdn.conf`；启动与
+  `resolve` / `deploy` / `clean` / `install` 都只读本地 `micdn.xml`。文件不存在、没有 `[remote]`
+  段或 `url` 为空时，reload 只重新解析本地配置。
+- **下载认证与校验**：`url` 只接受 `http://` / `https://`；`token` 可选，以
+  `Authorization: Bearer` 发送，并拒绝含换行等非法字符的值。允许 HTTP，但 token 会明文经过链路，
+  只应在可信网络中使用。
+- **原子替换**：下载先写同目录临时文件；XML 完整解析校验通过后才 rename 覆盖 `micdn.xml`。
+  下载或解析失败时 reload 失败，旧 router 继续服务。`resources/micdn.xsd` 同步移除 `remote` 属性。
+- **打包集成**：RPM / deb / 容器镜像提供 `micdn.conf` 模板；`/etc/micdn` 为
+  `root:beangle 2775`，`micdn.conf` 为 `root:beangle 0640`。systemd 仍由
+  `ExecReload=/bin/kill -HUP $MAINPID` 触发，自动读取与 `-f` 同目录的 `micdn.conf`，无需增加参数。
+
+### 安全
+
+- **默认构建启用 FULL RELRO**：`dub.json` 的 `executable` 配置加入 `lflags: ["-z", "now"]`，
+  使 GOT 在加载时一次性解析并置为只读，降低请求路径上的 GOT 覆写风险。`executable-static` 保持
+  自己的静态链接参数不变；检查方法见 `docs/build_linux.md`。
+
+### 打包与发布
+
+- **SRPM 改为发行版无关**：spec 使用 `Release: 1%{?dist}`，同一份 SRPM 可在 Fedora / RHEL 系
+  的 mock、COPR、koji 多目标重编；同时设置 `%global _enable_debug_packages 0`，避免 LDC
+  产物生成空的 debuginfo / debugsource 子包导致构建失败。
+- **新增 Fedora / COPR 发布指南**：`docs/build_on_fedora.md` 覆盖本地 RPM / SRPM、COPR 项目、
+  构建期联网、chroot、token 配置、产物位置与常见故障；micdn 发布在共享的
+  `chaostone/beangle` COPR 项目下。
+- **AUR 文档修正**：明确 `/etc/micdn/micdn.xml` 由安装脚本生成且不在包内，不应写入 `backup=`
+  （写了也不会产生 `.pacsave` / `.pacnew`）；补充 pacman `pre_remove` 的调用时机和 `$1` 语义。
+
+### 文档与版本
+
+- 容器构建文档由 `docs/container_build.md` 重命名为 `docs/build_container.md`，相关链接同步更新。
+- 修正 v0.4.0 release notes 的提交统计与测试数：`v0.3.3..v0.4.0` 共 29 个非合并提交，
+  `dub test` 为 224 passed。
+- 当前版本标识更新为 `0.4.1`；`dub.json` 仍不写 `version`，RPM / deb / 容器镜像版本继续由
+  git tag 推导，发布前需创建 `v0.4.1` tag。
+
+完整说明见 [docs/release-v0.4.1.md](docs/release-v0.4.1.md)。
 
 ## v0.4.0 (2026-10-16)
 

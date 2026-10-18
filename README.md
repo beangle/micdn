@@ -3,7 +3,7 @@
 A minimal, config-driven CDN: one HTTP process serving Maven, npm, WebJars and static assets,
 documentation sites, and blob storage (with an optional S3-compatible API).
 
-**License:** GPLv3 · **Version:** 0.4.0
+**License:** GPLv3 · **Version:** 0.4.1
 
 ## Services
 
@@ -143,7 +143,7 @@ file first and rename on success.
 | [docs/native.md](docs/native.md) | The `/native` distribution repository |
 | [docs/reload.md](docs/reload.md) | Configuration reload |
 | [docs/stress_test.md](docs/stress_test.md) | Stress-test guide and results |
-| [docs/release-v0.4.0.md](docs/release-v0.4.0.md) | Current release notes |
+| [docs/release-v0.4.1.md](docs/release-v0.4.1.md) | Current release notes |
 
 Packaging scripts (each starts from `dub clean` and an emptied `target/`):
 
