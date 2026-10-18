@@ -11,9 +11,12 @@
 | 运行用户 | `micdn`（系统用户，无登录 shell） |
 | 运行组 | `beangle` |
 | 配置文件 | `/etc/micdn/micdn.xml`（首次安装由 `/usr/share/micdn/micdn.xml.default` 复制） |
+| reload bootstrap | `/etc/micdn/micdn.conf`（首次安装由 `/usr/share/micdn/micdn.conf.default` 复制；仅 `[remote] url` 非空时由 reload 使用） |
 | 常见数据路径 | `/var/lib/micdn/`（blob、maven、npm、native、local 等）、`/var/cache/micdn/`（asset、www）、`/var/log/micdn/` |
 
 安装脚本会将上述 **`/var/*`** 目录 **`chown` 为 `micdn:beangle`**，并设为 **`2775`**（`rwxrwsr-x`：组可读写、**setgid** 使新建子目录继承 **`beangle` 组**）。systemd 单元中配置了 **`UMask=0002`**，进程新建文件对组可写。
+
+`/etc/micdn` 安装后为 **`root:beangle 2775`**：服务用户可在 reload 下载远程配置后原子替换 `micdn.xml`；`micdn.conf` 为 **`root:beangle 0640`**，服务进程只读，避免把 token 暴露给其他用户。
 
 ---
 
@@ -76,6 +79,20 @@ sudo chmod 2775 /var/log/micdn
    **注意**：组可写会扩大能改配置的人的范围，请仅在可信管理员组内使用。
 
 修改配置后若服务支持热加载，可 **`systemctl reload micdn`**（即 SIGHUP）；否则 **`systemctl restart micdn`**。reload 的触发方式、工作流程与生效边界见 **[reload.md](./reload.md)**。
+
+### 编辑 `/etc/micdn/micdn.conf`（可选）
+
+只有需要 reload 从远端刷新 `micdn.xml` 时才配置该文件。使用 `sudo` 编辑，保持属主/权限不变：
+
+```ini
+[remote]
+url = http://cfg.example.com/micdn.xml
+token = s3cret
+```
+
+启动、`resolve`、`deploy`、`clean`、`install` 都不读取它；`systemctl reload micdn` 会读取与
+`/etc/micdn/micdn.xml` 同目录的 `micdn.conf`。不需要远程刷新时，保留空模板即可。token 只放在该文件中，
+不要写回 `micdn.xml`。
 
 ---
 

@@ -136,6 +136,7 @@ rm -rf %{buildroot}
 install -D -m 0755 target/micdn %{buildroot}/usr/bin/micdn
 strip --strip-unneeded %{buildroot}/usr/bin/micdn
 install -D -m 0644 scripts/package/micdn.xml %{buildroot}/usr/share/micdn/micdn.xml.default
+install -D -m 0644 scripts/package/micdn.conf %{buildroot}/usr/share/micdn/micdn.conf.default
 install -D -m 0644 scripts/package/micdn.service %{buildroot}/usr/lib/systemd/system/micdn.service
 
 %pre
@@ -155,6 +156,14 @@ if [ ! -f /etc/micdn/micdn.xml ]; then
   cp -f /usr/share/micdn/micdn.xml.default /etc/micdn/micdn.xml
   chmod 0644 /etc/micdn/micdn.xml
 fi
+if [ ! -f /etc/micdn/micdn.conf ]; then
+  cp -f /usr/share/micdn/micdn.conf.default /etc/micdn/micdn.conf
+fi
+# reload 以 micdn 用户运行：目录组可写，让下载的 micdn.xml 能原子替换；
+# micdn.conf 保持 root:beangle 0640，服务只读。
+chown root:beangle /etc/micdn /etc/micdn/micdn.conf
+chmod 2775 /etc/micdn
+chmod 0640 /etc/micdn/micdn.conf
 chown -R micdn:beangle /var/cache/micdn /var/lib/micdn /var/log/micdn
 # 组可读写 + setgid，便于加入 beangle 组的管理员维护；配合 UMask=0002 使新文件对组可写
 chmod 2775 /var/cache/micdn /var/cache/micdn/asset /var/cache/micdn/www
@@ -173,6 +182,7 @@ systemctl daemon-reload 2>/dev/null || :
 %files
 %attr(0755,root,root) /usr/bin/micdn
 %attr(0644,root,root) /usr/share/micdn/micdn.xml.default
+%attr(0644,root,root) /usr/share/micdn/micdn.conf.default
 %attr(0644,root,root) /usr/lib/systemd/system/micdn.service
 
 %changelog

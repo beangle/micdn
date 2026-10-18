@@ -53,6 +53,7 @@ import micdn.native.web;
 import micdn.npm;
 import micdn.npm.packument;
 import micdn.npm.web;
+import micdn.remote : fetchRemoteConfig, loadRemoteConfig;
 import micdn.web;
 import micdn.www;
 import micdn.www.web;
@@ -108,8 +109,8 @@ class ReloadableDispatcher : HTTPServerRequestHandler {
   ReloadResult tryReload() {
     logInfo("Config reload started: %s", _configFile);
     try {
-      fetchRemoteIfNeeded(_configFile);
-      auto config = parseFile(_configFile);
+      auto remote = loadRemoteConfig(_configFile);
+      auto config = remote.active ? fetchRemoteConfig(remote, _configFile) : parseFile(_configFile);
       auto listenPair = parseListen(config.listen);
       applyLimits(_settings, config);
       auto router = buildRouter(config, _settings, _onReload);
@@ -482,7 +483,6 @@ int runResolve(string[] args) {
   if (!exists(expanded))
     throw new Exception("Config file[" ~ expanded ~ "] not exists!");
 
-  fetchRemoteIfNeeded(expanded);
   auto config = parseFile(expanded);
   applyMicdnCliLogging();
   parseListen(config.listen);
@@ -507,7 +507,6 @@ int runClean(string[] args) {
   if (!exists(expanded))
     throw new Exception("Config file[" ~ expanded ~ "] not exists!");
 
-  fetchRemoteIfNeeded(expanded);
   auto config = parseFile(expanded);
   applyMicdnCliLogging();
 

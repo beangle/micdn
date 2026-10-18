@@ -40,8 +40,6 @@ import micdn.routes;
 class MicdnConfig {
   /// 监听地址，格式 host:port，默认 127.0.0.1:8888
   const string listen;
-  /// 远程配置 URL，加载时会下载并覆盖本地 micdn.xml
-  const string remote;
   /// 根目录，空表示 xml 所在目录，~ 表示用户主目录
   const string home;
   /// 日志输出：`console`（默认，大小写不敏感）为仅控制台；否则为日志文件路径（已展开 ~）。二者互斥。
@@ -91,11 +89,10 @@ class MicdnConfig {
 
   this(AssetConfig asset, MavenRepoConfig maven, BlobConfig blob, WwwConfig www = null,
       NpmRepoConfig npm = null, string listen = "127.0.0.1:8888",
-      string remote = null, string home = "", string logFile = "console", string logLevel = "info",
+      string home = "", string logFile = "console", string logLevel = "info",
       bool mavenDeclared = true, bool npmDeclared = true, AuthConfig auth = null,
       bool nativeDeclared = true, NativeRepoConfig native = null) {
     this.listen = listen;
-    this.remote = remote;
     this.home = home;
     this.logFile = logFile;
     this.logLevel = logLevel;

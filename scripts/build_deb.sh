@@ -57,10 +57,11 @@ mkdir -p usr/bin usr/share/micdn usr/lib/systemd/system
 cp -f $MICDN_HOME/target/micdn usr/bin/micdn
 strip --strip-unneeded usr/bin/micdn
 cp -f $MICDN_HOME/scripts/package/micdn.xml usr/share/micdn/micdn.xml.default
+cp -f $MICDN_HOME/scripts/package/micdn.conf usr/share/micdn/micdn.conf.default
 cp -f $MICDN_HOME/scripts/package/micdn.service usr/lib/systemd/system/micdn.service
 
 chmod 0755 usr/bin/micdn
-chmod 0644 usr/share/micdn/micdn.xml.default usr/lib/systemd/system/micdn.service
+chmod 0644 usr/share/micdn/micdn.xml.default usr/share/micdn/micdn.conf.default usr/lib/systemd/system/micdn.service
 
 # DEBIAN 控制文件
 mkdir -p DEBIAN
@@ -110,6 +111,14 @@ if [ ! -f /etc/micdn/micdn.xml ]; then
   cp -f /usr/share/micdn/micdn.xml.default /etc/micdn/micdn.xml
   chmod 0644 /etc/micdn/micdn.xml
 fi
+if [ ! -f /etc/micdn/micdn.conf ]; then
+  cp -f /usr/share/micdn/micdn.conf.default /etc/micdn/micdn.conf
+fi
+# reload 以 micdn 用户运行：目录组可写，让下载的 micdn.xml 能原子替换；
+# micdn.conf 保持 root:beangle 0640，服务只读。
+chown root:beangle /etc/micdn /etc/micdn/micdn.conf
+chmod 2775 /etc/micdn
+chmod 0640 /etc/micdn/micdn.conf
 chown -R micdn:beangle /var/cache/micdn /var/lib/micdn /var/log/micdn
 chmod 2775 /var/cache/micdn /var/cache/micdn/asset /var/cache/micdn/www
 chmod 2775 /var/lib/micdn /var/lib/micdn/blob /var/lib/micdn/maven /var/lib/micdn/npm /var/lib/micdn/local

@@ -78,10 +78,14 @@ COPY --from=builder /build/target/micdn /usr/bin/micdn
 ENV LD_LIBRARY_PATH=/usr/lib/micdn
 
 COPY scripts/container/micdn.xml /etc/micdn/micdn.xml
+COPY scripts/package/micdn.conf /etc/micdn/micdn.conf
 COPY scripts/container/entrypoint.sh /entrypoint.sh
 
 RUN chown -R micdn:beangle /var/cache/micdn /var/lib/micdn /var/log/micdn \
+    && chown root:beangle /etc/micdn /etc/micdn/micdn.conf \
     && chown micdn:beangle /etc/micdn/micdn.xml \
+    && chmod 2775 /etc/micdn \
+    && chmod 0640 /etc/micdn/micdn.conf \
     && chmod 755 /usr/bin/micdn /entrypoint.sh
 
 WORKDIR /var/lib/micdn

@@ -105,8 +105,9 @@ MicdnConfig parse(string defaultHome, string content, const string sourceFile = 
   checkNoStrayText(dom, sourceFile, content);
   validateMicdnServiceElementsUnique(dom);
   auto rootAttrs = getAttrs(dom);
+  if (rootAttrs.get("remote", "").length > 0)
+    throw new Exception("micdn.xml no longer supports the remote attribute; configure remote reload in micdn.conf");
   string listen = rootAttrs.get("listen", "127.0.0.1:8888");
-  string remote = rootAttrs.get("remote", "");
   auto home = resolveHome(rootAttrs.get("home", ""), defaultHome);
 
   string logFile = rootAttrs.get("log-file", "console").strip();
@@ -154,7 +155,7 @@ MicdnConfig parse(string defaultHome, string content, const string sourceFile = 
   if (dom.children.any!(c => c.name == "auth")) {
     auth = parseAuth(dom);
   }
-  return new MicdnConfig(asset, maven, blob, www, npm, listen, remote, home, logFile, logLevel,
+  return new MicdnConfig(asset, maven, blob, www, npm, listen, home, logFile, logLevel,
       mavenDeclared, npmDeclared, auth, nativeDeclared, native);
 }
 
@@ -182,8 +183,6 @@ string toXml(const MicdnConfig config) {
   xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.1.0.xsd"
   listen="$(
       config.listen)"`.text);
-  if (config.remote !is null && config.remote.length > 0)
-    app.put(i` remote="$(config.remote)"`.text);
   if (config.home.length > 0)
     app.put(i` home="$(config.home)"`.text);
   if (config.logFile != "console")

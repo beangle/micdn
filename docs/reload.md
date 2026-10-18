@@ -25,7 +25,8 @@
 
 ## 工作流程
 
-1. **拉取配置**：`fetchRemoteIfNeeded`——本地配置含 `remote` 属性时先重新下载覆盖（`src/micdn/web/package.d`）。
+1. **拉取配置**：同目录存在 `micdn.conf` 且 `[remote] url` 非空时，带可选 Bearer token 下载远程
+   `micdn.xml`；先写临时文件，解析校验通过后才覆盖（`src/micdn/remote.d`）。没有该文件时只重解析本地配置。
 2. **重新解析**：`parseFile` 完整解析并校验（XSD、名称/base、try-file、重复 doc 等）。
 3. **解析监听**：`parseListen` 读取新 `host:port`（仅用于 metrics，见「生效范围」）。
 4. **应用限制**：`applyLimits` 把新 `blob.max-size`、`keepAliveTimeout` 写回共享 `HTTPServerSettings`，对新连接生效。

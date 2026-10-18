@@ -54,6 +54,26 @@ dub build --build=release-nobounds --compiler=ldc2
 
 `-f` 可为本地文件、目录（使用 `DIR/micdn.xml`）或 URL（下载到 `~/micdn.xml`）。
 
+## 远程配置（仅 reload）
+
+`micdn.xml` 不再支持 `remote` 属性。需要从远端刷新配置时，在与 XML 同目录放一个 `micdn.conf`：
+
+```ini
+[remote]
+url = https://cfg.example.com/micdn.xml
+token = s3cret
+```
+
+- 只有 reload（SIGHUP 或 `/admin/reload`）读取它；启动与 `resolve` / `deploy` / `clean` / `install` 都只读本地 `micdn.xml`。
+- `url` 只支持 `http://` / `https://`；`token` 可选，作为 `Authorization: Bearer` 发送。
+- 允许 `http://`，但 token 会以明文经过链路，只应在可信网络中使用。
+- 下载先写同目录临时文件，解析校验通过后才覆盖 `micdn.xml`；下载或解析失败时 reload 失败，旧路由继续服务。
+- 首次部署仍需在本地放一份 `micdn.xml`；之后 reload 负责更新。`micdn.conf` 建议 `micdn:beangle 0640`
+  （或 `0600` 且属主为服务用户），token 不要写进 `micdn.xml`。
+- reload 以服务用户身份运行：该用户需要能读 `micdn.conf`，并对 `micdn.xml` 所在目录有写权限
+  （下载先写同目录临时文件，再 rename 覆盖）。
+- 需要在部署新 `www` / `static` 前使用远端配置时，先触发一次 reload 把 XML 落到本地，再执行 `resolve`。
+
 ## 本地发布 npm 包
 
 开发版/内网包不必发到公网 registry：把 `npm pack` 产出的 tgz 交给 **`micdn install`**，它按 npm 目录规范

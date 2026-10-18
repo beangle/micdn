@@ -3,6 +3,13 @@
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 set -e
 chown -R micdn:beangle /var/cache/micdn /var/lib/micdn /var/log/micdn 2>/dev/null || true
+# reload 以 micdn 用户运行：/etc/micdn 需组可写，micdn.conf 只需组可读。
+chown root:beangle /etc/micdn 2>/dev/null || true
+chmod 2775 /etc/micdn 2>/dev/null || true
+if [ -f /etc/micdn/micdn.conf ]; then
+  chown root:beangle /etc/micdn/micdn.conf 2>/dev/null || true
+  chmod 0640 /etc/micdn/micdn.conf 2>/dev/null || true
+fi
 if command -v su-exec >/dev/null 2>&1; then
   exec su-exec micdn "$@"
 fi

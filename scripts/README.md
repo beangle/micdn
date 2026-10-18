@@ -11,7 +11,7 @@
 | `stress_mem.sh` | 多文件内存压测（自生成样例，c=50 多路径 + c=200 heavy，可选 `/admin/reclaim`） |
 | `setup-windows.ps1` | Windows 下 dub / 依赖补丁 |
 | `container/` | **仅镜像**：默认 `micdn.xml`、`entrypoint.sh`；可选本地 `host-dub-cache/`（见 `.gitignore`） |
-| `package/` | **仅 deb/rpm**：面向 systemd 安装的 `micdn.xml`（与容器版不同）、`micdn.service` |
+| `package/` | **deb/rpm 与镜像共用**：面向 systemd 安装的 `micdn.xml`（与容器版不同）、reload 用 `micdn.conf`、`micdn.service` |
 
 Arch Linux AUR 打包步骤见 **[docs/build_aur.md](../docs/build_aur.md)**（维护目录通常为 `~/aur-packages/micdn`）。
 

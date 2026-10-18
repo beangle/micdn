@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### 配置
+
+- **`micdn.xml` 移除 `remote` 属性（Breaking）**：不再从 XML 读取远程配置地址，也不再回落。需要 reload
+  拉取远端配置时，在 XML 同目录提供 `micdn.conf`（INI）：
+
+  ```ini
+  [remote]
+  url = http://cfg.example.com/micdn.xml
+  token = s3cret
+  ```
+
+  只有 reload（SIGHUP / `/admin/reload`）读取它；启动与 `resolve` / `deploy` / `clean` / `install`
+  只读本地 `micdn.xml`。下载可带 `Authorization: Bearer`，先写临时文件，解析通过后才覆盖；下载或解析
+  失败时 reload 失败、旧路由继续服务。`resources/micdn.xsd` 同步移除 `remote` 属性。
+
 ## v0.4.0 (2026-10-16)
 
 概要：正式版与开发版（maven SNAPSHOT / npm dev）合并为**一个入口、一个本地仓库根**，本地发布（`micdn install`）与上游代理共用同一份元数据；同时有一批修复、打包与文档更新。**Breaking**：`<repo>` 别名移除、未声明 `<maven>` / `<npm>` 不再挂载端点（v0.3.3 未声明时会挂默认仓库）、默认 base 由 `~/maven`、`~/npm` 改为 `${micdn.home}/maven`、`${micdn.home}/npm`。**新增（v0.3.3 没有）**：maven SNAPSHOT 支持（`<snapshot remote="..."/>`，与正式版共用 `/maven`）、npm dev 上游（`<dev remote="..."/>`）、npm packument 交付与本地发布、读写访问控制 `<auth>`（`publish-key` 非空才挂 PUT：`npm publish` / `mvn deploy` / native 发行包；`download-key` 可选，给下载加门禁）、native 发行包仓库 `/native`（承接 sashub 的 `/repo/native`）。

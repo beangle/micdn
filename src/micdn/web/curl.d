@@ -23,16 +23,49 @@ import std.datetime.stopwatch : StopWatch, AutoStart;
 import std.file, std.path;
 import vibe.core.log;
 
+/// `Authorization: Bearer` 的 token68 校验：拒绝空白、控制字符和会破坏头部语法的字符。
+bool isValidBearerToken(string token) {
+  if (token.length == 0)
+    return false;
+  foreach (c; token) {
+    if (c <= ' ' || c == 0x7f)
+      return false;
+    if (!(c >= 'a' && c <= 'z') && !(c >= 'A' && c <= 'Z') && !(c >= '0' && c <= '9')
+        && c != '-' && c != '.' && c != '_' && c != '~' && c != '+' && c != '/' && c != '=')
+      return false;
+  }
+  return true;
+}
+
+/// curl `--config` 文件里的双引号值转义。
+private string escapeCurlConfig(string value) {
+  import std.string : replace;
+
+  return value.replace("\\", "\\\\").replace("\"", "\\\"");
+}
+
 /**
  * Fetch url and store at local.
  * Downloads to a temp file in the same directory as target first (avoiding cross-device
  * rename), then renames on success. No target directory is created when download fails.
  *
+ * `bearerToken` 非空时作为 `Authorization: Bearer` 发送。调用方应只对可信地址使用；
+ * token 不会出现在进程参数中（shell 实现经临时 `--config` 文件传递）。
+ *
  * 每次调用在 micdn 日志中固定打一条：成功 `Downloaded …`，失败 `Download failed …`。
  */
-bool curlDownload(string url, string local) {
+bool curlDownload(string url, string local, string bearerToken = null) {
+  if (bearerToken.length > 0 && !isValidBearerToken(bearerToken)) {
+    logWarn("Download failed %s -> %s: invalid bearer token", url, local);
+    return false;
+  }
   mkdirRecurse(dirName(local));
   auto tmpPath = dirName(local) ~ "/." ~ baseName(local) ~ ".part";
+  string curlConfigPath;
+  scope (exit) {
+    if (curlConfigPath.length > 0 && exists(curlConfigPath))
+      remove(curlConfigPath);
+  }
   scope (exit) {
     if (exists(tmpPath))
       remove(tmpPath);
@@ -42,16 +75,29 @@ bool curlDownload(string url, string local) {
   bool ok;
 
   version (MicdnUseLibcurl) {
-    ok = libcurlDownload(url, tmpPath);
+    ok = libcurlDownload(url, tmpPath, bearerToken);
   } else {
     import std.process : execute;
     import std.string : strip;
-    auto cmd = execute(["curl", "--fail", "--silent", "--show-error", "-L",
+    if (bearerToken.length > 0) {
+      curlConfigPath = tmpPath ~ ".curlrc";
+      write(curlConfigPath, "header = \"Authorization: Bearer " ~ escapeCurlConfig(bearerToken) ~ "\"\n");
+      version (Posix) {
+        import core.sys.posix.sys.stat : chmod;
+        import std.string : toStringz;
+
+        chmod(curlConfigPath.toStringz, 0x180); // 0600
+      }
+    }
+    auto args = ["curl", "--fail", "--silent", "--show-error", "-L",
         "--connect-timeout", "10",
         "--max-time", "300",
         "--speed-time", "30",
-        "--speed-limit", "1024",
-        "-o", tmpPath, url]);
+        "--speed-limit", "1024"];
+    if (curlConfigPath.length > 0)
+      args ~= ["--config", curlConfigPath];
+    args ~= ["-o", tmpPath, url];
+    auto cmd = execute(args);
     if (cmd.status != 0) {
       auto detail = cmd.output.strip();
       if (detail.length)
@@ -75,7 +121,7 @@ bool curlDownload(string url, string local) {
 }
 
 version (MicdnUseLibcurl) {
-  private bool libcurlDownload(string url, string tmpPath) {
+  private bool libcurlDownload(string url, string tmpPath, string bearerToken) {
     import std.conv : to;
     import std.stdio : File;
     import std.string : toStringz;
@@ -116,6 +162,21 @@ version (MicdnUseLibcurl) {
     curl_easy_setopt(h, CurlOption.noprogress, 1L);
     curl_easy_setopt(h, CurlOption.writefunction, &curlWriteCb);
     curl_easy_setopt(h, CurlOption.writedata, &f);
+
+    curl_slist* headers;
+    scope (exit) {
+      if (headers !is null)
+        curl_slist_free_all(headers);
+    }
+    if (bearerToken.length > 0) {
+      headers = curl_slist_append(headers,
+          ("Authorization: Bearer " ~ bearerToken).toStringz);
+      if (headers is null) {
+        logWarn("Download failed %s -> %s: cannot allocate Authorization header", url, tmpPath);
+        return false;
+      }
+      curl_easy_setopt(h, CurlOption.httpheader, headers);
+    }
 
     auto rc = curl_easy_perform(h);
     if (rc != 0) {

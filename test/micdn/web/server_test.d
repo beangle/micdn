@@ -33,29 +33,6 @@ unittest {
   assert(dirName(test) == "~/ems/micdn");
 }
 
-@("extract remote attr from xml text")
-unittest {
-  // 双引号
-  assert(extractRemoteUrl(`<micdn remote="http://example.com/micdn.xml">`) == "http://example.com/micdn.xml");
-  assert(extractRemoteUrl(`<micdn listen="0:8888" remote="https://cdn.example.com/config.xml">`)
-      == "https://cdn.example.com/config.xml");
-  // 单引号
-  assert(extractRemoteUrl(`<micdn remote='http://a.com/b.xml'>`) == "http://a.com/b.xml");
-  // 无 remote
-  assert(extractRemoteUrl(`<micdn listen="127.0.0.1:8888">`) is null);
-  assert(extractRemoteUrl(`<micdn>`) is null);
-  // remote 有空格
-  assert(extractRemoteUrl(`<micdn remote = "http://x.com/c.xml">`) == "http://x.com/c.xml");
-  // 只认根元素的 remote：<snapshot>/<dev> 子元素也用 remote 属性，不能误当成本配置的远程地址
-  assert(extractRemoteUrl(`<?xml version="1.0"?><micdn listen="0:8888">
-  <maven><snapshot remote="file:///srv/up"/></maven>
-  <npm><dev remote="https://registry.example.com/dev"/></npm>
-</micdn>`) is null);
-  assert(extractRemoteUrl(`<micdn remote="https://cfg.example.com/m.xml">
-  <npm><dev remote="https://registry.example.com/dev"/></npm>
-</micdn>`) == "https://cfg.example.com/m.xml");
-}
-
 @("repository path builds absolute path from entry segments")
 unittest {
   auto base = buildNormalizedPath(tempDir(), "micdn-repo-safe");

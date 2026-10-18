@@ -44,11 +44,6 @@
           <xs:documentation> 监听地址，格式 host:port，默认 127.0.0.1:8888 </xs:documentation>
         </xs:annotation>
       </xs:attribute>
-      <xs:attribute name="remote" type="xs:anyURI" use="optional">
-        <xs:annotation>
-          <xs:documentation> 远程配置 URL，加载时会下载并覆盖本地 micdn.xml </xs:documentation>
-        </xs:annotation>
-      </xs:attribute>
       <xs:attribute name="home" type="xs:string" use="optional">
         <xs:annotation>
           <xs:documentation> 根目录，空表示 xml 文件所在目录，~ 表示用户主目录 </xs:documentation>

@@ -159,9 +159,10 @@ podman run --rm -it micdn:0.2.0 sh
 | ----------------------- | ------------------- |
 | `Dockerfile`            | **Alpine（musl）** 多阶段镜像定义 |
 | `scripts/container/micdn.xml` | 容器默认配置，COPY 进镜像（监听 `0.0.0.0`，路径为容器内绝对路径） |
-| `scripts/container/entrypoint.sh` | 启动时修正数据目录属主，再以 `micdn` 运行 |
+| `scripts/container/entrypoint.sh` | 启动时修正数据目录及 `/etc/micdn` 权限，再以 `micdn` 运行 |
 | `scripts/package/micdn.xml` | deb/rpm 安装用配置（与容器版不同，如监听 `127.0.0.1`、`~/` 路径） |
-| `scripts/package/micdn.service` | systemd 单元，供 **`build_deb.sh`** / **`build_rpm.sh`** 打包 |
+| `scripts/package/micdn.conf` | reload 用 bootstrap 配置（INI）；镜像 COPY 为 `/etc/micdn/micdn.conf`，`root:beangle 0640` |
+| `scripts/package/micdn.service` | systemd 单元；`ExecStart` 使用 `-f /etc/micdn/micdn.xml`，reload 自动读取同目录 `micdn.conf` |
 | `scripts/build_image.sh` | Podman 构建镜像（默认带 `--squash`） |
 | `scripts/build_deb.sh` | 构建 Debian **`.deb`**（需 `dpkg-deb`、`fakeroot`） |
 | `scripts/build_rpm.sh` | 构建 **`.rpm`**（需 `rpmbuild`、`fakeroot`） |

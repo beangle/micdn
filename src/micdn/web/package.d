@@ -22,7 +22,6 @@ import std.array;
 import std.conv;
 import std.file;
 import std.path;
-import std.regex;
 import std.string;
 import std.typecons;
 
@@ -215,42 +214,5 @@ string resolveConfigFile(string defaultConfigFileName, string config) {
     auto home = expandTilde(config);
     config = expandTilde(home ~ "/" ~ defaultConfigFileName);
   }
-  fetchRemoteIfNeeded(config);
   return config;
-}
-
-/** 从 XML 文本的**根元素** `<micdn ...>` 开始标签里提取 remote 属性值，用正则避免递归解析。未找到返回 null。
-
-    只看根元素：`<maven><snapshot remote=.../></maven>`、`<npm><dev remote=.../></npm>` 也用 `remote`
-    属性，若在全文里找第一个 `remote=` 会把子元素的上游地址误当成本配置的远程地址。
- */
-string extractRemoteUrl(string content) {
-  auto start = content.indexOf("<micdn");
-  if (start < 0)
-    return null;
-  auto after = start + "<micdn".length;
-  if (after < content.length && !isTagBoundary(content[after]))
-    return null;
-  auto end = content.indexOf('>', after);
-  if (end < 0)
-    return null;
-  auto m = matchFirst(content[start .. end], regex(r"remote\s*=\s*[\x22\x27]([^\x22\x27]+)[\x22\x27]"));
-  return (m && m.captures.length > 1) ? m.captures[1] : null;
-}
-
-/// `<micdn` 之后允许的字符：空白、`>`（`<micdn>`）、`/`（`<micdn/>`）。
-private bool isTagBoundary(char c) {
-  return c == '>' || c == '/' || c == ' ' || c == '\t' || c == '\n' || c == '\r';
-}
-
-/** 启动或 reload 前调用：若本地配置文件含 remote 属性，则下载覆盖。
-*/
-void fetchRemoteIfNeeded(string configPath) {
-  if (!exists(configPath))
-    return;
-  auto content = cast(string) read(configPath);
-  auto url = extractRemoteUrl(content);
-  if (url !is null) {
-    curlDownload(url, configPath);
-  }
 }
