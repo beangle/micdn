@@ -115,12 +115,6 @@ sudo dnf install micdn                  # 项目下其它包按需安装
 
 二进制动态链接 ldc 运行时，安装时 dnf 自动拉取 `ldc-libs`，无需手动预装。
 
-曾启用过旧项目的用户（`chaostone/micdn` 已并入 `chaostone/beangle` 后删除）执行一次清理，避免 dnf 刷新时报仓库不可用：
-
-```bash
-sudo dnf copr disable chaostone/micdn
-```
-
 **下载路径说明**：COPR 生成的 `.repo` 是写死的 `baseurl`（`download.copr.fedorainfracloud.org`），**不走 Fedora MirrorManager**，国内无镜像、一律直连美东；micdn 本体 RPM 约 5MB，一次下载即可。依赖包（`ldc-libs` 等）来自 Fedora 官方源，正常走清华、中科大等国内镜像，不受影响。
 
 ---
