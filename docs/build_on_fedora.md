@@ -115,6 +115,14 @@ sudo dnf install micdn                  # 项目下其它包按需安装
 
 二进制动态链接 ldc 运行时，安装时 dnf 自动拉取 `ldc-libs`，无需手动预装。
 
+曾启用过旧项目的用户（`chaostone/micdn` 已并入 `chaostone/beangle` 后删除）执行一次清理，避免 dnf 刷新时报仓库不可用：
+
+```bash
+sudo dnf copr disable chaostone/micdn
+```
+
+**下载路径说明**：COPR 生成的 `.repo` 是写死的 `baseurl`（`download.copr.fedorainfracloud.org`），**不走 Fedora MirrorManager**，国内无镜像、一律直连美东；micdn 本体 RPM 约 5MB，一次下载即可。依赖包（`ldc-libs` 等）来自 Fedora 官方源，正常走清华、中科大等国内镜像，不受影响。
+
 ---
 
 ## 发布新版本
@@ -130,7 +138,7 @@ sudo dnf install micdn                  # 项目下其它包按需安装
 
 **Q：构建报 `Empty %files file .../debugsourcefiles.list`**
 
-Fedora 默认自动生成 `-debuginfo` / `-debugsource` 子包，而 LDC 编译产物没有 debugedit 能识别的调试信息，文件列表为空即失败。spec 里已有 ` %global _enable_debug_packages 0` 关闭该机制；基于旧 SRPM 重编时请换用含此行的新 SRPM。
+Fedora 默认自动生成 `-debuginfo` / `-debugsource` 子包，而 LDC 编译产物没有 debugedit 能识别的调试信息，文件列表为空即失败。spec 里已有 `%global _enable_debug_packages 0` 关闭该机制；基于旧 SRPM 重编时请换用含此行的新 SRPM。
 
 **Q：`copr-cli` 报 `Login invalid/expired`**
 
@@ -143,3 +151,11 @@ Fedora 默认自动生成 `-debuginfo` / `-debugsource` 子包，而 LDC 编译�
 **Q：COPR 网页访问很慢**
 
 COPR 托管在美东，国内访问延迟高属正常；且本机 IPv6 解析到该域名不通时浏览器会先等超时再回落 IPv4。创建项目、提交构建、查状态均可用 `copr-cli` 完成，仅首次生成 API token 需要网页操作。
+
+**Q：国内用户安装 COPR 包会走镜像吗**
+
+不会。COPR 仓库不在 Fedora 镜像网络内，`.repo` 直指 `download.copr.fedorainfracloud.org`，所有用户直连美东。若将来国内用户量大、反馈慢，可将 RPM 同步到 GitHub Release 或自建镜像站分发；现阶段 micdn 体积小（约 5MB），直连即可。
+
+**Q：如何把其它 beangle 仓库（jstart、basctl）也放进同一项目**
+
+各自写好 spec、打成 SRPM 后执行 `copr-cli build beangle <srpm>`，即成为该项目下新的独立包；用户已 enable 过 `chaostone/beangle` 的无需再操作，直接 `dnf install` 新包。包多了以后可改用 SCM 方式（`copr-cli add-package-scm`）绑定各 git 仓库，push 后自动构建。
