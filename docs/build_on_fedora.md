@@ -49,7 +49,9 @@ rpmbuild --rebuild target/micdn-*.src.rpm
 
 ## COPR 发布
 
-COPR 是 Fedora 官方托管的第三方构建仓库：无需官方包审核，上传 SRPM 即可为多个 Fedora 版本自动构建，用户以 `dnf copr enable` 方式安装。micdn 的项目：**https://copr.fedorainfracloud.org/coprs/chaostone/micdn/**
+COPR 是 Fedora 官方托管的第三方构建仓库：无需官方包审核，上传 SRPM 即可为多个 Fedora 版本自动构建，用户以 `dnf copr enable` 方式安装。
+
+beangle 系列工具共用一个 COPR 项目 **chaostone/beangle**（**https://copr.fedorainfracloud.org/coprs/chaostone/beangle/**）：一个项目下挂多个独立 RPM 包（`micdn`、`jstart`、`basctl`……），用户 `dnf copr enable` 一次即可安装全部包；各包独立版本、独立 spec、独立发布节奏。
 
 ### 一次性准备
 
@@ -70,44 +72,45 @@ COPR 是 Fedora 官方托管的第三方构建仓库：无需官方包审核，�
 ### 创建项目（首次）
 
 ```bash
-copr-cli create micdn \
+copr-cli create beangle \
   --chroot fedora-44-x86_64 \
   --chroot fedora-43-x86_64 \
   --chroot fedora-rawhide-x86_64 \
   --enable-net on \
-  --description "micdn: a minimal, config-driven CDN (Maven/npm/static/blob)" \
-  --instructions "sudo dnf copr enable chaostone/micdn && sudo dnf install micdn"
+  --description "Beangle family tools: micdn (minimal CDN), jstart, basctl, ..." \
+  --instructions "sudo dnf copr enable chaostone/beangle && sudo dnf install micdn"
 ```
 
-- **`--enable-net on` 必须**：spec 的 `%build` 里 `dub fetch` 要访问 code.dlang.org，COPR 构建 chroot 默认断网。
+- **`--enable-net on` 必须**：micdn 的 spec 在 `%build` 里 `dub fetch` 要访问 code.dlang.org，COPR 构建 chroot 默认断网。
 - chroot 按需增删（`copr-cli list-chroots` 查看可用列表）。
+- 后续新增包（jstart、basctl 等）不需要新项目：各自出 SRPM 后 `copr-cli build beangle <srpm>` 即挂到同一项目下。
 
 ### 提交构建
 
 ```bash
 ./scripts/build_srpm.sh
-copr-cli build micdn target/micdn-*.src.rpm
+copr-cli build beangle target/micdn-*.src.rpm
 ```
 
 查看进度与结果：
 
 ```bash
-copr-cli list-builds micdn
+copr-cli list-builds beangle
 copr-cli status <build-id>
 ```
 
 构建日志（失败排查）：
 
 ```
-https://download.copr.fedorainfracloud.org/results/chaostone/micdn/<chroot>/<build-id>-micdn/builder-live.log.gz
+https://download.copr.fedorainfracloud.org/results/chaostone/beangle/<chroot>/<build-id>-micdn/builder-live.log.gz
 ```
 
 ### 用户安装
 
 ```bash
 sudo dnf install 'dnf5-command(copr)'   # Fedora 41+ 的 copr 插件
-sudo dnf copr enable chaostone/micdn
-sudo dnf install micdn
+sudo dnf copr enable chaostone/beangle
+sudo dnf install micdn                  # 项目下其它包按需安装
 ```
 
 二进制动态链接 ldc 运行时，安装时 dnf 自动拉取 `ldc-libs`，无需手动预装。
@@ -118,7 +121,7 @@ sudo dnf install micdn
 
 1. 上游打 tag 并推送：`git tag v0.4.1 && git push origin v0.4.1`
 2. 本机出 SRPM：`./scripts/build_srpm.sh`
-3. 提交 COPR：`copr-cli build micdn target/micdn-0.4.1-*.src.rpm`
+3. 提交 COPR：`copr-cli build beangle target/micdn-0.4.1-*.src.rpm`
 4. 构建成功后用户 `sudo dnf update micdn` 即可升级
 
 ---
