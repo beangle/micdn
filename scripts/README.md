@@ -4,7 +4,7 @@
 |------|------|
 | `build_image.sh` | Podman 构建 OCI 镜像（Alpine / musl） |
 | `build_deb.sh` | 构建 `.deb`（需 Debian 系或 `dpkg-deb`） |
-| `build_rpm.sh` | 构建二进制 `.rpm`（需 `rpmbuild`、`fakeroot`；先 `dub clean` 再 release 构建） |
+| `build_rpm.sh` | 构建二进制 `.rpm`（需 `rpmbuild >= 4.14`、`fakeroot`；先 `dub clean` 再 release 构建） |
 | `build_srpm.sh` | 构建源代码 `.src.rpm`（需 `rpmbuild`、`tar`；可用 `rpmbuild --rebuild` 在目标机重编） |
 | `build_common.sh` | 打包共用：`dub clean`、清空 `target/`、`dub build --build=release-nobounds` |
 | `stress_bench.sh` | 四场景吞吐压测（目录/文件/404/gzip，预热 + 多轮取中位，见 `docs/stress_test.md`） |
