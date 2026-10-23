@@ -18,6 +18,10 @@
 
 `/etc/micdn` 安装后为 **`root:beangle 2775`**：服务用户可在 reload 下载远程配置后原子替换 `micdn.xml`；`micdn.conf` 为 **`root:beangle 0640`**，服务进程只读，避免把 token 暴露给其他用户。
 
+> **`/etc/micdn/micdn.xml` 与 `/etc/micdn/micdn.conf` 是用户数据：卸载、重装、升级都不得删除或
+> 覆盖。** 包内只放 `/usr/share/micdn/*.default` 模板，安装脚本只在缺失时生成；打包约束见
+> [../scripts/README.md](../scripts/README.md)。
+
 ---
 
 ## 将维护账号加入 `beangle` 组

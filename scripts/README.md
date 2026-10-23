@@ -16,3 +16,8 @@
 Arch Linux AUR 打包步骤见 **[docs/build_aur.md](../docs/build_aur.md)**（维护目录通常为 `~/aur-packages/micdn`）。
 
 容器与原生安装的默认配置刻意分开放：`container/micdn.xml` 面向容器网络与路径；`package/micdn.xml` 面向本机用户与 `127.0.0.1`。
+
+> **打包红线：`/etc/micdn/micdn.xml` 与 `/etc/micdn/micdn.conf` 是用户配置，任何安装包都不得删除或
+> 覆盖。** 包内只放 `/usr/share/micdn/*.default` 模板；`%post`/`postinst` 只在目标文件不存在时生成；
+> 不要把这两个路径写进 `%files`、`conffiles`，也不要在 `%preun`/`prerm`/`%postun`/`postrm` 里 `rm`。
+> 卸载、重装、升级都必须保留原文件。
