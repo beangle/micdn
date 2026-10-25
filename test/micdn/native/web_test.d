@@ -135,6 +135,8 @@ unittest {
   auto head = exchange(config, "/native/org/beangle/ems/portal/4.20.13/portal-4.20.13-linux-amd64.tar.gz",
       HTTPMethod.HEAD, err);
   assert(err is null && head.res.statusCode == HTTPStatus.ok);
+  assert(head.res.headers.get("Last-Modified", "").length > 0);
+  assert(head.res.headers.get("ETag", "").length > 0);
 
   // 目录：缺尾斜杠 302 补 `/`，带上尾斜杠列出内容
   auto dir = exchange(config, "/native/org/beangle/ems/portal/4.20.13", HTTPMethod.GET, err);

@@ -72,6 +72,8 @@ curl -T portal-4.20.14-SNAPSHOT-linux-amd64.tar.gz.sha1 \
 ### 下载：`GET|HEAD /native/{仓库内相对路径}`
 
 - 命中则发文件（`Content-Type` 按扩展名；`HEAD` 同路径无体）；缺失 `404`。
+- 普通文件也带 `ETag` / `Last-Modified`；jstart 在 native SNAPSHOT 本地命中时用它或远端
+  `.sha1` 判断是否需要重新下载。
 - 目录（含仓库根 `/native`）列出内容；缺尾斜杠先 `302` 补 `/`（列表页相对链接才正确）；目录的 `HEAD` 是
   `405`（与 `/maven` 同口径）。
 - 没有回源：native 仓库不在 micdn 里做任何上游镜像，未同步到的构件就是 `404`（迁移期用上传或运维拷贝补齐）。
