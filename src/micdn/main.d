@@ -53,7 +53,7 @@ import micdn.native.web;
 import micdn.npm;
 import micdn.npm.packument;
 import micdn.npm.web;
-import micdn.remote : fetchRemoteConfig, loadRemoteConfig;
+import micdn.remote : fetchRemoteConfig, loadRemoteEnvironment;
 import micdn.web;
 import micdn.www;
 import micdn.www.web;
@@ -109,7 +109,7 @@ class ReloadableDispatcher : HTTPServerRequestHandler {
   ReloadResult tryReload() {
     logInfo("Config reload started: %s", _configFile);
     try {
-      auto remote = loadRemoteConfig(_configFile);
+      auto remote = loadRemoteEnvironment();
       auto config = remote.active ? fetchRemoteConfig(remote, _configFile) : parseFile(_configFile);
       auto listenPair = parseListen(config.listen);
       applyLimits(_settings, config);
@@ -317,10 +317,11 @@ version (unittest) {
       applyRuntimeProfile();
       configFile = resolveConfigFile("micdn.xml");
 
-      if (!exists(expandTilde(configFile)))
+      auto remote = loadRemoteEnvironment();
+      if (!remote.active && !exists(expandTilde(configFile)))
         return reportStartupError("Config file[" ~ configFile ~ "] not exists!");
 
-      auto config = parseFile(expandTilde(configFile));
+      auto config = remote.active ? fetchRemoteConfig(remote, configFile) : parseFile(expandTilde(configFile));
       applyMicdnLogging(config.logFile, config.logLevel);
       logInfo("Find config: %s", configFile);
 

@@ -11,47 +11,29 @@ module test.micdn.remote_test;
 import std.exception : assertThrown;
 
 import micdn.config : parse;
-import micdn.remote : parseRemoteConfig, remoteConfigPath;
+import micdn.remote : parseRemoteEnvironment;
 
-@("micdn.conf parses [remote] url and token")
-unittest {
-  auto rc = parseRemoteConfig(`[remote]
-url = http://cfg.example.com/micdn.xml
-token = s3cret
-`);
+@("BAS_PRINCIPAL splits project and root url") unittest {
+  auto rc = parseRemoteEnvironment("org.example@https://hub.example.com", "s3cret");
   assert(rc.active);
-  assert(rc.url == "http://cfg.example.com/micdn.xml");
+  assert(rc.url == "https://hub.example.com");
+  assert(rc.project == "org.example");
   assert(rc.token == "s3cret");
 }
 
-@("micdn.conf accepts https, quoted values and unrelated keys")
-unittest {
-  auto rc = parseRemoteConfig(`[other]
-retries = 3
-
-[REMOTE]
-URL = "https://cfg.example.com/micdn.xml"
-token = 'a-b.c_d~e+f/g='
-`);
-  assert(rc.url == "https://cfg.example.com/micdn.xml");
-  assert(rc.token == "a-b.c_d~e+f/g=");
+@("empty environment means local mode") unittest {
+  assert(!parseRemoteEnvironment("", "").active);
 }
 
-@("micdn.conf only accepts http/https and a header-safe token")
-unittest {
-  assertThrown!Exception(parseRemoteConfig("[remote]\nurl = file:///etc/micdn.xml\n"));
-  assertThrown!Exception(parseRemoteConfig("[remote]\nurl = ftp://cfg/micdn.xml\n"));
-  assertThrown!Exception(parseRemoteConfig("[remote]\nurl = http://cfg/micdn.xml\ntoken = a b\n"));
-  assertThrown!Exception(parseRemoteConfig("[remote]\nurl = http://cfg/micdn.xml\ntoken = a,b\n"));
-  assertThrown!Exception(parseRemoteConfig("url = http://cfg/micdn.xml\n"));
+@("remote environment requires both variables and a valid principal") unittest {
+  assertThrown!Exception(parseRemoteEnvironment("", "token"));
+  assertThrown!Exception(parseRemoteEnvironment("org.example@https://hub", ""));
+  assertThrown!Exception(parseRemoteEnvironment("org.example", "token"));
+  assertThrown!Exception(parseRemoteEnvironment("org/example@https://hub", "token"));
+  assertThrown!Exception(parseRemoteEnvironment("org.example@ftp://hub", "token"));
+  assertThrown!Exception(parseRemoteEnvironment("org.example@https://hub", "a b"));
 }
 
-@("micdn.conf sits next to micdn.xml")
-unittest {
-  assert(remoteConfigPath("/etc/micdn/micdn.xml") == "/etc/micdn/micdn.conf");
-}
-
-@("micdn.xml rejects the retired remote attribute")
-unittest {
+@("micdn.xml rejects the retired remote attribute") unittest {
   assertThrown!Exception(parse("/tmp", `<micdn remote="http://cfg.example.com/micdn.xml"></micdn>`));
 }

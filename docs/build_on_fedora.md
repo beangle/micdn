@@ -4,6 +4,46 @@
 
 ---
 
+## 版本支持
+
+| Fedora | COPR x86_64 | 推荐方式 |
+|---|---|---|
+| 41 / 42 | 否（已 EOL，COPR 不再提供 chroot） | 在目标机用 SRPM 重编 |
+| 43 / 44 / rawhide | 是 | `copr-cli build` |
+
+COPR 只为尚未 EOL 的 Fedora 版本保留 chroot。`copr-cli list-chroots` 当前没有
+`fedora-41-x86_64`，`get-chroot chaostone/beangle/fedora-41-x86_64` 会返回
+`Chroot name ... does not exist`；Fedora 42 仅有 `riscv64`，同样没有 x86_64。不要尝试把
+41/42 加入 COPR 项目。
+
+Fedora 41/42 仍可用同一份 SRPM 在目标机本地重编。SRPM 的 `Release` 是
+`1%{?dist}`，在 41 上会展开为 `1.fc41`，不受 SRPM 文件名中的 `fc44` 影响：
+
+```bash
+sudo dnf install rpm-build ldc dub gcc make zlib-devel openssl-devel curl binutils
+sudo dnf builddep micdn-<版本>-1.*.src.rpm
+rpmbuild --rebuild micdn-<版本>-1.*.src.rpm
+# 产物：~/rpmbuild/RPMS/x86_64/micdn-<版本>-1.fc41.x86_64.rpm
+```
+
+Fedora 41/42 的官方仓库已归档。若 `dnf` 返回 404，可把仓库切到 Fedora Archive：
+
+```ini
+[fedora]
+name=Fedora $releasever - $basearch
+baseurl=https://archives.fedoraproject.org/pub/archive/fedora/linux/releases/$releasever/Everything/$basearch/os/
+enabled=1
+gpgcheck=1
+
+[updates]
+name=Fedora $releasever - $basearch - Updates
+baseurl=https://archives.fedoraproject.org/pub/archive/fedora/linux/updates/$releasever/Everything/$basearch/
+enabled=1
+gpgcheck=1
+```
+
+---
+
 ## 前置条件
 
 ```bash
@@ -83,6 +123,8 @@ copr-cli create beangle \
 
 - **`--enable-net on` 必须**：micdn 的 spec 在 `%build` 里 `dub fetch` 要访问 code.dlang.org，COPR 构建 chroot 默认断网。
 - chroot 按需增删（`copr-cli list-chroots` 查看可用列表）。
+- **不要添加 Fedora 41/42 x86_64**：这两个版本已 EOL，COPR 没有对应 chroot；请按“版本支持”
+  一节在目标机用 SRPM 重编。
 - 后续新增包（jstart、basctl 等）不需要新项目：各自出 SRPM 后 `copr-cli build beangle <srpm>` 即挂到同一项目下。
 
 ### 提交构建
@@ -125,6 +167,9 @@ sudo dnf install micdn                  # 项目下其它包按需安装
 2. 本机出 SRPM：`./scripts/build_srpm.sh`
 3. 提交 COPR：`copr-cli build beangle target/micdn-0.4.1-*.src.rpm`
 4. 构建成功后用户 `sudo dnf update micdn` 即可升级
+
+COPR 只会为项目当前启用的 chroot 出包；Fedora 41/42 不在其中，需要用同一份 SRPM 在目标机
+执行 `rpmbuild --rebuild`，不能把 43/44 的 RPM 直接安装到 41/42。
 
 ---
 

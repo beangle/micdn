@@ -106,7 +106,7 @@ MicdnConfig parse(string defaultHome, string content, const string sourceFile = 
   validateMicdnServiceElementsUnique(dom);
   auto rootAttrs = getAttrs(dom);
   if (rootAttrs.get("remote", "").length > 0)
-    throw new Exception("micdn.xml no longer supports the remote attribute; configure remote reload in micdn.conf");
+    throw new Exception("micdn.xml no longer supports the remote attribute; configure BAS_PRINCIPAL / BAS_TOKEN");
   string listen = rootAttrs.get("listen", "127.0.0.1:8888");
   auto home = resolveHome(rootAttrs.get("home", ""), defaultHome);
 

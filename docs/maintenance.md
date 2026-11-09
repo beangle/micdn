@@ -11,14 +11,14 @@
 | 运行用户 | `micdn`（系统用户，无登录 shell） |
 | 运行组 | `beangle` |
 | 配置文件 | `/etc/micdn/micdn.xml`（首次安装由 `/usr/share/micdn/micdn.xml.default` 复制） |
-| reload bootstrap | `/etc/micdn/micdn.conf`（首次安装由 `/usr/share/micdn/micdn.conf.default` 复制；仅 `[remote] url` 非空时由 reload 使用） |
+| 远程配置 | `/etc/micdn/micdn.env`（systemd `EnvironmentFile`；`BAS_PRINCIPAL` / `BAS_TOKEN`，启动和 reload 共用） |
 | 常见数据路径 | `/var/lib/micdn/`（blob、maven、npm、native、local 等）、`/var/cache/micdn/`（asset、www）、`/var/log/micdn/` |
 
 安装脚本会将上述 **`/var/*`** 目录 **`chown` 为 `micdn:beangle`**，并设为 **`2775`**（`rwxrwsr-x`：组可读写、**setgid** 使新建子目录继承 **`beangle` 组**）。systemd 单元中配置了 **`UMask=0002`**，进程新建文件对组可写。
 
-`/etc/micdn` 安装后为 **`root:beangle 2775`**：服务用户可在 reload 下载远程配置后原子替换 `micdn.xml`；`micdn.conf` 为 **`root:beangle 0640`**，服务进程只读，避免把 token 暴露给其他用户。
+`/etc/micdn` 安装后为 **`root:beangle 2775`**：服务用户可在 reload 下载远程配置后原子替换 `micdn.xml`；`micdn.env` 为 **`root:root 0600`**，由 systemd 读取，进程只拿到环境变量。
 
-> **`/etc/micdn/micdn.xml` 与 `/etc/micdn/micdn.conf` 是用户数据：卸载、重装、升级都不得删除或
+> **`/etc/micdn/micdn.xml` 与 `/etc/micdn/micdn.env` 是用户数据：卸载、重装、升级都不得删除或
 > 覆盖。** 包内只放 `/usr/share/micdn/*.default` 模板，安装脚本只在缺失时生成；打包约束见
 > [../scripts/README.md](../scripts/README.md)。
 
@@ -84,21 +84,17 @@ sudo chmod 2775 /var/log/micdn
 
 修改配置后若服务支持热加载，可 **`systemctl reload micdn`**（即 SIGHUP）；否则 **`systemctl restart micdn`**。reload 的触发方式、工作流程与生效边界见 **[reload.md](./reload.md)**。
 
-### 编辑 `/etc/micdn/micdn.conf`（可选）
+### 编辑 `/etc/micdn/micdn.env`（可选）
 
-只有需要 reload 从远端刷新 `micdn.xml` 时才配置该文件。使用 `sudo` 编辑，保持属主/权限不变：
+只有需要从 bashub 刷新 `micdn.xml` 时才配置该文件：
 
-```ini
-[remote]
-url = http://cfg.example.com/micdn.xml
-token = s3cret
+```sh
+BAS_PRINCIPAL=org.example@https://hub.example.com
+BAS_TOKEN=s3cret
 ```
 
-启动、`resolve`、`deploy`、`clean`、`install` 都不读取它；`systemctl reload micdn` 会读取与
-`/etc/micdn/micdn.xml` 同目录的 `micdn.conf`。不需要远程刷新时，保留空模板即可。token 只放在该文件中，
-不要写回 `micdn.xml`。
-
----
+启动和 `systemctl reload micdn` 都读取它；两项都为空时使用本地 `micdn.xml`。
+只设置一项会启动失败，不做本地 fallback。token 只放在该文件中，不要写回 `micdn.xml`。
 
 ## 解析配置（`resolve`）
 

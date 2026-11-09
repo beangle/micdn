@@ -11,13 +11,13 @@
 | `stress_mem.sh` | 多文件内存压测（自生成样例，c=50 多路径 + c=200 heavy，可选 `/admin/reclaim`） |
 | `setup-windows.ps1` | Windows 下 dub / 依赖补丁 |
 | `container/` | **仅镜像**：默认 `micdn.xml`、`entrypoint.sh`；可选本地 `host-dub-cache/`（见 `.gitignore`） |
-| `package/` | **deb/rpm 与镜像共用**：面向 systemd 安装的 `micdn.xml`（与容器版不同）、reload 用 `micdn.conf`、`micdn.service` |
+| `package/` | **deb/rpm 与镜像共用**：面向 systemd 安装的 `micdn.xml`（与容器版不同）、reload 用 `micdn.env`、`micdn.service` |
 
 Arch Linux AUR 打包步骤见 **[docs/build_aur.md](../docs/build_aur.md)**（维护目录通常为 `~/aur-packages/micdn`）。
 
 容器与原生安装的默认配置刻意分开放：`container/micdn.xml` 面向容器网络与路径；`package/micdn.xml` 面向本机用户与 `127.0.0.1`。
 
-> **打包红线：`/etc/micdn/micdn.xml` 与 `/etc/micdn/micdn.conf` 是用户配置，任何安装包都不得删除或
+> **打包红线：`/etc/micdn/micdn.xml` 与 `/etc/micdn/micdn.env` 是用户配置，任何安装包都不得删除或
 > 覆盖。** 包内只放 `/usr/share/micdn/*.default` 模板；`%post`/`postinst` 只在目标文件不存在时生成；
 > 不要把这两个路径写进 `%files`、`conffiles`，也不要在 `%preun`/`prerm`/`%postun`/`postrm` 里 `rm`。
 > 卸载、重装、升级都必须保留原文件。
