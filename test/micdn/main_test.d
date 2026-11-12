@@ -13,7 +13,18 @@ import std.path : absolutePath, buildPath;
 
 import micdn.asset : AssetRepo;
 import micdn.config : parseFile;
-import micdn.main : commandArg, commandIndex, registeredEndpoints, runClean;
+import micdn.main : commandArg, commandIndex, parseListen, registeredEndpoints, runClean;
+
+@("parseListen accepts wildcard hosts as all IPv4 interfaces")
+unittest {
+  auto wildcard = parseListen("*:8888");
+  assert(wildcard[0] == "0.0.0.0");
+  assert(wildcard[1] == 8888);
+
+  auto explicitAddr = parseListen("127.0.0.1:8080");
+  assert(explicitAddr[0] == "127.0.0.1");
+  assert(explicitAddr[1] == 8080);
+}
 
 @("only declared <maven>/<npm>/<native> sections register their endpoints")
 unittest {

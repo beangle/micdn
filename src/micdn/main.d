@@ -446,11 +446,14 @@ void registerWwwCatchAll(T)(URLRouter router, T handler) {
 }
 
 /// 解析 listen 字符串 "host:port"，返回 (host, port)。
-private Tuple!(string, ushort) parseListen(string listen) {
+/// 兼容 nginx/HAProxy 风格的 "*:port"，等价于监听所有 IPv4 接口。
+package(micdn) Tuple!(string, ushort) parseListen(string listen) {
   auto idx = listen.lastIndexOf(':');
   if (idx < 0)
     throw new Exception("Invalid listen format: " ~ listen ~ ", expected host:port");
   auto host = listen[0 .. idx];
+  if (host == "*")
+    host = "0.0.0.0";
   auto port = listen[idx + 1 .. $].to!ushort;
   return tuple(host, port);
 }

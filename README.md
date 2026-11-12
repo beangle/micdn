@@ -98,6 +98,7 @@ resolved per request, so one packument works behind any host name.
 
 A `<bundle>` takes either `<jar>` / `<npm>` providers (extracted and indexed at deploy time) or
 `<dir>` (symlinked, no index). A fuller sample lives in [`resources/micdn.xml`](resources/micdn.xml).
+`listen="*:8888"` is accepted as shorthand for `listen="0.0.0.0:8888"` (all IPv4 interfaces).
 
 ## Publishing and auth
 

@@ -38,7 +38,7 @@ import micdn.routes;
     通过 parse/parseFile 从 XML 加载，通过 staticToXml 序列化回 XML。
 */
 class MicdnConfig {
-  /// 监听地址，格式 host:port，默认 127.0.0.1:8888
+  /// 监听地址，格式 host:port；*:port 等价于 0.0.0.0:port，默认 127.0.0.1:8888
   const string listen;
   /// 根目录，空表示 xml 所在目录，~ 表示用户主目录
   const string home;

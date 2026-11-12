@@ -345,6 +345,8 @@ PUT 只在声明了 `<maven>` / `<npm>` / `<native>` 的端点上注册。
 
 bundle 支持两类 provider：`<jar>`/`<npm>` 解压部署并构建发布期索引；`<dir>` 以符号链接挂载源目录、不构建索引（也不参与 gzip 预压缩）。更完整的样例见 [`resources/micdn.xml`](../resources/micdn.xml)。
 
+`listen="*:8888"` 是 `listen="0.0.0.0:8888"` 的简写，表示监听所有 IPv4 接口。
+
 ## gzip 预压缩
 
 static / www 的文本类资源（js/css/html/svg/json 等）在**部署期**预压缩为 `path.gz` sidecar，请求期命中即直接发送（`Content-Encoding: gzip`、`Vary: Accept-Encoding`），无需请求期压缩：
