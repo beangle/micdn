@@ -106,17 +106,21 @@ class NpmRepo {
   const string[] remotes;
   /// 开发版（dev/预发布）专用 registry（`<npm><dev remote="..."/>`）；空串表示开发版不代理、只认本地
   const string devRemote;
+  /// 开发版上游的 Bearer token；空表示匿名
+  const string devToken;
 
-  this(const string base, const string[] remotes, const string devRemote = "") {
+  this(const string base, const string[] remotes, const string devRemote = "",
+      const string devToken = "") {
     enforce(base.length > 0, "repo base must not be empty");
     this.base = normalizeBasePath(base);
     this.remotes = remotes;
     this.devRemote = devRemote;
+    this.devToken = devToken;
   }
 
   static NpmRepo build(MicdnConfig config) {
     mkdirRecurse(config.npm.base);
-    return new NpmRepo(config.npm.base, config.npm.remotes, config.npm.devRemote);
+    return new NpmRepo(config.npm.base, config.npm.remotes, config.npm.devRemote, config.npm.devToken);
   }
 
   /** 版本规格对应的上游列表（按优先级）：
@@ -168,6 +172,11 @@ class NpmRepo {
     return registryBase ~ "/" ~ pathEnc ~ "/-/" ~ tarballName;
   }
 
+  /// 上游 registry 对应的下载令牌：只有 `<dev>` 上游带 token。
+  private string tokenOf(string registryBase) const {
+    return registryBase == devRemote ? devToken : "";
+  }
+
   /** 若本地已有 tgz 返回 true；否则按 `versionPart` 对应的上游列表顺序直接请求 tarball URL
       下载（开发版走 `<npm><dev>`，未配置时不下上游），成功返回 true。
   */
@@ -188,7 +197,7 @@ class NpmRepo {
     foreach (registryBase; upstreams) {
       string url = tarballUrl(scopePart, namePart, versionPart, registryBase);
       logInfo("Downloading %s", url);
-      if (curlDownload(url, local)) {
+      if (curlDownload(url, local, tokenOf(registryBase))) {
         return true;
       }
     }
@@ -238,7 +247,7 @@ class NpmRepo {
         if (exists(incoming))
           remove(incoming);
       logInfo("Downloading %s", url);
-      if (!curlDownload(url, incoming))
+      if (!curlDownload(url, incoming, tokenOf(registryBase)))
         continue;
       fetched = true;
       try

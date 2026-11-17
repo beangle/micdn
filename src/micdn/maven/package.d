@@ -52,21 +52,26 @@ class GavRepo {
   const string[] remotes = [];
   /** SNAPSHOT 专用上游；空串表示不代理 SNAPSHOT（只发本地已装入的构件） */
   const string snapshotRemote = "";
+  /// SNAPSHOT 上游的 Bearer token；空表示匿名
+  const string snapshotToken;
   /** SNAPSHOT 版本目录 maven-metadata.xml 的缓存有效期（见 `refreshSnapshotMetadata`）。 */
   Duration snapshotMetadataTtl = dur!"seconds"(60);
 
   static Sha1Postfix = ".sha1";
 
-  this(const(string) base, const(string[]) remotes, const(string) snapshotRemote = "") {
+  this(const(string) base, const(string[]) remotes, const(string) snapshotRemote = "",
+      const(string) snapshotToken = "") {
     enforce(base.length > 0, "repo base must not be empty");
     this.base = normalizeBasePath(base);
     this.remotes = remotes;
     this.snapshotRemote = snapshotRemote;
+    this.snapshotToken = snapshotToken;
   }
 
   static GavRepo build(MicdnConfig config) {
     mkdirRecurse(config.maven.base);
-    return new GavRepo(config.maven.base, config.maven.remotes, config.maven.snapshotRemote);
+    return new GavRepo(config.maven.base, config.maven.remotes, config.maven.snapshotRemote,
+        config.maven.snapshotToken);
   }
 
   /** 相对 uri 是否为 SNAPSHOT 路径：存在以 `-SNAPSHOT` 结尾的路径段。
@@ -121,7 +126,7 @@ class GavRepo {
     scope (exit)
       if (exists(incoming))
         std.file.remove(incoming);
-    if (!curlDownload(snapshotRemote ~ metaUri, incoming)) {
+    if (!curlDownload(snapshotRemote ~ metaUri, incoming, tokenOf(snapshotRemote))) {
       logWarn("SNAPSHOT metadata refresh failed for %s, keeping cached copy", metaUri);
       return exists(local);
     }
@@ -129,7 +134,7 @@ class GavRepo {
     scope (exit)
       if (exists(incomingSha1))
         std.file.remove(incomingSha1);
-    if (curlDownload(snapshotRemote ~ metaUri ~ Sha1Postfix, incomingSha1)) {
+    if (curlDownload(snapshotRemote ~ metaUri ~ Sha1Postfix, incomingSha1, tokenOf(snapshotRemote))) {
       auto actual = toHexString(sha1Of(cast(const(ubyte)[]) read(incoming))).idup.toLower;
       if (readText(incomingSha1).toLower.indexOf(actual) < 0) {
         logWarn("SNAPSHOT metadata sha1 mismatch for %s, keeping cached copy", metaUri);
@@ -203,6 +208,11 @@ class GavRepo {
     }
   }
 
+  /// 上游 URL 对应的下载令牌：只有 SNAPSHOT 上游带 token。
+  private string tokenOf(string registryBase) const {
+    return registryBase == snapshotRemote ? snapshotToken : "";
+  }
+
   /** try to download file
    * @return true if local exists
   */
@@ -213,7 +223,7 @@ class GavRepo {
     }
     foreach (r; upstreamsFor(uri)) {
       auto remote = r ~ uri;
-      if (curlDownload(remote, local)) {
+      if (curlDownload(remote, local, tokenOf(r))) {
         break;
       }
     }
