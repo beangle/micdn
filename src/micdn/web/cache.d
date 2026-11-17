@@ -13,6 +13,8 @@ import std.datetime;
 import std.path;
 import std.string;
 
+import micdn.web.ext : isImage;
+
 /**
  * `cacheControl` 为完整 `Cache-Control` 头；`maxAge` 与串中 `max-age=` 秒数一致（若有），供 vibe `handleCache` 写 `Expires` 等。
  * 不含 `max-age` 的策略（如 `no-cache` / `no-store`）对应 `maxAge == Duration.zero`。
@@ -134,10 +136,16 @@ pragma(inline, true) immutable(CachePolicy) assetBundleCachePolicy(bool isDynaBu
 pragma(inline, true) immutable(CachePolicy) blobObjectCachePolicy() { return publicMaxAge7d; }
 
 /**
- * WWW 静态文档：`*.html` → `publicNoCache`；其余 → `publicMaxAge7d`。
+ * WWW 静态文档（`<www><doc>`）：`*.html` 与图片 → `publicNoCache`；其余 → `publicMaxAge7d`。
+ *
+ * www doc 是整包重建的部署目录：deploy 先清空再重新解压，同名 URL 的图片可能被替换
+ * （如更新文档里的截图）。若给图片新鲜期（7 天），浏览器在到期前不会回源，改完图必须
+ * 禁用缓存或强制刷新才生效。图片因此与 HTML 一样 `no-cache`：允许缓存，但每次使用前
+ * 带 `If-None-Match` / `If-Modified-Since` 校验，内容未变时由 `handleCacheFile` 回 304。
+ * JS/CSS 等按指纹命名的构建产物仍保留 7 天新鲜期。
  */
 immutable(CachePolicy) wwwDocCachePolicy(string path) {
-  if (baseName(path).endsWith(".html"))
+  if (baseName(path).endsWith(".html") || isImage(path))
     return publicNoCache;
   return publicMaxAge7d;
 }

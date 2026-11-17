@@ -55,6 +55,7 @@ class WwwService {
 
     // gzip 预压缩按 doc 的 auto-gzip 开关（默认参与）：sidecar 信息随 rs.info.gzSize 传入，
     // sendFile 内部决定是否发送 path.gz（modified/flags 复用源文件，缓存元数据稳定）。
+    // 图片常被同名替换，与 HTML 一样 no-cache；其余静态资源仍 7 天（见 wwwDocCachePolicy）。
     sendFile(req, res, rs.path, rs.info, wwwDocCachePolicy(rs.path), &setCORS);
   }
 }

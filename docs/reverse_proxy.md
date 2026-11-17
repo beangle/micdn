@@ -19,11 +19,12 @@ micdn **不维护响应级的共享缓存**：每个请求都直接读磁盘返�
 | `maven-metadata.xml` | `public, no-cache` | 每次回源校验 |
 | `SNAPSHOT`、`*.lastUpdated`、`resolver-status.properties`（含 native 的 `SNAPSHOT` 路径） | `no-store` | 禁止缓存 |
 | static `<dir>` dyna bundle | `public, no-cache` | 回源校验 |
-| www 文档 `*.html` | `public, no-cache` | 回源校验 |
-| www 其余静态文件 | `public, max-age=604800` | 7 天 |
+| www 文档 HTML 与图片 | `public, no-cache` | 回源校验，见下 |
+| www 其余静态文件（JS/CSS/字体等） | `public, max-age=604800` | 7 天 |
 | blob 对象 | `public, max-age=604800` | 7 天 |
 
 - 可压缩内容统一带 `Vary: Accept-Encoding`（见 [guide.md gzip 预压缩](guide.md#gzip-预压缩)），缓存层会按 `Accept-Encoding` 分别缓存「原版」与「gz 版」，gzip 客户端命中压缩版、其余客户端命中原版，不会错发。
+- **www 文档里的图片与 HTML 不做新鲜期缓存**：`<doc>` 是整包重建的部署目录，deploy 会清空后重新解压，同名图片可能被替换（如更新文档截图）。若给 7 天 `max-age`，浏览器在到期前不回源，改完图必须禁用缓存或强制刷新才看得到。两者一律 `public, no-cache`：允许缓存，但每次使用前用 ETag / Last-Modified 校验，未变回 `304`，变了一次请求即可拿到新图。JS/CSS 等仍保留 7 天；需要图片也长期缓存时，给图片文件名加内容指纹。
 - 配置了 `<auth download-key>` 时，受保护的响应被降级为 `Cache-Control: private`（`no-store` 不变），
   共享缓存层必须尊重它：否则缓存会按 URL 命中，把受限内容交给没带凭据的请求者。**nginx `proxy_cache` 默认
   不会因为请求带 `Authorization` 就跳过缓存**，此时要么不使用共享缓存，要么把凭据纳入缓存键

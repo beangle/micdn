@@ -19,7 +19,7 @@ module test.micdn.web.cache_test;
 import std.datetime : Duration, days;
 
 import micdn.web.cache : gatedPolicy, noStore, publicMaxAge1yImmutable, publicMaxAge7d,
-    publicNoCache, npmArtifactCachePolicy;
+    publicNoCache, npmArtifactCachePolicy, wwwDocCachePolicy;
 
 @("npmArtifactCachePolicy: release tarballs stay immutable in both uri forms")
 unittest {
@@ -53,6 +53,19 @@ unittest {
       "sidecar without .tgz suffix must not inherit immutable");
   assert(npmArtifactCachePolicy("/_/lodash/4.17.21/lodash-notaversion.tgz") == publicNoCache,
       "unparseable version must not be treated as a release");
+}
+
+@("wwwDocCachePolicy: HTML and images revalidate, other www assets keep 7 days")
+unittest {
+  // www doc 每次 deploy 先清空再重新解压，同名图片可能被替换；给新鲜期会让浏览器在到期前
+  // 不回源、继续用旧图，所以图片与 HTML 一样 no-cache，由 ETag / Last-Modified 在未变时回 304。
+  foreach (path; ["/manual/index.html", "/manual/img/logo.png", "/manual/img/LOGO.PNG",
+      "/manual/img/bg.jpg", "/manual/img/icon.svg", "/manual/img/photo.webp"])
+    assert(wwwDocCachePolicy(path) == publicNoCache, path);
+  // JS/CSS/字体等构建产物仍保留 7 天新鲜期
+  foreach (path; ["/manual/app.js", "/manual/style.css", "/manual/font.woff2", "/manual/data.json"])
+    assert(wwwDocCachePolicy(path) == publicMaxAge7d, path);
+  assert(wwwDocCachePolicy("/manual/img/logo.png").maxAge == Duration.zero);
 }
 
 @("gatedPolicy downgrades public responses to private and keeps the rest")
