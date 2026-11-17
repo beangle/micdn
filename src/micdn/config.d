@@ -32,6 +32,7 @@ import micdn.fs.file : isSafePathSegments;
 import micdn.logging;
 import micdn.model;
 import micdn.web : normalizeBasePath;
+import micdn.web.curl : isValidBearerToken;
 import micdn.xml;
 
 /** 解析 home 属性：空=默认目录，~=用户主目录，否则 expandTilde。
@@ -44,10 +45,10 @@ private string resolveHome(string homeAttr, string defaultDir) {
   return expandTilde(homeAttr);
 }
 
-/** 展开 include 后校验：maven、npm、native、blob、static、www、auth 各至多出现一次。
+/** 展开 include 后校验：maven、npm、native、blob、static、www、auth、prune 各至多出现一次。
 */
 private void validateMicdnServiceElementsUnique(T)(ref DOMEntity!T dom) {
-  foreach (name; ["maven", "npm", "native", "blob", "static", "www", "auth"]) {
+  foreach (name; ["maven", "npm", "native", "blob", "static", "www", "auth", "prune"]) {
     size_t n = 0;
     foreach (c; dom.children) {
       if (isNamedElement(c.type) && c.name == name)
@@ -81,6 +82,17 @@ private string parseSingleRemote(T)(ref DOMEntity!T parent, string element) {
   if (url.length == 0)
     throw new Exception("<" ~ element ~ "> requires a non-empty remote attribute");
   return stripTrailingSlash(url);
+}
+
+/** 解析 `<dev token="..."/>` / `<snapshot token="..."/>` 的可选下载令牌。 */
+private string parseSingleRemoteToken(T)(ref DOMEntity!T parent, string element) {
+  auto entries = children(parent, element).array;
+  if (entries.length == 0)
+    return "";
+  auto token = getAttrs(entries[0]).get("token", "").strip;
+  if (token.length > 0 && !isValidBearerToken(token))
+    throw new Exception("<" ~ element ~ " token> contains an invalid character");
+  return token;
 }
 
 /** 解析节点下的 `<remote url="..."/>` 列表（按出现顺序即优先级），去掉 URL 末尾的 `/`。
@@ -155,8 +167,12 @@ MicdnConfig parse(string defaultHome, string content, const string sourceFile = 
   if (dom.children.any!(c => c.name == "auth")) {
     auth = parseAuth(dom);
   }
+  PruneConfig prune;
+  if (dom.children.any!(c => c.name == "prune")) {
+    prune = parsePrune(dom);
+  }
   return new MicdnConfig(asset, maven, blob, www, npm, listen, home, logFile, logLevel,
-      mavenDeclared, npmDeclared, auth, nativeDeclared, native);
+      mavenDeclared, npmDeclared, auth, nativeDeclared, native, prune);
 }
 
 /** 从本地 XML 文件解析 MicdnConfig。
@@ -198,8 +214,12 @@ string toXml(const MicdnConfig config) {
       app.put(i`    <remote url="$(remote)"/>`.text);
       app.put("\n");
     }
-    if (config.maven.snapshotRemote.length > 0)
-      app.put(i`    <snapshot remote="$(config.maven.snapshotRemote)"/>`.text ~ "\n");
+    if (config.maven.snapshotRemote.length > 0) {
+      app.put(i`    <snapshot remote="$(config.maven.snapshotRemote)"`.text);
+      if (config.maven.snapshotToken.length > 0)
+        app.put(i` token="$(escapeXmlAttr(config.maven.snapshotToken))"`.text);
+      app.put("/>\n");
+    }
     app.put("  </maven>\n");
   }
 
@@ -210,8 +230,12 @@ string toXml(const MicdnConfig config) {
       app.put(i`    <remote url="$(remote)"/>`.text);
       app.put("\n");
     }
-    if (config.npm.devRemote.length > 0)
-      app.put(i`    <dev remote="$(config.npm.devRemote)"/>`.text ~ "\n");
+    if (config.npm.devRemote.length > 0) {
+      app.put(i`    <dev remote="$(config.npm.devRemote)"`.text);
+      if (config.npm.devToken.length > 0)
+        app.put(i` token="$(escapeXmlAttr(config.npm.devToken))"`.text);
+      app.put("/>\n");
+    }
     app.put("  </npm>\n");
   }
 
@@ -285,6 +309,13 @@ string toXml(const MicdnConfig config) {
     app.put("  </www>\n");
   }
 
+  if (config.prune !is null) {
+    app.put(i`  <prune at="$(config.prune.at)"`.text);
+    app.put(i` npm-dev-keep="$(config.prune.npmDevKeep)"`.text);
+    app.put(i` maven-snapshot-keep="$(config.prune.mavenSnapshotKeep)"/>`.text);
+    app.put("\n");
+  }
+
   app.put("</micdn>\n");
   return app.data;
 }
@@ -306,11 +337,12 @@ MavenRepoConfig parseMaven(T)(string home, ref DOMEntity!T micdnDom) {
   string base = parseRepoBase(home, attrs, "/maven");
   // <snapshot> 可省略：省略时不代理 SNAPSHOT，只发本地已装入的快照构件。
   auto snapshotRemote = parseSingleRemote(dom, "snapshot");
+  auto snapshotToken = parseSingleRemoteToken(dom, "snapshot");
   string[] remoteRepos = parseRemotes(dom);
   if (remoteRepos.length == 0) {
     remoteRepos ~= defaultMavenRemote;
   }
-  return new MavenRepoConfig(base, remoteRepos, snapshotRemote);
+  return new MavenRepoConfig(base, remoteRepos, snapshotRemote, snapshotToken);
 }
 
 /** 从 DOM 节点解析 `<auth publish-key="…" download-key="…" max-size="…"/>`。
@@ -332,6 +364,42 @@ private AuthConfig parseAuth(T)(ref DOMEntity!T micdnDom) {
   auto config = new AuthConfig(publishKey, downloadKey);
   config.maxSize = parseSize(attrs.get("max-size", formatSizeForXml(defaultPublishMaxSize)));
   return config;
+}
+
+/** 解析 `<prune at="03:30" npm-dev-keep="1" maven-snapshot-keep="1"/>`。 */
+private PruneConfig parsePrune(T)(ref DOMEntity!T micdnDom) {
+  auto entries = children(micdnDom, "prune").array;
+  if (entries.length > 1)
+    throw new Exception("<prune> allows at most one element");
+  auto attrs = getAttrs(entries[0]);
+  auto at = attrs.get("at", "03:30").strip;
+  if (!isClockTime(at))
+    throw new Exception("<prune at> must be HH:MM (00:00-23:59), got: " ~ at);
+  auto npmKeep = parseKeepValue(attrs.get("npm-dev-keep", "1"), "npm-dev-keep");
+  auto mavenKeep = parseKeepValue(attrs.get("maven-snapshot-keep", "1"), "maven-snapshot-keep");
+  return new PruneConfig(at, npmKeep, mavenKeep);
+}
+
+private bool isClockTime(string value) {
+  if (value.length != 5 || value[2] != ':')
+    return false;
+  foreach (i; [0, 1, 3, 4])
+    if (value[i] < '0' || value[i] > '9')
+      return false;
+  auto hour = value[0 .. 2].to!int;
+  auto minute = value[3 .. 5].to!int;
+  return hour < 24 && minute < 60;
+}
+
+private uint parseKeepValue(string text, string name) {
+  uint value;
+  try
+    value = text.strip.to!uint;
+  catch (Exception)
+    throw new Exception("<prune " ~ name ~ "> must be a positive integer, got: " ~ text);
+  if (value == 0)
+    throw new Exception("<prune " ~ name ~ "> must be a positive integer, got: " ~ text);
+  return value;
 }
 
 /// 解析单个凭据属性：未写出=空（未配置），写出但只有空白=配置错误。
@@ -359,7 +427,8 @@ NpmRepoConfig parseNpm(T)(string home, ref DOMEntity!T micdnDom) {
   if (remoteRepos.length == 0) {
     remoteRepos ~= defaultNpmRemote;
   }
-  return new NpmRepoConfig(base, remoteRepos, parseSingleRemote(dom, "dev"));
+  return new NpmRepoConfig(base, remoteRepos, parseSingleRemote(dom, "dev"),
+      parseSingleRemoteToken(dom, "dev"));
 }
 
 /** 解析 native 发行包仓库配置（只有本地 base，没有上游；HTTP 前缀见 `mountNative`）。

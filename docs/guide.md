@@ -50,6 +50,7 @@ dub build --build=release-nobounds --compiler=ldc2
 ./target/micdn -f /etc/micdn/micdn.xml clean --yes # 清除 www/static 部署目录（交互终端下会逐项确认；maven/npm 缓存与 blob 数据不清理）
 ./target/micdn -f /etc/micdn/micdn.xml install build/xxx-0.0.2.tgz # 本地 npm 包入库并生成 packument
 ./target/micdn -f /etc/micdn/micdn.xml install target/x-1.0.0-20250803.132600-31.jar # 本地 maven SNAPSHOT 入库
+./target/micdn -f /etc/micdn/micdn.xml prune --dry-run # 清理旧开发版（npm dev / maven SNAPSHOT），只统计不删除
 ```
 
 `-f` 可为本地文件、目录（使用 `DIR/micdn.xml`）或 URL（下载到 `~/micdn.xml`）。
@@ -106,9 +107,14 @@ npm install @scope/xxx@dev --registry http://micdn:8888/npm/
 ```xml
 <npm base="${micdn.home}/npm">
   <remote url="https://registry.npmmirror.com" />
-  <dev remote="https://registry.example.com/dev" />
+  <dev remote="https://registry.example.com/dev" token="可选 Bearer token" />
 </npm>
 ```
+
+中心 micdn 的 `/npm` 配了 `<auth download-key>` 时，客户 micdn 从这里回源要带同一个 key：
+`<dev remote="http://central/npm" token="<download-key>"/>`。不回源（不配 `<dev>`）时开发版只认本地。
+令牌只应发往中心 micdn（或会补同值鉴权的反代）；把 `<dev>` 指向外部 registry 时不要带 token。
+
 
 - 回源按版本选上游（`NpmRepo.upstreamsFor`）：**开发版只走 `<dev>` 的 remote，不再回落正式版 remote**；正式版只走
   `<npm>` 的 remote。开发版 = 预发布**标识**是开发标识的版本（`0.0.3-dev.2`、`1.0-SNAPSHOT.1`，
@@ -149,6 +155,10 @@ artifactId 里含 `SNAPSHOT` 的正式版构件不会被误判成快照。
   <snapshot remote="https://oss.sonatype.org/content/repositories/snapshots/" />
 </maven>
 ```
+
+`<snapshot>` 与 `<dev>` 一样支持 `token`（Bearer）：中心 `/maven` 配了 `<auth download-key>` 时，
+客户 micdn 代理下载 SNAPSHOT 构件和版本元数据要带同一个 key，例如
+`<snapshot remote="http://central/maven" token="<download-key>"/>`；不填表示匿名。
 
 把 `mvn deploy` 产出的带时间戳构件交给 **`micdn install`**：
 
@@ -365,6 +375,34 @@ static / www 的文本类资源（js/css/html/svg/json 等）在**部署期**预
 | `dub build -c executable-static` | `version(MicdnUseLibcurl)` | 静态链接 libcurl | 不依赖宿主 curl/OpenSSL |
 
 默认构建的运行时外部命令依赖**仅 `curl` 一个**（tgz 解压已内置，见 `src/micdn/fs/tar.d`），rpm/deb/AUR 打包相应声明 `Depends: curl`；静态构建产物适合容器与离线环境。下载先写 `.part` 临时文件、成功才改名，失败按 curl 退出码记日志。
+
+## 仓库清理（prune）
+
+micdn 本地清理旧开发版；默认每个包 / 每个 SNAPSHOT 版本只留 **1** 份：
+
+| 目标 | 保留策略 |
+|------|----------|
+| npm | 每包最新 `npm-dev-keep`（默认 **1**）个预发布版本；正式版、任何 dist-tag 指向的版本、本地没有版本目录的上游条目保留；删目录后原子重写 packument |
+| maven | 每个 `*-SNAPSHOT` 版本目录最新 `maven-snapshot-keep`（默认 **1**，至少 1）个时间戳构建；版本级 `maven-metadata.xml` 指向的构建额外保留 |
+
+客户部署的 micdn 由 bashub 下发 `micdn.xml`，其中带一行清理策略：
+
+```xml
+<prune at="03:30" npm-dev-keep="1" maven-snapshot-keep="1"/>
+```
+
+micdn 按**本机时区**每天 `at`（默认 03:30）执行一次；不声明 `<prune>` 时不做定时清理，只保留手动入口。
+bashub 生成 `micdn.xml` 时默认写 `at="03:30"`、两个 keep 都为 1；要保留更多历史时改这两个值。
+
+```bash
+./target/micdn -f /etc/micdn/micdn.xml prune --dry-run   # 先看会删什么
+./target/micdn -f /etc/micdn/micdn.xml prune             # npm + maven（默认各留 1）
+./target/micdn -f /etc/micdn/micdn.xml prune npm --keep-dev=3
+curl http://127.0.0.1:8888/admin/prune                   # 本机手动触发，返回 JSON 统计
+```
+
+注意：npm 只清理本地有版本目录的预发布版本，上游代理来的 packument 条目不动；maven 只删同一 build 的
+jar/pom/sha1，不改 artifact 级 `maven-metadata.xml`。
 
 ## 安装与运维
 

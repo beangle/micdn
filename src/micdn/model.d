@@ -86,12 +86,14 @@ class MicdnConfig {
   const NativeRepoConfig native;
   /// `<native>` 是否声明（决定是否挂载 `/native`）；仓库配置本身始终可用
   const bool nativeDeclared;
+  /// 定时清理策略；null 表示不做定时清理
+  const PruneConfig prune;
 
   this(AssetConfig asset, MavenRepoConfig maven, BlobConfig blob, WwwConfig www = null,
       NpmRepoConfig npm = null, string listen = "127.0.0.1:8888",
       string home = "", string logFile = "console", string logLevel = "info",
       bool mavenDeclared = true, bool npmDeclared = true, AuthConfig auth = null,
-      bool nativeDeclared = true, NativeRepoConfig native = null) {
+      bool nativeDeclared = true, NativeRepoConfig native = null, PruneConfig prune = null) {
     this.listen = listen;
     this.home = home;
     this.logFile = logFile;
@@ -103,6 +105,7 @@ class MicdnConfig {
     this.npm = npm;
     this.auth = auth;
     this.native = native;
+    this.prune = prune;
     // 没有配置对象也就没有端点：把「声明」收敛为「声明且配置存在」，下游只看这一个标志
     this.mavenDeclared = mavenDeclared && maven !is null;
     this.npmDeclared = npmDeclared && npm !is null;
@@ -255,13 +258,16 @@ class MavenRepoConfig {
       未配置时 SNAPSHOT 不代理上游，`/maven` 只发本地已装入的快照构件。
   */
   const string snapshotRemote;
+  /// SNAPSHOT 上游的下载令牌（Bearer）；空表示匿名。只用于 `snapshotRemote`。
+  const string snapshotToken;
 
-  this(string base, string[] remotes, string snapshotRemote = "") {
+  this(string base, string[] remotes, string snapshotRemote = "", string snapshotToken = "") {
     assert(remotes.all!(r => !r.endsWith("/")), "Maven remote URL must not end with '/'");
     assert(snapshotRemote.length == 0 || !snapshotRemote.endsWith("/"),
         "Maven snapshot remote URL must not end with '/'");
     this.remotes = remotes.idup;
     this.snapshotRemote = snapshotRemote;
+    this.snapshotToken = snapshotToken;
     this.base = base;
   }
 
@@ -314,13 +320,16 @@ class NpmRepoConfig {
       有配置时，dev/预发布版本只从这个地址回源，不再走 `remotes`（见 `NpmRepo.upstreamsFor`）。
   */
   const string devRemote;
+  /// 开发版上游的下载令牌（Bearer）；空表示匿名。只用于 `devRemote`。
+  const string devToken;
 
-  this(string base, string[] remotes, string devRemote = "") {
+  this(string base, string[] remotes, string devRemote = "", string devToken = "") {
     assert(remotes.all!(r => !r.endsWith("/")), "NPM remote URL must not end with '/'");
     assert(devRemote.length == 0 || !devRemote.endsWith("/"),
         "NPM dev remote URL must not end with '/'");
     this.remotes = remotes.idup;
     this.devRemote = devRemote;
+    this.devToken = devToken;
     this.base = base;
   }
 
@@ -545,6 +554,27 @@ class AuthConfig {
   this(string publishKey, string downloadKey) {
     this.publishKey = publishKey;
     this.downloadKey = downloadKey;
+  }
+}
+
+/** 仓库清理策略（`<prune at="03:30" npm-dev-keep="1" maven-snapshot-keep="1"/>`）。
+
+    声明后 micdn 按本机时区每天 `at` 执行一次 `prune`：npm 每包保留最新 N 个预发布版本，
+    maven 每个 `*-SNAPSHOT` 版本目录保留最新 N 个时间戳构建（至少 1，元数据指向的额外保留）。
+    未声明则只保留手动 `micdn prune` / `/admin/prune`，不做定时清理。
+*/
+class PruneConfig {
+  /// 每天执行时刻（本机时区，HH:MM）
+  const string at;
+  /// npm 每个包保留的预发布版本数（>=1）
+  const uint npmDevKeep;
+  /// maven 每个 SNAPSHOT 版本目录保留的构建数（>=1）
+  const uint mavenSnapshotKeep;
+
+  this(string at, uint npmDevKeep = 1, uint mavenSnapshotKeep = 1) {
+    this.at = at;
+    this.npmDevKeep = npmDevKeep;
+    this.mavenSnapshotKeep = mavenSnapshotKeep;
   }
 }
 

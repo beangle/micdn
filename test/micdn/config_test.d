@@ -778,3 +778,34 @@ unittest {
     assertThrown(parseBlob("~/tmp", dom), "bucket name `" ~ name ~ "` must be rejected");
   }
 }
+
+@("prune policy parses, serializes, and rejects bad time/keep")
+unittest {
+  auto config = parse("/srv/micdn",
+      `<?xml version="1.0"?><micdn><prune at="03:30" npm-dev-keep="1" maven-snapshot-keep="2"/></micdn>`);
+  assert(config.prune !is null);
+  assert(config.prune.at == "03:30");
+  assert(config.prune.npmDevKeep == 1);
+  assert(config.prune.mavenSnapshotKeep == 2);
+  assert(toXml(config).canFind(
+      `<prune at="03:30" npm-dev-keep="1" maven-snapshot-keep="2"/>`));
+
+  assertThrown(parse("/srv/micdn", `<?xml version="1.0"?><micdn><prune at="24:00"/></micdn>`));
+  assertThrown(parse("/srv/micdn", `<?xml version="1.0"?><micdn><prune npm-dev-keep="0"/></micdn>`));
+  assertThrown(parse("/srv/micdn", `<?xml version="1.0"?><micdn><prune/><prune/></micdn>`));
+}
+
+@("npm dev / maven snapshot upstream tokens parse, serialize, and validate")
+unittest {
+  auto config = parse("/srv/micdn",
+      `<?xml version="1.0"?><micdn><npm><dev remote="https://central/npm" token="dev-token_1"/></npm>` ~
+      `<maven><snapshot remote="https://central/maven" token="snap-token_2"/></maven></micdn>`);
+  assert(config.npm.devToken == "dev-token_1");
+  assert(config.maven.snapshotToken == "snap-token_2");
+  auto xml = toXml(config);
+  assert(xml.canFind(`<dev remote="https://central/npm" token="dev-token_1"/>`));
+  assert(xml.canFind(`<snapshot remote="https://central/maven" token="snap-token_2"/>`));
+
+  assertThrown(parse("/srv/micdn",
+      `<?xml version="1.0"?><micdn><npm><dev remote="https://central/npm" token="bad token"/></npm></micdn>`));
+}

@@ -147,4 +147,8 @@
     <doc name="manual" npm="@xurp/manual@0.0.2" try-file="index.html"/>
   </www>
 
+  <!-- 每天 03:30（本机时区）清理本地旧开发版：npm 每包留 1 个预发布、maven 每个
+       SNAPSHOT 版本留 1 个时间戳构建。客户部署的 micdn 由 bashub 下发同一行。 -->
+  <prune at="03:30" npm-dev-keep="1" maven-snapshot-keep="1" />
+
 </micdn>

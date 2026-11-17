@@ -46,10 +46,12 @@ import micdn.asset.web;
 import micdn.blob.s3;
 import micdn.blob.store;
 import micdn.blob.web;
+import micdn.maven.gc : pruneSnapshotBuilds;
 import micdn.maven.snapshot;
 import micdn.maven.web;
 import micdn.model;
 import micdn.native.web;
+import micdn.prune : PruneScheduler;
 import micdn.npm;
 import micdn.npm.packument;
 import micdn.npm.web;
@@ -283,6 +285,13 @@ version (unittest) {
         return reportStartupError(e.msg);
       }
     }
+    if (command == "prune") {
+      try {
+        return runPrune(args);
+      } catch (Exception e) {
+        return reportStartupError(e.msg);
+      }
+    }
     if (command !is null) {
       // 认不出的子命令直接报错，避免把 `micdn -f CONF bogus` 当成启动服务。
       stderr.writeln("micdn: unknown command: " ~ command);
@@ -298,6 +307,7 @@ version (unittest) {
     ReloadableDispatcher dispatcher;
     auto wwwAutoDeploy = new WwwAutoDeployer();
     auto gcReclaimer = new PeriodicGcReclaimer();
+    PruneScheduler pruneScheduler;
     HTTPListener listener;
 
     ReloadResult reloadAndSync() {
@@ -305,6 +315,10 @@ version (unittest) {
       if (r.ok) {
         setListenPort(r.listenPort);
         wwwAutoDeploy.restart(r.config);
+        if (pruneScheduler !is null)
+          pruneScheduler.stop();
+        pruneScheduler = new PruneScheduler(r.config);
+        pruneScheduler.start();
         // reload 重建了路由与服务树（www 索引构建等重活），旧对象成为垃圾；
         // 与启动期重活后回收一致，立即回收一次让 RSS 回落。
         auto reclaim = runGcMinimize();
@@ -345,6 +359,8 @@ version (unittest) {
 
       listener = listenHTTP(settings, dispatcher);
       wwwAutoDeploy.start(config);
+      pruneScheduler = new PruneScheduler(config);
+      pruneScheduler.start();
       gcReclaimer.start();
       // 启动期重活（www 索引构建、gzip 预压缩等）完成后立即回收一次，让 RSS 回到日常水平。
       auto startupReclaim = runGcMinimize();
@@ -355,6 +371,8 @@ version (unittest) {
 
     scope (exit) {
       wwwAutoDeploy.stop();
+      if (pruneScheduler !is null)
+        pruneScheduler.stop();
       gcReclaimer.stop();
       listener.stopListening();
     }
@@ -539,6 +557,76 @@ int runClean(string[] args) {
     }
   }
   return ok ? 0 : 1;
+}
+
+/** `prune [npm|maven|all]`：清理本地仓库的旧开发版。
+
+    - npm：每个包保留最新 `--keep-dev`（默认 1）个预发布版本；正式版、任何 dist-tag 指向的版本、
+      以及本地没有版本目录的（上游代理）条目保留；删目录后原子重写 packument。
+    - maven：每个 `*-SNAPSHOT` 版本目录保留最新 `--keep-builds`（默认 1，至少 1）个时间戳构建，
+      版本级 `maven-metadata.xml` 指向的构建额外保留；artifact 级元数据不动。
+    - `--dry-run` 只统计不删除。策略在 micdn 本地执行，bashub/basagent 只负责触发。
+*/
+int runPrune(string[] args) {
+  auto configValue = configArg(args);
+  if (configValue is null)
+    throw new Exception("-f is required for prune");
+  auto configPath = resolveConfigFile("micdn.xml", configValue);
+  auto expanded = expandTilde(configPath);
+  if (!exists(expanded))
+    throw new Exception("Config file[" ~ expanded ~ "] not exists!");
+
+  auto config = parseFile(expanded);
+  applyMicdnCliLogging();
+
+  auto target = pruneTargetArg(args);
+  auto keepDev = uintOption(args, "--keep-dev", 1);
+  auto keepBuilds = uintOption(args, "--keep-builds", 1);
+  auto dryRun = args.canFind("--dry-run");
+
+  if (target == "npm" || target == "all") {
+    auto r = pruneDevVersions(config.npm.base, keepDev, dryRun);
+    logInfo("prune npm%s: %s packages, %s versions, %s dirs",
+        dryRun ? " (dry-run)" : "", r.packages, r.versionsRemoved, r.dirsRemoved);
+    foreach (item; r.removed)
+      logInfo("  remove npm %s", item);
+  }
+  if (target == "maven" || target == "all") {
+    auto r = pruneSnapshotBuilds(config.maven.base, keepBuilds, dryRun);
+    logInfo("prune maven%s: %s snapshot dirs, %s builds, %s files",
+        dryRun ? " (dry-run)" : "", r.versions, r.buildsRemoved, r.filesRemoved);
+    foreach (item; r.removed)
+      logInfo("  remove maven %s", item);
+  }
+  return 0;
+}
+
+/// `prune` 的目标：命令后的第一个非选项参数，缺省 all。
+private string pruneTargetArg(string[] args) {
+  auto i = commandIndex(args);
+  if (i == size_t.max)
+    return "all";
+  foreach (j; i + 1 .. args.length) {
+    if (args[j].startsWith("-"))
+      continue;
+    if (args[j] == "npm" || args[j] == "maven" || args[j] == "all")
+      return args[j];
+    throw new Exception("prune target must be npm, maven or all: " ~ args[j]);
+  }
+  return "all";
+}
+
+/// 读取 `--name=N` 或 `--name N` 的整数参数；缺省/非法用默认值。
+private uint uintOption(string[] args, string name, uint defaultValue) {
+  foreach (i, arg; args) {
+    if (arg.startsWith(name ~ "=")) {
+      auto text = arg[name.length + 1 .. $];
+      return text.length > 0 ? text.to!uint : defaultValue;
+    }
+    if (arg == name && i + 1 < args.length)
+      return args[i + 1].to!uint;
+  }
+  return defaultValue;
 }
 
 /** `install <FILE>`：把本地开发版构件装入配置里的仓库目录，并把元数据与本地版本合并刷新。
@@ -813,6 +901,8 @@ Examples:
   micdn -f micdn.xml deploy www manual --force
   micdn -f micdn.xml deploy www
   micdn -f micdn.xml clean
+  micdn -f micdn.xml prune --dry-run
+  micdn -f micdn.xml prune npm --keep-dev=3
   micdn -f micdn.xml install ~/build/beangle-ems-app-0.0.2.tgz
   micdn -f micdn.xml install ~/build/beangle-commons-5.0.0-20250803.132600-31.jar
 `;

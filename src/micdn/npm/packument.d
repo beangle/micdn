@@ -532,3 +532,146 @@ private string isoTime(SysTime time) {
   return format("%04d-%02d-%02dT%02d:%02d:%02d.%03dZ", utc.year, utc.month, utc.day, utc.hour,
       utc.minute, utc.second, utc.fracSecs.total!"msecs" % 1000);
 }
+
+/** `pruneDevVersions` 的结果：扫描的包数、删除的版本/目录数与清单（CLI / 管理端点打印用）。 */
+struct NpmPruneResult {
+  size_t packages;
+  size_t versionsRemoved;
+  size_t dirsRemoved;
+  string[] removed;
+}
+
+/** 清理本地发布的开发版（预发布）版本。
+
+    每个包按 semver 保留最新的 `keep` 个预发布版本（`keep` 至少 1）；**正式版**与**任何
+    dist-tag 指向的版本**一律保留（避免把 tag 删成悬空）。只处理本地有版本目录与 tgz 的
+    版本，上游代理来的 packument 条目不动；packument 不可读的包整包跳过。
+
+    删除目录后原子重写 packument：去掉 `versions` / `time` 里的对应条目，按剩余版本重推
+    `latest` 与通道 tag，指向已删版本的自定义 tag 丢弃。`dryRun` 只统计，不删不改。
+*/
+NpmPruneResult pruneDevVersions(string base, uint keep = 1, bool dryRun = false) {
+  NpmPruneResult result;
+  if (keep < 1)
+    keep = 1;
+  auto root = normalizeBasePath(base);
+  if (!exists(root) || !isDir(root))
+    return result;
+
+  // 目录布局与 installTarball 一致：
+  //   scoped   packument `{base}/@{scope}/{name}`，版本目录 `{base}/{scope}/{name}/{ver}`
+  //   unscoped packument `{base}/{name}`，        版本目录 `{base}/_/{name}/{ver}`
+  foreach (entry; dirEntries(root, SpanMode.shallow, false)) {
+    if (entry.isSymlink)
+      continue;
+    if (entry.isDir) {
+      auto top = baseName(entry.name);
+      if (!top.startsWith("@"))
+        continue;
+      foreach (p; dirEntries(entry.name, SpanMode.shallow, false)) {
+        if (p.isDir || p.isSymlink)
+          continue;
+        auto name = baseName(p.name);
+        // 跳过原子重写遗留的 `.name.incoming` / `.name.tmp`，不把它们当 packument。
+        if (name.startsWith(".") || name.endsWith(".tmp"))
+          continue;
+        result.packages++;
+        prunePackage(root, name, p.name, top[1 .. $], keep, dryRun, result);
+      }
+    } else {
+      auto name = baseName(entry.name);
+      if (name.startsWith(".") || name.endsWith(".tmp"))
+        continue;
+      result.packages++;
+      prunePackage(root, name, entry.name, "_", keep, dryRun, result);
+    }
+  }
+  return result;
+}
+
+/// 清理单个包；`bare` 是包名（不含 scope），`scopePart` 为 `_` 或 scope 名。
+private void prunePackage(string root, string bare, string packumentFile, string scopePart,
+    uint keep, bool dryRun, ref NpmPruneResult result) {
+  auto doc = readPackument(packumentFile);
+  if (doc.object.length == 0)
+    return;
+  auto versionsPtr = "versions" in doc.object;
+  if (versionsPtr is null || versionsPtr.type != JSONType.object)
+    return;
+
+  auto versions = (*versionsPtr).object;
+  auto tags = preservedTags(doc);
+  bool[string] tagged;
+  foreach (tag, target; tags)
+    tagged[target] = true;
+
+  auto versionsDir = root ~ "/" ~ scopePart ~ "/" ~ bare;
+  string[] candidates;
+  foreach (ver, entry; versions) {
+    if (prereleaseOf(ver).length == 0)
+      continue;
+    if (ver in tagged)
+      continue;
+    auto tgz = versionsDir ~ "/" ~ ver ~ "/" ~ bare ~ "-" ~ ver ~ ".tgz";
+    if (!exists(tgz) || isDir(tgz))
+      continue;
+    candidates ~= ver;
+  }
+  if (candidates.length <= keep)
+    return;
+  candidates.sort!((a, b) => compareVersions(a, b) < 0);
+
+  auto victims = candidates[0 .. candidates.length - keep];
+  foreach (ver; victims) {
+    versions.remove(ver);
+    if (auto t = "time" in doc.object) {
+      if (t.type == JSONType.object)
+        t.object.remove(ver);
+    }
+    result.removed ~= bare ~ "@" ~ ver;
+    result.versionsRemoved++;
+  }
+  if (dryRun)
+    return;
+
+  auto remaining = versions.keys;
+  if (remaining.length == 0)
+    return;
+  remaining.sort!((a, b) => compareVersions(a, b) < 0);
+
+  auto newTags = JSONValue.emptyObject;
+  string latest;
+  foreach (v; remaining)
+    if (prereleaseOf(v).length == 0)
+      latest = v;
+  if (latest.length == 0)
+    latest = remaining[$ - 1];
+  newTags["latest"] = JSONValue(latest);
+  foreach (channel; prereleaseChannels) {
+    string best;
+    foreach (v; remaining)
+      if (channelOf(v) == channel)
+        best = v;
+    if (best.length > 0)
+      newTags[channel] = JSONValue(best);
+  }
+  foreach (tag, target; tags)
+    if (!isDerivedTag(tag) && target in versions)
+      newTags[tag] = JSONValue(target);
+  doc["dist-tags"] = newTags;
+
+  auto tmp = packumentFile ~ ".tmp";
+  write(tmp, toJSON(doc, true) ~ "\n");
+  rename(tmp, packumentFile);
+
+  // 先写 packument 再删目录：写失败时 metadata 仍完整，不会指向已删除的版本；
+  // 删目录失败最多留下不被引用的孤儿目录，下次 prune 会再次清理。
+  foreach (ver; victims) {
+    try {
+      rmdirRecurse(versionsDir ~ "/" ~ ver);
+      result.dirsRemoved++;
+    } catch (Exception e) {
+      logWarn("npm prune: cannot remove %s: %s", versionsDir ~ "/" ~ ver, e.msg);
+    }
+  }
+}

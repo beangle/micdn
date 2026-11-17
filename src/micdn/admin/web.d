@@ -26,7 +26,9 @@ import vibe.http.server;
 import micdn.admin.access : requireLocalhostPeer;
 import micdn.admin.metrics : metricsJson, snapshotMetrics;
 import micdn.config;
+import micdn.maven.gc : pruneSnapshotBuilds;
 import micdn.model;
+import micdn.npm.packument : pruneDevVersions;
 import micdn.runtime : runGcMinimize;
 import micdn.web;
 
@@ -73,6 +75,25 @@ class AdminService {
         res.headers["Content-Type"] = "text/plain; charset=utf-8";
         res.writeBody("reload failed: " ~ result.error);
       }
+    } else if (path == "/prune") {
+      // 本机手动触发（bashub/basagent 也只打这个地址）；同步执行，仓库很大时会占用事件循环，
+      // 日常清理优先交给 <prune> 的夜间定时任务。
+      requireLocalhostPeer(req);
+      // 没有 <prune> 时按默认各保留 1 份，与 CLI 的默认值一致。
+      auto keepDev = config.prune !is null ? config.prune.npmDevKeep : 1;
+      auto keepMaven = config.prune !is null ? config.prune.mavenSnapshotKeep : 1;
+      auto npmResult = pruneDevVersions(config.npm.base, keepDev);
+      auto mavenResult = pruneSnapshotBuilds(config.maven.base, keepMaven);
+      logInfo("Prune (HTTP): npm %s versions/%s dirs, maven %s builds/%s files",
+          npmResult.versionsRemoved, npmResult.dirsRemoved,
+          mavenResult.buildsRemoved, mavenResult.filesRemoved);
+      res.statusCode = HTTPStatus.ok;
+      res.headers["Content-Type"] = "application/json; charset=utf-8";
+      res.headers["Cache-Control"] = "no-store";
+      res.writeBody(format(
+          `{"npm":{"packages":%s,"versions":%s,"dirs":%s},"maven":{"versions":%s,"builds":%s,"files":%s}}`,
+          npmResult.packages, npmResult.versionsRemoved, npmResult.dirsRemoved,
+          mavenResult.versions, mavenResult.buildsRemoved, mavenResult.filesRemoved));
     } else if (path == "/metrics.json") {
       requireLocalhostPeer(req);
       res.statusCode = HTTPStatus.ok;

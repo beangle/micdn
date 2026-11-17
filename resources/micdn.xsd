@@ -24,7 +24,7 @@
     </xs:restriction>
   </xs:simpleType>
 
-  <!-- Root：maven/npm/native/blob/static/www/auth 彼此无顺序要求，各至多一次（xs:all）。xi:include 在 XSD 1.0 中不能与 all 混排，故列于前段；若需与服务块交错请依赖运行时。readXml 展开后由程序校验各服务元素至多一次。 -->
+  <!-- Root：maven/npm/native/blob/static/www/auth/prune 彼此无顺序要求，各至多一次（xs:all）。xi:include 在 XSD 1.0 中不能与 all 混排，故列于前段；若需与服务块交错请依赖运行时。readXml 展开后由程序校验各服务元素至多一次。 -->
   <xs:element name="micdn">
     <xs:complexType>
       <xs:sequence>
@@ -37,6 +37,7 @@
           <xs:element name="static" type="staticType" minOccurs="0" maxOccurs="1" />
           <xs:element name="www" type="wwwType" minOccurs="0" maxOccurs="1" />
           <xs:element name="auth" type="authType" minOccurs="0" maxOccurs="1" />
+          <xs:element name="prune" type="pruneType" minOccurs="0" maxOccurs="1" />
         </xs:all>
       </xs:sequence>
       <xs:attribute name="listen" type="xs:string" default="127.0.0.1:8888" use="optional">
@@ -211,6 +212,11 @@
       <xs:documentation> SNAPSHOT 专用上游：/maven 下路径段以 -SNAPSHOT 结尾的构件本地优先，缺失时按此回源并按 sha1 校验；版本目录的 maven-metadata.xml 还会按 TTL（默认 60 秒）重新探测（正式版路径不会回落到这里）。 </xs:documentation>
     </xs:annotation>
     <xs:attribute name="remote" type="xs:string" use="required" />
+    <xs:attribute name="token" type="xs:string" use="optional">
+      <xs:annotation>
+        <xs:documentation> 上游下载令牌（Bearer）；中心 micdn 的 /maven 配了 download-key 时填写。留空表示匿名。 </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
   </xs:complexType>
 
   <!-- npmRepoType：根级 NPM 仓库，正式版与开发版共用 base（与 bundle 内的 npm 包引用 npmType 区分） -->
@@ -236,6 +242,11 @@
       <xs:documentation> 开发版（dev/预发布）专用 registry：dev 版本只从这里回源，不再走 &lt;npm&gt; 的 remote；省略则开发版只认本地。 </xs:documentation>
     </xs:annotation>
     <xs:attribute name="remote" type="xs:string" use="required" />
+    <xs:attribute name="token" type="xs:string" use="optional">
+      <xs:annotation>
+        <xs:documentation> 上游下载令牌（Bearer）；中心 micdn 的 /npm 配了 download-key 时填写。留空表示匿名。 </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
   </xs:complexType>
 
   <!-- nativeType：native 发行包仓库（GraalVM native-image 的 tar.gz 与 bsdiff 增量补丁），HTTP 前缀固定为 /native -->
@@ -272,6 +283,20 @@
     </xs:sequence>
     <xs:attribute name="base" type="xs:string" default="~/blob" use="optional" />
     <xs:attribute name="max-size" type="xs:string" default="100M" use="optional" />
+  </xs:complexType>
+
+  <!-- pruneType：每天按本机时区清理本地仓库的旧开发版（npm 预发布 / maven SNAPSHOT 时间戳构建）。
+       不声明该元素则只保留手动 `micdn prune` / `/admin/prune`，不做定时清理。 -->
+  <xs:complexType name="pruneType">
+    <xs:annotation>
+      <xs:documentation> 定时清理：at 为每天执行时刻（本机时区 HH:MM，默认 03:30）；npm-dev-keep 为每个
+        npm 包保留的最新预发布版本数（默认 1）；maven-snapshot-keep 为每个 *-SNAPSHOT 版本目录保留的
+        时间戳构建数（默认 1，至少 1；版本级 maven-metadata.xml 指向的构建额外保留）。
+      </xs:documentation>
+    </xs:annotation>
+    <xs:attribute name="at" type="xs:string" default="03:30" use="optional" />
+    <xs:attribute name="npm-dev-keep" type="xs:positiveInteger" default="1" use="optional" />
+    <xs:attribute name="maven-snapshot-keep" type="xs:positiveInteger" default="1" use="optional" />
   </xs:complexType>
 
   <!-- authType：/maven、/npm、/native 三个端点的读写访问控制。publish-key 非空才挂 PUT；download-key 非空才要求读凭据。 -->
