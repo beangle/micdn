@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.4.2 (2026-11-18)
+## v0.4.2 (unreleased)
 
 - **开发版 npm 清理**：新增 `<prune npm-dev-keep="1" .../>`、`micdn prune npm` 和
   `/admin/prune`。每个包只保留最新一个预发布版本；正式版、dist-tag 指向的版本和上游代理条目保留，
@@ -12,6 +12,12 @@
 - **上游 Bearer 令牌**：`<npm><dev token="...">` 与 `<maven><snapshot token="...">` 回源时发送
   `Authorization: Bearer`；正式版 remote 仍匿名。用于客户 micdn 从配置了 `download-key` 的中心
   micdn 代理 dev/SNAPSHOT。
+- **远程配置改由 basagent 投递**：micdn 不再读取 `BAS_PRINCIPAL` / `BAS_TOKEN`，不再自己下载
+  `micdn.xml`，也不再打包 `micdn.env`；启动必须有本地配置。新增 localhost 的
+  `POST /admin/config`，由 basagent 拉取 XML 后投递，micdn 自己校验、原子写文件并 reload。
+  `/etc/micdn` 改为 `micdn:beangle 0750`，`micdn.xml` 为 `micdn:beangle 0640`。
+- **移除 `xi:include` 支持**：micdn.xml 必须是一份完整配置；解析器遇到 `<xi:include>` 直接报错，
+  不再展开本地片段。
 
 完整说明见 [docs/release-v0.4.2.md](docs/release-v0.4.2.md)。
 

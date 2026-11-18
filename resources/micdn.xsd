@@ -24,7 +24,7 @@
     </xs:restriction>
   </xs:simpleType>
 
-  <!-- Root：maven/npm/native/blob/static/www/auth/prune 彼此无顺序要求，各至多一次（xs:all）。xi:include 在 XSD 1.0 中不能与 all 混排，故列于前段；若需与服务块交错请依赖运行时。readXml 展开后由程序校验各服务元素至多一次。 -->
+  <!-- Root：maven/npm/native/blob/static/www/auth/prune 彼此无顺序要求，各至多一次（xs:all）。micdn.xml 不支持 xi:include；配置必须是一份完整文件。 -->
   <xs:element name="micdn">
     <xs:complexType>
       <xs:sequence>

@@ -4,9 +4,6 @@
   xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.1.0.xsd"
   listen="0.0.0.0:8888" home="/var/lib/micdn" log-file="/var/log/micdn/micdn.log">
 
-  <!-- 可选：取消注释并配置 blob.xml 后启用 Blob 服务（须放在 maven 等节点之前） -->
-  <!-- <xi:include href="blob.xml" /> -->
-
   <maven base="/var/lib/micdn/maven">
     <remote url="https://maven.aliyun.com/repository/public" />
     <remote url="https://repo1.maven.org/maven2/" />

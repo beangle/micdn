@@ -1,6 +1,6 @@
 # Micdn v0.4.2 Release Notes
 
-**发布日期：** 2026-11-18
+**发布日期：** 待定
 **对比基线：** [v0.4.1](https://github.com/beangle/micdn/compare/v0.4.1...v0.4.2)
 
 ---
@@ -12,6 +12,8 @@ v0.4.2 增加**仓库清理**与**上游 Bearer 令牌**，面向“中心 micdn
 - **清理**：npm 开发版与 maven SNAPSHOT 构建默认各保留 1 份；可手动执行，也可按 `<prune>` 每日自动执行。
 - **令牌**：`<dev>` / `<snapshot>` 上游可配置 Bearer token，客户 micdn 从中心 micdn 下载时携带中心
   `<auth download-key>`。
+- **远程配置所有权**：micdn 不再持有控制台 token、不再自己下载 `micdn.xml`；basagent 拉取后
+  投递给 localhost `/admin/config`，micdn 自己校验、原子落盘并 reload。`micdn.env` 已移除。
 - **不改变正式版语义**：正式版 remote、`<micdn remote>`（v0.4.1 已移除）和现有配置都不受影响。
 
 ## 仓库清理
@@ -65,16 +67,29 @@ micdn -f /etc/micdn/micdn.xml prune all
 - 令牌只应指向中心 micdn 或会补同值鉴权的反代；不要把外部 registry 配成 dev/snapshot 上游并附带中心令牌。
 - bashub 侧由 `<snapshot download-token>` 统一下发到 `<snapshot token>` 和 `<dev token>`。
 
+## 远程配置与权限
+
+- 删除 `/etc/micdn/micdn.env`；micdn 不再读取 `BAS_PRINCIPAL` / `BAS_TOKEN`。
+- basagent 的 `micdn:reload` 拉取 `GET /api/bashub/micdn/{project}/micdn.xml`，再 POST 到
+  `127.0.0.1:8888/admin/config`；micdn 完整校验，成功后原子写入自己的
+  `micdn.xml` 并重建 router。
+- `/admin/config` 只接受 localhost，body 上限 4 MiB；失败时旧文件和旧 router 都不变。
+- `micdn.xml` 不再支持 `xi:include`：配置必须是一份完整文件，解析器遇到 `<xi:include>` 直接报错。
+- 包安装把 `/etc/micdn` 设为 `micdn:beangle 0750`，`micdn.xml` 为 `micdn:beangle 0640`；
+  basagent 不需要写权限。
+- micdn 启动必须有本地 `micdn.xml`；包默认配置可保证首次启动。
+
 ## 升级
 
 1. 旧配置可直接启动；不写 `<prune>` 不会自动删除任何文件。
 2. 需要自动清理时增加 `<prune>`，先用 `micdn prune ... --dry-run` 核对数量。
 3. 需要从中心代理 dev/SNAPSHOT 时，给 `<dev>` / `<snapshot>` 配 token；中心对应开启
    `<auth download-key>`。
-4. 配置改动后执行 `micdn` reload（或重启）；清理器按新配置重建。
+4. 远程配置由 basagent 拉取并投递；删除 `micdn.env`，确认 `/etc/micdn` 权限。
+5. 配置改动后执行 `micdn` reload（或重启）；清理器按新配置重建。
 
 ## 测试
 
-`dub test --compiler=ldc2`：**236 passed, 0 failed**。
+`dub test --compiler=ldc2`：**226 passed, 0 failed**。
 
 > 安装包与容器镜像版本从 git tag 推导；发布 0.4.2 前需创建并推送 `v0.4.2` tag。

@@ -15,16 +15,13 @@
  */
 
 module micdn.xml;
-/// 基于 dxml DOM 的通用 XML 解析辅助函数；`readXml` 会展开 `<xi:include href="..."/>`（双引号）后再返回文本。
+/// 基于 dxml DOM 的通用 XML 解析辅助函数；micdn.xml 不支持 `<xi:include>`。
 
 import std.algorithm;
 import std.file;
 import std.format;
 import std.path;
-import std.regex;
 import std.string;
-
-import micdn.fs.file : isPathUnder;
 
 import dxml.dom;
 import dxml.parser : EntityType, TextPos, XMLParsingException;
@@ -79,84 +76,13 @@ void checkNoStrayText(T)(ref DOMEntity!T dom, const string sourceFile, const str
   }
 }
 
-/** 读取本地 XML（支持 `~`），展开全部自闭合 `<xi:include href="相对路径"/>` 后返回 UTF-8 字符串。
-    `maven`/`npm`/`blob`/`static`/`www` 彼此无固定顺序要求；展开后由 `parse` 校验各服务元素至多出现一次。
-    抛出：文件不存在，或 include 非法（`..`、绝对路径、路径逃出基准目录）。 */
+/** 读取本地 XML（支持 `~`），不展开任何 include。 */
 string readXml(const string xmlfile) {
   string p = expandTilde(xmlfile);
   if (!exists(p))
     throw new MicdnXmlException(xmlfile ~ " does not exist");
   string abs = absolutePath(p);
-  string content = cast(string) read(abs);
-  return expandXiIncludes(dirName(abs), content);
-}
-
-/** 在 `baseDir` 下解析 `href`，将内容中的自闭合 `<xi:include .../>` 逐段替换为被包含文件正文（递归）。
-    `baseDir` 建议为绝对路径目录（当前文件所在目录）。仅支持双引号 `href`。 */
-string expandXiIncludes(const string baseDir, const string content) {
-  auto re = regex(`<xi:include\s[^>]*href\s*=\s*"([^"]+)"[^>]*/\s*>`, "s");
-  string absBase = absolutePath(baseDir);
-  // 先剥离 XML 注释（<!-- ... -->，可跨行），避免把注释里的示例 xi:include 当成真实指令；
-  // 未闭合的注释原样保留，交由后续 DOM 解析报错。
-  string cur = stripXmlComments(content);
-
-  while (true) {
-    auto m = matchFirst(cur, re);
-    if (m.empty)
-      break;
-    string href = m[1];
-
-    if (href.indexOf("..") >= 0)
-      throw new MicdnXmlException(`xi:include: ".." is not allowed in href: ` ~ href);
-    if (isAbsolute(href))
-      throw new MicdnXmlException("xi:include: absolute href is not allowed: " ~ href);
-
-    string incPath = absolutePath(buildNormalizedPath(absBase, href));
-    if (!isPathUnder(absBase, incPath))
-      throw new MicdnXmlException("xi:include: path escapes base directory: " ~ href);
-
-    if (!exists(incPath))
-      throw new MicdnXmlException("xi:include: file not found: " ~ incPath);
-
-    string inc = stripXmlDeclaration(cast(string) read(incPath));
-    inc = expandXiIncludes(dirName(incPath), inc);
-    // replaceFirst 第三参数按正则替换格式解析：`$` / `${name}` 有特殊含义；被包含文件里
-    // 若出现 `${micdn.home}` 等，`.` 会打断 `${...}` 解析而抛错，故先转义为字面 `$`。
-    cur = replaceFirst(cur, re, escapeRegexReplacement(inc));
-  }
-  return cur;
-}
-
-private string escapeRegexReplacement(string s) {
-  import std.string : replace;
-
-  return replace(s, "$", "$$");
-}
-
-private string stripXmlDeclaration(const string s) {
-  string t = s.strip();
-  if (t.length >= 5 && t.startsWith("<?xml")) {
-    size_t end = indexOf(t, "?>");
-    if (end != size_t.max)
-      return t[end + 2 .. $].strip();
-  }
-  return s;
-}
-
-private string stripXmlComments(const string s) {
-  string result;
-  size_t pos = 0;
-  while (true) {
-    size_t start = indexOf(s, "<!--", pos);
-    if (start == size_t.max)
-      break;
-    size_t end = indexOf(s, "-->", start + 4);
-    if (end == size_t.max)
-      break;
-    result ~= s[pos .. start];
-    pos = end + 3;
-  }
-  return result ~ s[pos .. $];
+  return cast(string) read(abs);
 }
 
 auto parseXml(string xml) {

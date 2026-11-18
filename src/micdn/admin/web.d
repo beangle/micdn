@@ -15,11 +15,12 @@
  */
 
 module micdn.admin.web;
-/// 管理接口服务，提供 /admin/config.xml、/admin/metrics 等运维接口。
+/// 管理接口服务：/admin/config.xml 查看、/admin/config 接收 basagent 投递、/admin/reload 本地重载。
 
 import std.format : format;
 
 import vibe.core.log : logInfo;
+import vibe.http.common : HTTPMethod;
 import vibe.http.router;
 import vibe.http.server;
 
@@ -31,6 +32,7 @@ import micdn.model;
 import micdn.npm.packument : pruneDevVersions;
 import micdn.runtime : runGcMinimize;
 import micdn.web;
+import micdn.web.publish : readUploadBody;
 
 struct MetricsPageData {
   string appVersion;
@@ -49,11 +51,15 @@ class AdminService {
   private const MicdnConfig config;
   private const string appVersion;
   private ReloadResult delegate() onReload;
+  /// basagent 投递 XML 时由 micdn 自己校验/落盘；null 表示不提供该入口。
+  private ReloadResult delegate(string xml) onConfig;
 
-  this(MicdnConfig config, string appVersion, ReloadResult delegate() onReload = null) {
+  this(MicdnConfig config, string appVersion, ReloadResult delegate() onReload = null,
+      ReloadResult delegate(string xml) onConfig = null) {
     this.config = config;
     this.appVersion = appVersion;
     this.onReload = onReload;
+    this.onConfig = onConfig;
   }
 
   void service(HTTPServerRequest req, HTTPServerResponse res) {
@@ -62,6 +68,30 @@ class AdminService {
       res.statusCode = HTTPStatus.ok;
       res.headers["Content-Type"] = "application/xml; charset=utf-8";
       res.writeBody(config.toXml());
+    } else if (path == "/config" && onConfig !is null) {
+      // basagent 只投递 XML；micdn 是唯一写自己配置文件、校验并替换 router 的人。
+      requireLocalhostPeer(req);
+      if (req.method != HTTPMethod.POST) {
+        throw new HTTPStatusException(HTTPStatus.methodNotAllowed);
+      }
+      auto body = readUploadBody(req.bodyReader, 4 * 1024 * 1024);
+      if (body.length == 0) {
+        res.statusCode = HTTPStatus.badRequest;
+        res.headers["Content-Type"] = "text/plain; charset=utf-8";
+        res.writeBody("config body is empty");
+        return;
+      }
+      auto result = onConfig(cast(string) body);
+      if (result.ok) {
+        logInfo("Config apply (HTTP): ok");
+        res.statusCode = HTTPStatus.ok;
+        res.headers["Content-Type"] = "text/plain; charset=utf-8";
+        res.writeBody("config ok");
+      } else {
+        res.statusCode = HTTPStatus.internalServerError;
+        res.headers["Content-Type"] = "text/plain; charset=utf-8";
+        res.writeBody("config failed: " ~ result.error);
+      }
     } else if (path == "/reload" && onReload !is null) {
       requireLocalhostPeer(req);
       auto result = onReload();

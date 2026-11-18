@@ -3,12 +3,12 @@
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 set -e
 chown -R micdn:beangle /var/cache/micdn /var/lib/micdn /var/log/micdn 2>/dev/null || true
-# reload 以 micdn 用户运行：/etc/micdn 需组可写，micdn.env 由 systemd/环境提供。
-chown root:beangle /etc/micdn 2>/dev/null || true
-chmod 2775 /etc/micdn 2>/dev/null || true
-if [ -f /etc/micdn/micdn.env ]; then
-  chown root:root /etc/micdn/micdn.env 2>/dev/null || true
-  chmod 0600 /etc/micdn/micdn.env 2>/dev/null || true
+# micdn 是唯一写自己配置的人；basagent 只投递 XML，不需要写 /etc/micdn。
+chown micdn:beangle /etc/micdn 2>/dev/null || true
+chmod 0750 /etc/micdn 2>/dev/null || true
+if [ -f /etc/micdn/micdn.xml ]; then
+  chown micdn:beangle /etc/micdn/micdn.xml 2>/dev/null || true
+  chmod 0640 /etc/micdn/micdn.xml 2>/dev/null || true
 fi
 if command -v su-exec >/dev/null 2>&1; then
   exec su-exec micdn "$@"

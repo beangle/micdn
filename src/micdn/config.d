@@ -45,8 +45,7 @@ private string resolveHome(string homeAttr, string defaultDir) {
   return expandTilde(homeAttr);
 }
 
-/** 展开 include 后校验：maven、npm、native、blob、static、www、auth、prune 各至多出现一次。
-*/
+/** 校验：maven、npm、native、blob、static、www、auth、prune 各至多出现一次。 */
 private void validateMicdnServiceElementsUnique(T)(ref DOMEntity!T dom) {
   foreach (name; ["maven", "npm", "native", "blob", "static", "www", "auth", "prune"]) {
     size_t n = 0;
@@ -55,7 +54,7 @@ private void validateMicdnServiceElementsUnique(T)(ref DOMEntity!T dom) {
         n++;
     }
     if (n > 1)
-      throw new Exception(i`Duplicate <$(name)> element in micdn.xml (after includes)`.text);
+      throw new Exception(i`Duplicate <$(name)> element in micdn.xml`.text);
   }
 }
 
@@ -110,15 +109,27 @@ private string[] parseRemotes(T)(ref DOMEntity!T dom) {
   }
   return urls;
 }
+/** 解析结果中不允许出现任何 `<xi:include>`；micdn.xml 要求是一份完整配置。 */
+private void rejectXiInclude(T)(ref DOMEntity!T node) {
+  foreach (c; node.children) {
+    if (!isNamedElement(c.type))
+      continue;
+    if (c.name == "xi:include")
+      throw new Exception("micdn.xml does not support xi:include; provide a complete config");
+    rejectXiInclude(c);
+  }
+}
+
 /** 从 XML 字符串解析 MicdnConfig。defaultHome 为 xml 所在目录，用于 home 属性为空时。
 */
 MicdnConfig parse(string defaultHome, string content, const string sourceFile = null) {
   auto dom = parseDomRoot(content, sourceFile);
   checkNoStrayText(dom, sourceFile, content);
+  rejectXiInclude(dom);
   validateMicdnServiceElementsUnique(dom);
   auto rootAttrs = getAttrs(dom);
   if (rootAttrs.get("remote", "").length > 0)
-    throw new Exception("micdn.xml no longer supports the remote attribute; configure BAS_PRINCIPAL / BAS_TOKEN");
+    throw new Exception("micdn.xml no longer supports the remote attribute; basagent delivers the config instead");
   string listen = rootAttrs.get("listen", "127.0.0.1:8888");
   auto home = resolveHome(rootAttrs.get("home", ""), defaultHome);
 

@@ -645,7 +645,7 @@ unittest {
   assert(parse("~/tmp", consoleCi).logFile == "console");
 }
 
-@("parse rejects duplicate root service element after includes")
+@("parse rejects duplicate root service element")
 unittest {
   auto dup = `<?xml version="1.0" encoding="UTF-8"?>
 <micdn>
@@ -808,4 +808,13 @@ unittest {
 
   assertThrown(parse("/srv/micdn",
       `<?xml version="1.0"?><micdn><npm><dev remote="https://central/npm" token="bad token"/></npm></micdn>`));
+}
+
+@("micdn.xml rejects the retired remote attribute") unittest {
+  assertThrown(parse("/tmp", `<micdn remote="http://cfg.example.com/micdn.xml"></micdn>`));
+}
+
+
+@("micdn.xml rejects xi:include") unittest {
+  assertThrown(parse("/tmp", `<micdn><xi:include href="part.xml"/></micdn>`));
 }

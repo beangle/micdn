@@ -646,7 +646,7 @@ bool isSafePathSegments(in string path) @safe pure {
 /** 判断规范化后的 `absPath` 是否位于 `absDir` 下（含与 `absDir` 相等）。
 
     假定两路径已为绝对路径；纯字符串前缀比较，不访问磁盘。
-    Windows 下比较不区分大小写。用于仓库根目录、xi:include 基目录等防穿越校验。
+    Windows 下比较不区分大小写。用于仓库根目录等防穿越校验。
 */
 bool isPathUnder(const string absDir, const string absPath) {
   import std.path : dirSeparator;

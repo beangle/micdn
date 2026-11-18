@@ -23,7 +23,7 @@ import std.conv : to;
 import std.format : format;
 import std.exception;
 import std.typecons : tuple, Tuple;
-import std.file : getcwd, exists;
+import std.file : getcwd, exists, remove, rename, write;
 import std.range : empty;
 import std.stdio;
 import std.string : endsWith, startsWith, strip, lastIndexOf, toLower;
@@ -55,7 +55,6 @@ import micdn.prune : PruneScheduler;
 import micdn.npm;
 import micdn.npm.packument;
 import micdn.npm.web;
-import micdn.remote : fetchRemoteConfig, loadRemoteEnvironment;
 import micdn.web;
 import micdn.www;
 import micdn.www.web;
@@ -82,6 +81,7 @@ class ReloadableDispatcher : HTTPServerRequestHandler {
   private string _routerPrefix;
   private HTTPServerSettings _settings;
   private ReloadResult delegate() _onReload;
+  private ReloadResult delegate(string xml) _onConfig;
 
   this(string configFile, string routerPrefix, HTTPServerSettings settings,
       ReloadResult delegate() onReload) {
@@ -93,6 +93,11 @@ class ReloadableDispatcher : HTTPServerRequestHandler {
 
   void setRouter(URLRouter router) {
     _currentRouter = router;
+  }
+
+  /// 由 main 注入「应用 XML + 收尾同步」的完整回调；新 router 的 admin 服务继续用它。
+  void setConfigHandler(ReloadResult delegate(string xml) handler) {
+    _onConfig = handler;
   }
 
   override void handleRequest(HTTPServerRequest req, HTTPServerResponse res) {
@@ -111,16 +116,48 @@ class ReloadableDispatcher : HTTPServerRequestHandler {
   ReloadResult tryReload() {
     logInfo("Config reload started: %s", _configFile);
     try {
-      auto remote = loadRemoteEnvironment();
-      auto config = remote.active ? fetchRemoteConfig(remote, _configFile) : parseFile(_configFile);
+      auto config = parseFile(_configFile);
       auto listenPair = parseListen(config.listen);
       applyLimits(_settings, config);
-      auto router = buildRouter(config, _settings, _onReload);
+      auto router = buildRouter(config, _settings, _onReload, _onConfig);
       _currentRouter = router;
       recordReload(true);
       return ReloadResult(true, null, listenPair[1], config);
     } catch (Exception e) {
       logError("Reload failed: %s", e.msg);
+      recordReload(false);
+      return ReloadResult(false, e.msg, 0);
+    }
+  }
+
+  /** 接收 basagent 投递的 XML：先解析/建路由，成功后才原子写入自己的 micdn.xml。
+
+      basagent 只负责下载和投递，不写 micdn 的目录；失败时旧文件和旧 router 都不变。
+      不支持 xi:include；配置必须完整。
+  */
+  ReloadResult tryApply(string xml) {
+    logInfo("Config apply started: %s", _configFile);
+    try {
+      auto config = parse(dirName(_configFile), xml, _configFile);
+      auto listenPair = parseListen(config.listen);
+      applyLimits(_settings, config);
+      auto router = buildRouter(config, _settings, _onReload, _onConfig);
+
+      auto tmp = _configFile ~ ".incoming";
+      scope (exit) if (exists(tmp)) remove(tmp);
+      write(tmp, xml);
+      version (Posix) {
+        import core.sys.posix.sys.stat : chmod;
+        import std.conv : octal;
+        import std.string : toStringz;
+        chmod(tmp.toStringz, octal!640);
+      }
+      rename(tmp, _configFile);
+      _currentRouter = router;
+      recordReload(true);
+      return ReloadResult(true, null, listenPair[1], config);
+    } catch (Exception e) {
+      logError("Config apply failed: %s", e.msg);
       recordReload(false);
       return ReloadResult(false, e.msg, 0);
     }
@@ -140,11 +177,13 @@ private void applyLimits(HTTPServerSettings settings, MicdnConfig config) {
 
 /// 根据 config 构建 URLRouter，注册所有服务路由。
 URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
-    ReloadResult delegate() onReload) {
+    ReloadResult delegate() onReload, ReloadResult delegate(string xml) onConfig = null) {
   auto router = new URLRouter("");
 
-  auto adminService = new AdminService(config, getVersion(), onReload);
+  auto adminService = new AdminService(config, getVersion(), onReload, onConfig);
   registerEndpoint(router, "/admin", &adminService.service);
+  // /admin/config 是唯一写配置的 POST 入口；其他 /admin/* 仍只读。
+  router.post("/admin/config", &adminService.service);
 
   if (config.asset !is null) {
     auto assetService = new AssetService(config);
@@ -310,20 +349,30 @@ version (unittest) {
     PruneScheduler pruneScheduler;
     HTTPListener listener;
 
+    void syncAfterReload(ReloadResult r) {
+      if (!r.ok)
+        return;
+      setListenPort(r.listenPort);
+      wwwAutoDeploy.restart(r.config);
+      if (pruneScheduler !is null)
+        pruneScheduler.stop();
+      pruneScheduler = new PruneScheduler(r.config);
+      pruneScheduler.start();
+      // reload 重建了路由与服务树（www 索引构建等重活），旧对象成为垃圾；
+      // 与启动期重活后回收一致，立即回收一次让 RSS 回落。
+      auto reclaim = runGcMinimize();
+      logGcReclaim("Reload", reclaim);
+    }
+
     ReloadResult reloadAndSync() {
       auto r = dispatcher.tryReload();
-      if (r.ok) {
-        setListenPort(r.listenPort);
-        wwwAutoDeploy.restart(r.config);
-        if (pruneScheduler !is null)
-          pruneScheduler.stop();
-        pruneScheduler = new PruneScheduler(r.config);
-        pruneScheduler.start();
-        // reload 重建了路由与服务树（www 索引构建等重活），旧对象成为垃圾；
-        // 与启动期重活后回收一致，立即回收一次让 RSS 回落。
-        auto reclaim = runGcMinimize();
-        logGcReclaim("Reload", reclaim);
-      }
+      syncAfterReload(r);
+      return r;
+    }
+
+    ReloadResult applyAndSync(string xml) {
+      auto r = dispatcher.tryApply(xml);
+      syncAfterReload(r);
       return r;
     }
 
@@ -331,11 +380,10 @@ version (unittest) {
       applyRuntimeProfile();
       configFile = resolveConfigFile("micdn.xml");
 
-      auto remote = loadRemoteEnvironment();
-      if (!remote.active && !exists(expandTilde(configFile)))
+      if (!exists(expandTilde(configFile)))
         return reportStartupError("Config file[" ~ configFile ~ "] not exists!");
 
-      auto config = remote.active ? fetchRemoteConfig(remote, configFile) : parseFile(expandTilde(configFile));
+      auto config = parseFile(expandTilde(configFile));
       applyMicdnLogging(config.logFile, config.logLevel);
       logInfo("Find config: %s", configFile);
 
@@ -354,8 +402,8 @@ version (unittest) {
 
       dispatcher = new ReloadableDispatcher(absolutePath(expandTilde(configFile)), "", settings,
           &reloadAndSync);
-
-      dispatcher.setRouter(buildRouter(config, settings, &reloadAndSync));
+      dispatcher.setConfigHandler(&applyAndSync);
+      dispatcher.setRouter(buildRouter(config, settings, &reloadAndSync, &applyAndSync));
 
       listener = listenHTTP(settings, dispatcher);
       wwwAutoDeploy.start(config);
