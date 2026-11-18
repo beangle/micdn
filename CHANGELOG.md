@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.4.2 (2026-11-18)
+
+- **开发版 npm 清理**：新增 `<prune npm-dev-keep="1" .../>`、`micdn prune npm` 和
+  `/admin/prune`。每个包只保留最新一个预发布版本；正式版、dist-tag 指向的版本和上游代理条目保留，
+  删除后原子重写 packument。
+- **SNAPSHOT 清理**：每个 `*-SNAPSHOT` 版本目录只保留最新一个时间戳构建；版本 metadata 指向的构建
+  额外保留，artifact 级 metadata 不动。
+- **定时清理**：`<prune at="03:30">` 由 micdn 按本机时区每天执行一次；不配置则不调度，只保留手动入口。
+  默认 npm/maven 各保留 1 份，避免开发包和 SNAPSHOT 构建无限堆积。
+- **上游 Bearer 令牌**：`<npm><dev token="...">` 与 `<maven><snapshot token="...">` 回源时发送
+  `Authorization: Bearer`；正式版 remote 仍匿名。用于客户 micdn 从配置了 `download-key` 的中心
+  micdn 代理 dev/SNAPSHOT。
+
+完整说明见 [docs/release-v0.4.2.md](docs/release-v0.4.2.md)。
+
 ## v0.4.1 (2026-10-18)
 
 概要：本版收紧远程配置的安全边界，并补齐发布链路。远程 XML 只在 reload 时通过同目录
