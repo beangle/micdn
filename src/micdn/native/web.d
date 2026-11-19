@@ -69,10 +69,9 @@ class NativeService {
       1. 不带时间戳的补丁别名（`{a}-{基准版本}_{版本}-{classifier}.tar.gz.diff[.sha1]`）重定向到同目录
          最新的时间戳文件，`HEAD` 以 `latest` 头回带实际文件名、并给出 `Last-Modified`
          （jstart 用 `curl -I -L` 探测补丁是否存在，要求最终 200）；
-      2. 本地已有则直接发文件；
-      3. 目录（含仓库根）缺尾斜杠先 302 补 `/`，再列目录；文件缺失 404。
-
-      没有上游回源：native 仓库不在 micdn 缓存上游镜像，迁移期未同步到的构件就是 404。
+      2. 本地缺失且配置了 `<native><remote>` 时，按完整路径从中心 micdn 回源并落本地缓存；
+      3. 本地已有则直接发文件；
+      4. 目录（含仓库根）缺尾斜杠先 302 补 `/`，再列目录；回源失败或未配置上游时 404。
   */
   void service(HTTPServerRequest req, HTTPServerResponse res) {
     if (req.method == HTTPMethod.PUT) {
@@ -106,6 +105,10 @@ class NativeService {
     }
 
     auto file = repo.fileOf(ruri);
+    // 只对文件型路径回源；目录/根路径不探测上游。
+    if (!ruri.endsWith("/") && baseName(ruri).indexOf('.') >= 0 && !exists(file))
+      repo.fetch(ruri);
+
     FileInfo fi;
     try
       fi = getFileInfo(file);

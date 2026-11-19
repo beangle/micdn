@@ -14,7 +14,7 @@
 | **www** | SPA/文档站：npm / zip；支持 `try-file`；zip 可 `auto-deploy`（Linux inotify） |
 | **maven** | 本地缓存 + 上游 remote 拉取；正式版与 SNAPSHOT 共用 `/maven`，SNAPSHOT 可选独立上游（`<snapshot remote="..."/>`） |
 | **npm** | 本地缓存 + 上游 registry 拉取；开发版（dev/预发布）可选独立上游（`<dev remote="..."/>`），与正式版共用 `/npm` |
-| **native** | 原生发行包（native-image tar.gz）与增量补丁仓库；单根、无上游，`PUT /native` 发布、GET/HEAD 取件 |
+| **native** | 原生发行包（native-image tar.gz）与增量补丁仓库；单根，可配置中心 `/native` 上游，`PUT /native` 发布、GET/HEAD 取件 |
 | **blob** | 对象存储；可选 S3 兼容接口 |
 | **admin** | localhost 只读指标 `/admin/metrics`、配置查看与 reload |
 
@@ -26,13 +26,13 @@
 |------|------|
 | `/maven` | maven：本地缓存 + 上游 remote 拉取；SNAPSHOT 路径本地优先、缺失时按 `<snapshot remote>` 回源（版本元数据按 TTL 刷新），别名请求 302 到最新时间戳文件，本地快照版本并入 artifact 级元数据；`<auth publish-key>` 非空后可 PUT 上传（`mvn deploy`，见「上传（publish-key）」）。声明了 `<maven>` 才挂载；未声明时仍有默认仓库，见下 |
 | `/npm` | npm registry（正式版与开发版共用）：packument（交付时替换 `{origin}` 占位符）与 tgz；`<auth publish-key>` 非空后可 PUT 上传（`npm publish`，见「上传（publish-key）」）。npm 侧**只实现发布**，不提供 unpublish / dist-tag / login / deprecate 等 npmjs 管理接口。声明了 `<npm>` 才挂载；未声明时仍有默认仓库，见下 |
-| `/native` | native 发行包（tar.gz）与增量补丁（`.diff`）：单根、无上游，GET/HEAD 取件、目录可列出，不带时间戳的补丁别名 302 到最新的时间戳文件；`<auth publish-key>` 非空后可 PUT 上传（见「上传（publish-key）」）。声明了 `<native>` 才挂载；未声明时仍有默认仓库，见下 |
+| `/native` | native 发行包（tar.gz）与增量补丁（`.diff`）：单根，GET/HEAD 取件、目录可列出，缺失时可按 `<native><remote>` 回源；不带时间戳的补丁别名 302 到最新的时间戳文件；`<auth publish-key>` 非空后可 PUT 上传（见「上传（publish-key）」）。声明了 `<native>` 才挂载；未声明时仍有默认仓库，见下 |
 | `/static` | 静态资源（配置了 `<static>` 时） |
 | `/blob`、`/s3` | 对象存储与 S3 兼容接口（配置了 `<blob>` 时） |
 | `/admin` | 本机只读指标 `/admin/metrics`、配置查看与 reload |
 | `/*` | www 兜底（配置了 `<www>` 时，按各 `<doc>` 名匹配） |
 
-**`<maven>` / `<npm>` / `<native>` 元素只决定是否挂载对应端点**：未声明时 `/maven`、`/npm`、`/native` 不挂载，但仓库仍在——base 回落到 `${micdn.home}/maven`、`${micdn.home}/npm`、`${micdn.home}/native`，上游回落到 repo1 / npmmirror（native 没有上游），因此 `<jar>` / `<npm>` provider 与 `micdn install` 无需声明该元素（`config.mavenDeclared` / `config.npmDeclared` / `config.nativeDeclared`）。
+**`<maven>` / `<npm>` / `<native>` 元素只决定是否挂载对应端点**：未声明时 `/maven`、`/npm`、`/native` 不挂载，但仓库仍在——base 回落到 `${micdn.home}/maven`、`${micdn.home}/npm`、`${micdn.home}/native`，上游回落到 repo1 / npmmirror（native 默认没有上游，可显式配置），因此 `<jar>` / `<npm>` provider 与 `micdn install` 无需声明该元素（`config.mavenDeclared` / `config.npmDeclared` / `config.nativeDeclared`）。
 `<native>` 目前没有 provider 与 `install` 入口，`/native` 是它唯一的消费者，所以要对外提供 native 下载/上传就显式声明 `<native/>`（或 `<native base="…"/>` 换本地根）。
 仓库前缀的根路径也是目录列表：缺尾斜杠（如 `/maven`）先 302 补 `/`，避免列表页的相对链接从站点根解析；
 `/maven/`、`/npm/`、`/native/` 直接列出本地仓库内容，便于核对缓存与本地装入（`micdn install`）的结果。

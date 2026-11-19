@@ -38,6 +38,7 @@ import std.string : lastIndexOf;
 
 import micdn.model;
 import micdn.web : normalizeBasePath;
+import micdn.web.curl : curlDownload;
 
 /// 版本标记：版本目录名与补丁别名都靠它定位「时间戳插在哪里」。
 private enum string snapshotMark = "-SNAPSHOT";
@@ -47,22 +48,38 @@ private enum size_t stampLength = 15;
 /** native 仓库：单根布局 + 「不带时间戳的别名 → 最新时间戳文件」解析。
 
     - 构件由客户端经 `/native` 的 PUT 发布（或运维按目录规范放入）；
-    - 与 `SnapshotRepo` 一样只负责本地布局，不做上游代理（迁移期可先由运维同步旧仓库）。
+    - 本地缺失时可从中心 micdn `/native` 按完整路径回源；回源文件落本地，后续直接命中缓存。
 */
 class NativeRepo {
   /// 仓库根目录（绝对路径）
   const string base;
+  /// 中心 micdn 的 native 上游；空表示不代理。
+  const string remote;
+  /// 上游 Bearer token；空表示匿名。
+  const string token;
 
-  this(string base) {
+  this(string base, string remote = "", string token = "") {
     import std.exception : enforce;
 
     enforce(base.length > 0, "native base must not be empty");
     this.base = normalizeBasePath(base);
+    this.remote = remote;
+    this.token = token;
   }
 
   static NativeRepo build(MicdnConfig config) {
     mkdirRecurse(config.native.base);
-    return new NativeRepo(config.native.base);
+    return new NativeRepo(config.native.base, config.native.remote, config.native.token);
+  }
+
+  /** 本地缺失时从 `remote` 按完整相对路径拉取；成功落盘后返回 true。 */
+  bool fetch(string ruri) const {
+    if (remote.length == 0 || ruri.endsWith("/"))
+      return false;
+    auto local = base ~ ruri;
+    if (exists(local))
+      return true;
+    return curlDownload(remote ~ ruri, local, token);
   }
 
   /// 仓库内相对 uri（以 `/` 开头）→ 绝对路径。

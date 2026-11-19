@@ -344,18 +344,24 @@ class NpmRepoConfig {
   }
 }
 
-/** native 发行包仓库配置（只有 base）。HTTP 前缀固定为 `micdn.routes.mountNative`。
+/** native 发行包仓库配置。HTTP 前缀固定为 `micdn.routes.mountNative`。
 
-    与 maven/npm 不同，这里**没有上游**：native 构件不经 micdn 镜像代理，仓库内容完全来自
-    `/native` 的 PUT 上传（或运维按目录规范放入）。本地路径规则：
+    与 maven/npm 不同，native 没有元数据；本地缺失时可以按完整路径从一个中心 micdn
+    `/native` 回源（`remote` / `token`）。本地路径规则：
     `{group 点转斜杠}/{artifact}/{version}/{文件名}`，正式版与 SNAPSHOT 共用同一个根。
 */
 class NativeRepoConfig {
   /// 本地 native 仓库根路径（如 `${micdn.home}/native`）
   const string base;
+  /// 中心 micdn 的 native 上游；空表示不代理。
+  const string remote;
+  /// 上游 Bearer token；空表示匿名。
+  const string token;
 
-  this(string base) {
+  this(string base, string remote = "", string token = "") {
     this.base = base;
+    this.remote = remote;
+    this.token = token;
   }
 }
 

@@ -255,8 +255,8 @@
       <xs:documentation> GraalVM native-image 的发行包（&lt;name&gt;-&lt;version&gt;[-&lt;classifier&gt;].tar.gz）与 bsdiff 增量补丁
         （&lt;name&gt;-&lt;旧版本&gt;_&lt;版本&gt;[-&lt;时间戳&gt;-&lt;构建号&gt;][-&lt;classifier&gt;].tar.gz.diff）的本地仓库，HTTP 前缀固定为 /native。
         **单根**：正式版与开发版（版本目录名以 -SNAPSHOT 结尾）共用同一个 base，按 {group 点转斜杠}/{artifact}/{version}/ 归档，
-        与 /maven 同口径；构件没有 pom、也没有 maven-metadata.xml，坐标完全由路径决定，因此这里没有元数据、也没有上游回源
-        （迁移期由上传或运维同步补齐，缺失即 404）。
+        与 /maven 同口径；构件没有 pom、也没有 maven-metadata.xml，坐标完全由路径决定，因此这里没有元数据；
+        可配置一个中心 micdn 的 &lt;remote&gt;，本地缺失时按完整路径回源并缓存（未配置则缺失即 404）。
         读写：PUT /native/{仓库内相对路径}（全路径 URL，不用 query string；需同时声明 &lt;auth publish-key&gt; 才挂 PUT，
         且约定先传构件、再传 .sha1，服务端只做原子落盘、不校验先后与配对）；GET|HEAD /native/{仓库内相对路径}，
         目录（含仓库根 /native）可列出、缺尾斜杠先 302 补 /；文件名里不含时间戳的 -SNAPSHOT 请求解析到同目录时间戳最新的
@@ -267,6 +267,14 @@
         上传侧见 beangle/build 的 nativeDistUpload / nativeDeltaUpload。
         注意：上传体上限取自 &lt;auth max-size&gt;（默认 64M），而发行包常有几十 MB（实测 53–62MB），需要调到 128M 以上。 </xs:documentation>
     </xs:annotation>
+    <xs:sequence>
+      <xs:element name="remote" minOccurs="0" maxOccurs="1">
+        <xs:complexType>
+          <xs:attribute name="url" type="xs:string" use="required"/>
+          <xs:attribute name="token" type="xs:string" use="optional"/>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
     <xs:attribute name="base" type="xs:string" default="${micdn.home}/native" use="optional">
       <xs:annotation>
         <xs:documentation> 本地仓库根：正式版与开发版共用，不再像 sashub 那样按 repository / snapshots 分两个根；发行包几十 MB 起，需要挪到大盘时在这里写 </xs:documentation>

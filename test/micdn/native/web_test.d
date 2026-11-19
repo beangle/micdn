@@ -33,6 +33,7 @@ import vibe.stream.memory : createMemoryOutputStream, createMemoryStream;
 
 import micdn.config : parseFile;
 import micdn.model : MicdnConfig;
+import micdn.native : NativeRepo;
 import micdn.native.web : NativeService;
 
 private string nativeHome() {
@@ -300,4 +301,18 @@ unittest {
   assert(err is null && file.res.statusCode == HTTPStatus.ok);
   assert(file.res.headers["Cache-Control"] == "public, max-age=31536000, immutable",
       file.res.headers["Cache-Control"]);
+}
+
+
+@("native repo fetches a missing file from the configured remote") unittest {
+  auto root = buildPath(tempDir, "micdn_native_fetch_" ~ randomUUID().toString);
+  auto upstream = buildPath(root, "upstream");
+  auto local = buildPath(root, "local");
+  mkdirRecurse(buildPath(upstream, "org/beangle/tool/1.0"));
+  write(buildPath(upstream, "org/beangle/tool/1.0/tool.tar.gz"), "native");
+  auto repo = new NativeRepo(local, "file://" ~ upstream);
+  assert(repo.fetch("/org/beangle/tool/1.0/tool.tar.gz"));
+  assert(exists(buildPath(local, "org/beangle/tool/1.0/tool.tar.gz")));
+  assert(!repo.fetch("/org/beangle/tool/1.0/missing.tar.gz"));
+  rmdirRecurse(root);
 }

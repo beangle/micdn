@@ -251,8 +251,17 @@ string toXml(const MicdnConfig config) {
   }
 
   if (config.nativeDeclared) {
-    app.put(i`  <native base="$(config.native.base)"/>`.text);
-    app.put("\n");
+    if (config.native.remote.length > 0) {
+      app.put(i`  <native base="$(config.native.base)">`.text);
+      app.put("\n");
+      app.put(i`    <remote url="$(escapeXmlAttr(config.native.remote))"`.text);
+      if (config.native.token.length > 0)
+        app.put(i` token="$(escapeXmlAttr(config.native.token))"`.text);
+      app.put("/>\n  </native>\n");
+    } else {
+      app.put(i`  <native base="$(config.native.base)"/>`.text);
+      app.put("\n");
+    }
   }
 
   if (config.auth) {
@@ -442,16 +451,24 @@ NpmRepoConfig parseNpm(T)(string home, ref DOMEntity!T micdnDom) {
       parseSingleRemoteToken(dom, "dev"));
 }
 
-/** 解析 native 发行包仓库配置（只有本地 base，没有上游；HTTP 前缀见 `mountNative`）。
-
-    native 构件（tar.gz / 增量补丁）由 `/native` 的 PUT 上传，micdn 不做镜像代理，
-    因此这里不需要 remote。
-*/
+/** 解析 native 发行包仓库配置：本地 base + 可选的中心 `/native` 上游。 */
 NativeRepoConfig parseNative(T)(string home, ref DOMEntity!T micdnDom) {
   auto dom = children(micdnDom, "native").front;
   auto attrs = getAttrs(dom);
-
-  return new NativeRepoConfig(parseRepoBase(home, attrs, "/native"));
+  auto base = parseRepoBase(home, attrs, "/native");
+  string remote;
+  string token;
+  foreach (entry; children(dom, "remote")) {
+    if (remote.length > 0)
+      throw new Exception("<native> allows at most one <remote>");
+    auto rattrs = getAttrs(entry);
+    remote = rattrs.get("url", "").strip;
+    if (remote.length == 0)
+      throw new Exception("<native><remote> requires a non-empty url attribute");
+    remote = stripTrailingSlash(remote);
+    token = rattrs.get("token", "").strip;
+  }
+  return new NativeRepoConfig(base, remote, token);
 }
 
 /// 从 DOM 节点解析静态资源配置（bundle 及 zip/dir/jar 等 provider）。

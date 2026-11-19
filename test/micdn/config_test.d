@@ -54,6 +54,13 @@ unittest {
   assert(both.npm.remotes == ["https://registry.npmmirror.com"]);
   assert(both.native.base == "/srv/micdn/native");
   assert(toXml(both).canFind(`<native base="/srv/micdn/native"/>`));
+
+  auto proxied = parse("/srv/micdn", `<?xml version="1.0"?><micdn><native base="/srv/native">`
+      ~ `<remote url="https://hub.example/native" token="center-key"/></native></micdn>`);
+  assert(proxied.native.remote == "https://hub.example/native");
+  assert(proxied.native.token == "center-key");
+  auto proxiedXml = toXml(proxied);
+  assert(proxiedXml.canFind(`<remote url="https://hub.example/native" token="center-key"/>`));
 }
 
 @("asset repo remote url")

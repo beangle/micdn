@@ -16,6 +16,8 @@
   `micdn.xml`，也不再打包 `micdn.env`；启动必须有本地配置。新增 localhost 的
   `POST /admin/config`，由 basagent 拉取 XML 后投递，micdn 自己校验、原子写文件并 reload。
   `/etc/micdn` 改为 `micdn:beangle 0750`，`micdn.xml` 为 `micdn:beangle 0640`。
+- **native 上游代理**：`<native><remote url="..." token="..."/></native>` 支持从中心 micdn
+  `/native` 按完整路径回源并缓存；本地有文件时仍直接发本地，未配置上游时缺失仍 404。
 - **移除 `xi:include` 支持**：micdn.xml 必须是一份完整配置；解析器遇到 `<xi:include>` 直接报错，
   不再展开本地片段。
 
