@@ -32,6 +32,9 @@
 | `/admin` | 本机只读指标 `/admin/metrics`、配置查看与 reload |
 | `/*` | www 兜底（配置了 `<www>` 时，按各 `<doc>` 名匹配） |
 
+`home` 和各类 `base` 里的 `~` 统一按当前进程用户的 passwd home 展开（不是 `$HOME`），
+因此 systemd 服务不需要额外设置 `HOME`；`home="~"` 与 `base="~/maven"` 会落到同一目录。
+
 **`<maven>` / `<npm>` / `<native>` 元素只决定是否挂载对应端点**：未声明时 `/maven`、`/npm`、`/native` 不挂载，但仓库仍在——base 回落到 `${micdn.home}/maven`、`${micdn.home}/npm`、`${micdn.home}/native`，上游回落到 repo1 / npmmirror（native 默认没有上游，可显式配置），因此 `<jar>` / `<npm>` provider 与 `micdn install` 无需声明该元素（`config.mavenDeclared` / `config.npmDeclared` / `config.nativeDeclared`）。
 `<native>` 目前没有 provider 与 `install` 入口，`/native` 是它唯一的消费者，所以要对外提供 native 下载/上传就显式声明 `<native/>`（或 `<native base="…"/>` 换本地根）。
 仓库前缀的根路径也是目录列表：缺尾斜杠（如 `/maven`）先 302 补 `/`，避免列表页的相对链接从站点根解析；

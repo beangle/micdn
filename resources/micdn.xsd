@@ -47,7 +47,7 @@
       </xs:attribute>
       <xs:attribute name="home" type="xs:string" use="optional">
         <xs:annotation>
-          <xs:documentation> 根目录，空表示 xml 文件所在目录，~ 表示用户主目录 </xs:documentation>
+          <xs:documentation> 根目录，空表示 xml 文件所在目录；~ 表示当前进程用户的 passwd home（不是 $HOME） </xs:documentation>
         </xs:annotation>
       </xs:attribute>
       <xs:attribute name="log-file" type="xs:string" default="console" use="optional">

@@ -825,3 +825,13 @@ unittest {
 @("micdn.xml rejects xi:include") unittest {
   assertThrown(parse("/tmp", `<micdn><xi:include href="part.xml"/></micdn>`));
 }
+
+
+@("home tilde and repository tilde resolve to the same directory") unittest {
+  auto config = parse("", `<?xml version="1.0"?><micdn home="~">`
+      ~ `<maven base="~/maven"/><npm base="~/npm"/><native base="~/native"/></micdn>`);
+  assert(config.home.length > 0);
+  assert(config.maven.base == normalizeBasePath(config.home ~ "/maven"));
+  assert(config.npm.base == normalizeBasePath(config.home ~ "/npm"));
+  assert(config.native.base == normalizeBasePath(config.home ~ "/native"));
+}

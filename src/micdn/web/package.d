@@ -176,9 +176,28 @@ string decodeRepositoryUri(string uri) {
   return decoded;
 }
 
+/** 展开路径里的 `~`：裸 `~` / `~/...` 取当前进程用户的 passwd home，而不是 `$HOME`。
+    systemd 服务通常不设置 `HOME`，如果沿用 std.path.expandTilde 会把 `~` 留在原处或指向 root；
+    `home="~"` 与 `<maven base="~/maven">` 必须用同一个来源，避免配置里两种 `~` 解析不一致。
+    `~user/...` 仍交给 expandTilde 的 passwd 路径处理。 */
+string expandHomePath(string path) {
+  if (path == "~" || path.startsWith("~/")) {
+    import core.sys.posix.pwd : getpwuid;
+    import core.sys.posix.unistd : geteuid;
+    import std.string : fromStringz;
+
+    auto entry = getpwuid(geteuid());
+    if (entry !is null && entry.pw_dir !is null) {
+      auto home = fromStringz(entry.pw_dir).idup;
+      return path.length == 1 ? home : home ~ path[1 .. $];
+    }
+  }
+  return expandTilde(path);
+}
+
 /** 规范化仓库根目录：展开 `~`、转绝对路径并消解 `.`/`..` 段（供各仓库构造复用）。 */
 string normalizeBasePath(string base) {
-  auto norm = buildNormalizedPath(absolutePath(expandTilde(base)).split("/"));
+  auto norm = buildNormalizedPath(absolutePath(expandHomePath(base)).split("/"));
   // `buildNormalizedPath` 会剥掉根斜杠（如 `/a/b` → `a/b`），绝对路径需补回根
   return norm.startsWith("/") ? norm : "/" ~ norm;
 }

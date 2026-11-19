@@ -16,6 +16,8 @@
   `micdn.xml`，也不再打包 `micdn.env`；启动必须有本地配置。新增 localhost 的
   `POST /admin/config`，由 basagent 拉取 XML 后投递，micdn 自己校验、原子写文件并 reload。
   `/etc/micdn` 改为 `micdn:beangle 0750`，`micdn.xml` 为 `micdn:beangle 0640`。
+- **`~` 路径统一解析**：`home` 与各仓库 `base` 中的裸 `~` / `~/...` 统一从当前进程用户的
+  passwd home 展开，不再依赖 systemd 是否设置 `$HOME`；`home="~"` 与 `base="~/maven"` 保持一致。
 - **SNAPSHOT 上传自动生成 metadata**：`PUT /maven/.../*-SNAPSHOT/带时间戳构件` 落盘后扫描版本目录
   生成/刷新 `maven-metadata.xml` 和 `.sha1`；prune 删除旧构建后也会重写，避免 metadata 悬空。
 - **native 上游代理**：`<native><remote url="..." token="..."/></native>` 支持从中心 micdn

@@ -87,6 +87,19 @@ maven-metadata.xml.sha1
 已删除文件；即使本次没有删除，也会补齐缺失的 metadata。已有旧构件需要重新上传一次或执行一次
 `micdn prune` 才会补上 metadata。
 
+### `~` 路径
+
+`home` 和各仓库 `base` 中的裸 `~` / `~/...` 统一按当前进程用户的 passwd home 展开，不依赖
+systemd 的 `$HOME`；因此可以写：
+
+```xml
+<micdn home="~">
+  <maven base="~/maven"/>
+```
+
+`home="~"` 与 `base="~/maven"` 会落到同一个目录。若节点使用非默认安装路径，仍应显式写绝对
+路径的 `home`。
+
 ### Native 上游
 
 ```xml
@@ -124,6 +137,6 @@ maven-metadata.xml.sha1
 
 ## 测试
 
-`dub test --compiler=ldc2`：**228 passed, 0 failed**。
+`dub test --compiler=ldc2`：**229 passed, 0 failed**。
 
 > 安装包与容器镜像版本从 git tag 推导；发布 0.4.2 前需创建并推送 `v0.4.2` tag。

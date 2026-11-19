@@ -31,18 +31,15 @@ import dxml.parser : EntityType;
 import micdn.fs.file : isSafePathSegments;
 import micdn.logging;
 import micdn.model;
-import micdn.web : normalizeBasePath;
+import micdn.web : expandHomePath, normalizeBasePath;
 import micdn.web.curl : isValidBearerToken;
 import micdn.xml;
 
-/** 解析 home 属性：空=默认目录，~=用户主目录，否则 expandTilde。
-*/
+/** 解析 home 属性：空=默认目录，否则按当前用户的 home 展开（与仓库 base 同源）。 */
 private string resolveHome(string homeAttr, string defaultDir) {
   if (homeAttr.length == 0)
     return defaultDir;
-  if (homeAttr == "~")
-    return expandTilde("~");
-  return expandTilde(homeAttr);
+  return expandHomePath(homeAttr);
 }
 
 /** 校验：maven、npm、native、blob、static、www、auth、prune 各至多出现一次。 */
@@ -139,7 +136,7 @@ MicdnConfig parse(string defaultHome, string content, const string sourceFile = 
   if (icmp(logFile, "console") == 0)
     logFile = "console";
   else
-    logFile = expandTilde(logFile);
+    logFile = expandHomePath(logFile);
   string logLevel = rootAttrs.get("log-level", "info").strip();
   if (logLevel.length == 0)
     logLevel = "info";
@@ -189,7 +186,7 @@ MicdnConfig parse(string defaultHome, string content, const string sourceFile = 
 /** 从本地 XML 文件解析 MicdnConfig。
 */
 MicdnConfig parseFile(string xmlFile) {
-  string abs = absolutePath(expandTilde(xmlFile));
+  string abs = absolutePath(expandHomePath(xmlFile));
   try {
     string content = readXml(xmlFile);
     return parse(dirName(abs), content, abs);
@@ -507,7 +504,7 @@ AssetConfig parseAsset(T)(string home, ref DOMEntity!T micdnDom) {
     auto dirs = children(c, "dir");
     foreach (dir; dirs) {
       attrs = getAttrs(dir);
-      string location = expandTilde(attrs["location"].replace("${micdn.home}", home));
+      string location = expandHomePath(attrs["location"].replace("${micdn.home}", home));
       bundle.addProvider(new DirProvider(location));
     }
     bool hasDir;
@@ -639,7 +636,7 @@ private BundleProvider parseWwwDocProvider(string home, string[string] docAttrs,
     return new NpmProvider(npm, subdir);
   }
   auto subdir = inner;
-  string file = expandTilde(zip.replace("${micdn.home}", home));
+  string file = expandHomePath(zip.replace("${micdn.home}", home));
   return new ZipProvider(file, subdir);
 }
 
