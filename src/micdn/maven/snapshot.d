@@ -21,8 +21,9 @@ module micdn.maven.snapshot;
     只是 `version` 形如 `1.0.0-SNAPSHOT`、文件名带 `mvn deploy` 生成的时间戳
     （`{artifact}-{version-without-SNAPSHOT}-{timestamp}-{build}[-{classifier}].{ext}`）。
 
-    与 npm 侧同口径：**元数据由写入方产出**——`micdn install` 复制构件、写 `.sha1` 并扫目录合成
-    `maven-metadata.xml`；HTTP 侧负责发文件、解析「不带时间戳的别名」到最新构建，不接受上传。
+    与 npm 侧同口径：**元数据由写入路径产出**——`micdn install` 和 `/maven` PUT 在上传 SNAPSHOT 构件后
+    都会扫目录合成 `maven-metadata.xml`；prune 删除旧构建后也会重写，避免 metadata 指向已删除文件。
+    HTTP 侧负责发文件、解析「不带时间戳的别名」到最新构建。
 
     入口只有一个 `/maven`：正式版与 SNAPSHOT 共用同一目录树，按版本目录区分，回源时由 `GavRepo` 按
     「是否存在以 `-SNAPSHOT` 结尾的路径段」选择上游（见 `GavRepo.isSnapshotUri` / `upstreamsFor`）。
@@ -334,6 +335,25 @@ SnapshotResult installSnapshot(SnapshotRepo repo, string file) {
       repo.uriOf(coords.group, coords.artifact, coords.ver, fileName));
 }
 
+/** 从 `/maven` 相对路径推导 SNAPSHOT 版本目录坐标；不是版本目录下的构件文件时返回 false。
+    仅用于上传后生成版本级 metadata，`maven-metadata.xml` 本身不触发重写。 */
+bool snapshotCoordinatesOfUri(string ruri, out SnapshotCoordinates coords) {
+  auto normalized = ruri.strip;
+  while (normalized.length > 0 && normalized[0] == '/')
+    normalized = normalized[1 .. $];
+  auto parts = normalized.split("/").filter!(p => p.length > 0).array;
+  if (parts.length < 3)
+    return false;
+  auto file = parts[$ - 1];
+  if (file == metadataFileName || file.startsWith(metadataFileName ~ "."))
+    return false;
+  auto ver = parts[$ - 2];
+  if (!ver.endsWith("-SNAPSHOT"))
+    return false;
+  coords = SnapshotCoordinates(parts[0 .. $ - 3].join("."), parts[$ - 3], ver);
+  return true;
+}
+
 /** 扫描版本目录重写 `maven-metadata.xml`（+ `.sha1`）。
 
     `<snapshot>` / `<lastUpdated>` 取最新构建的 (timestamp, build)；`<snapshotVersions>` 只列**最新构建**
@@ -343,7 +363,7 @@ SnapshotResult installSnapshot(SnapshotRepo repo, string file) {
 
     每次 install 都整体重写（元数据由目录内容推导，无增量状态），`.sha1` 随之刷新。
 */
-string writeSnapshotMetadata(SnapshotRepo repo, SnapshotCoordinates coords) {
+string writeSnapshotMetadata(const SnapshotRepo repo, SnapshotCoordinates coords) {
   auto dir = repo.versionDir(coords.group, coords.artifact, coords.ver);
   mkdirRecurse(dir);
 

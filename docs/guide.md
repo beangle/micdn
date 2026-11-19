@@ -24,7 +24,7 @@
 
 | 前缀 | 说明 |
 |------|------|
-| `/maven` | maven：本地缓存 + 上游 remote 拉取；SNAPSHOT 路径本地优先、缺失时按 `<snapshot remote>` 回源（版本元数据按 TTL 刷新），别名请求 302 到最新时间戳文件，本地快照版本并入 artifact 级元数据；`<auth publish-key>` 非空后可 PUT 上传（`mvn deploy`，见「上传（publish-key）」）。声明了 `<maven>` 才挂载；未声明时仍有默认仓库，见下 |
+| `/maven` | maven：本地缓存 + 上游 remote 拉取；SNAPSHOT 路径本地优先、缺失时按 `<snapshot remote>` 回源（版本元数据按 TTL 刷新），别名请求 302 到最新时间戳文件，本地快照版本并入 artifact 级元数据；`<auth publish-key>` 非空后可 PUT 上传（`mvn deploy`，见「上传（publish-key）」），上传带时间戳 SNAPSHOT 构件后自动刷新版本级 `maven-metadata.xml`。声明了 `<maven>` 才挂载；未声明时仍有默认仓库，见下 |
 | `/npm` | npm registry（正式版与开发版共用）：packument（交付时替换 `{origin}` 占位符）与 tgz；`<auth publish-key>` 非空后可 PUT 上传（`npm publish`，见「上传（publish-key）」）。npm 侧**只实现发布**，不提供 unpublish / dist-tag / login / deprecate 等 npmjs 管理接口。声明了 `<npm>` 才挂载；未声明时仍有默认仓库，见下 |
 | `/native` | native 发行包（tar.gz）与增量补丁（`.diff`）：单根，GET/HEAD 取件、目录可列出，缺失时可按 `<native><remote>` 回源；不带时间戳的补丁别名 302 到最新的时间戳文件；`<auth publish-key>` 非空后可 PUT 上传（见「上传（publish-key）」）。声明了 `<native>` 才挂载；未声明时仍有默认仓库，见下 |
 | `/static` | 静态资源（配置了 `<static>` 时） |
@@ -169,7 +169,7 @@ micdn -f /etc/micdn/micdn.xml install target/beangle-commons-5.0.0-20250803.1326
 
 坐标（groupId / artifactId / version）取自工件内部：`META-INF/maven/{group}/{artifact}/pom.properties`（war 在
 `WEB-INF/classes/` 下），没有则退回 `MANIFEST.MF` 的 `Implementation-Vendor-Id` / `-Title` / `-Version`；`.pom`
-直接解析 XML。install 会复制构件、写 `.sha1`，并扫描版本目录重写 `maven-metadata.xml`（`<snapshot>` 取最新时间戳，
+直接解析 XML。install/PUT 都会复制构件、写 `.sha1`，并扫描版本目录重写 `maven-metadata.xml`（`<snapshot>` 取最新时间戳，
 `<snapshotVersions>` 列出最新构建的 jar/pom/classifier 等文件），元数据与构件一样由**写入方产出**，HTTP 侧只负责
 发文件、解析别名，并在本地缺失且配了 `<snapshot remote>` 时回源。
 

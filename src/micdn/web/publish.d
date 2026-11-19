@@ -173,10 +173,9 @@ ubyte[] readUploadBody(InputStream input, size_t maxSize) {
 
 /** 把上传体原子写入 `base + ruri`，返回落盘绝对路径；路径非法时抛异常。
 
-    服务端不解析、不重写上传内容——`mvn deploy` 自己生成时间戳文件名与 `maven-metadata.xml`，
-    native 的 tar.gz/增量补丁同样按客户端给的路径原样落盘，因此读路径（快照别名解析、元数据合并、
-    目录列表）拿到的就是客户端写的那一份。`ruri` 一般来自 `repositoryUri(ResourceUri.segs)`（已消解
-    点段），这里再防一手直接调用方。
+    服务端不解析、不重写上传内容——native 的 tar.gz/增量补丁按客户端给的路径原样落盘；
+    Maven 的 SNAPSHOT metadata 由 `MavenService.publish` 在落盘后另行刷新。`ruri` 一般来自
+    `repositoryUri(ResourceUri.segs)`（已消解点段），这里再防一手直接调用方。
 
     写入方式与仓库其余写入一致（元数据/上游下载）：先写同目录 `.incoming` 临时文件，再 rename
     原子替换。同路径重复上传按覆盖处理（开发版构件本来就会反复重发）。

@@ -177,8 +177,9 @@ class MavenService {
 
   /** 发布：接受 `mvn deploy` / `mvn deploy:deploy-file` 的 HTTP PUT，原样写入本地仓库。
 
-      服务端不解析内容——客户端负责生成时间戳文件名与 `maven-metadata.xml`，落盘后
-      `/maven` 的读路径（快照别名、artifact 级元数据合并）即可照常服务。
+      对 SNAPSHOT 版本目录下的带时间戳构件，落盘后立即扫描目录生成/刷新版本级
+      `maven-metadata.xml` 和 `.sha1`，因此 SnapshotPlugin 这类只上传构件的客户端也能被
+      Maven 解析；客户端主动上传的 `maven-metadata.xml` 不会被服务端重写（prune 会重写）。
       调用方（`service` 的 PUT 分支）已通过 `authorizeWrite` 校验令牌。
       注意：为某 SNAPSHOT 版本目录配置了 `<snapshot remote>` 时，本地写入的
       `maven-metadata.xml` 会在 TTL 到期后被上游刷新覆盖（本地发布场景通常不配上游客）。
@@ -193,6 +194,11 @@ class MavenService {
       throw e;
     catch (Exception e)
       throw new HTTPStatusException(HTTPStatus.badRequest, e.msg);
+    // 与 npm publish 的 packument 刷新同思路：上传 SNAPSHOT 构件后立即刷新版本级 metadata，
+    // 不依赖客户端同时上传 maven-metadata.xml。
+    SnapshotCoordinates coords;
+    if (snapshotCoordinatesOfUri(ruri, coords))
+      writeSnapshotMetadata(snapshots, coords);
     logInfo("maven publish: %s (%d bytes)", ruri, body.length);
     res.statusCode = HTTPStatus.created;
     res.writeVoidBody();

@@ -124,3 +124,21 @@ unittest {
   assert(exchange(writeXml, jar, HTTPMethod.PUT, ["Authorization": "Bearer r5"], "x").status
       == HTTPStatus.unauthorized);
 }
+
+
+@("maven PUT of a timestamped snapshot generates version metadata and sha1") unittest {
+  auto home = mavenHome();
+  scope (exit)
+    if (exists(home))
+      rmdirRecurse(home);
+  auto xmlPath = mavenConfig(home, `  <auth publish-key="w5"/>`);
+  const url = "/maven/org/beangle/tool/1.0.0-SNAPSHOT/tool-1.0.0-20261119.101500-1.war";
+  auto ex = exchange(xmlPath, url, HTTPMethod.PUT, ["Authorization": "Bearer w5"], "war-bytes");
+  assert(ex.status == HTTPStatus.created);
+  auto dir = buildPath(home, "m2", "org", "beangle", "tool", "1.0.0-SNAPSHOT");
+  auto metadata = readText(buildPath(dir, "maven-metadata.xml"));
+  assert(metadata.canFind("<timestamp>20261119.101500</timestamp>"));
+  assert(metadata.canFind("<buildNumber>1</buildNumber>"));
+  assert(metadata.canFind("<value>1.0.0-20261119.101500-1</value>"));
+  assert(exists(buildPath(dir, "maven-metadata.xml.sha1")));
+}

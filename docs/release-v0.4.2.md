@@ -74,6 +74,8 @@ micdn -f /etc/micdn/micdn.xml prune all
   `127.0.0.1:8888/admin/config`；micdn 完整校验，成功后原子写入自己的
   `micdn.xml` 并重建 router。
 - `/admin/config` 只接受 localhost，body 上限 4 MiB；失败时旧文件和旧 router 都不变。
+- `/maven` 的 SNAPSHOT PUT 在上传带时间戳构件后自动生成/刷新版本级 `maven-metadata.xml` 和
+  `.sha1`；prune 删除旧构建后重写 metadata，避免指向已删除文件。
 - `<native>` 可配置中心上游：`<native><remote url="..." token="..."/></native>`，本地缺失时按完整
   路径回源并缓存；目录列表仍来自本地。
 - `micdn.xml` 不再支持 `xi:include`：配置必须是一份完整文件，解析器遇到 `<xi:include>` 直接报错。
@@ -92,6 +94,6 @@ micdn -f /etc/micdn/micdn.xml prune all
 
 ## 测试
 
-`dub test --compiler=ldc2`：**227 passed, 0 failed**。
+`dub test --compiler=ldc2`：**228 passed, 0 failed**。
 
 > 安装包与容器镜像版本从 git tag 推导；发布 0.4.2 前需创建并推送 `v0.4.2` tag。

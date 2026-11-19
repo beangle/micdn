@@ -16,6 +16,7 @@
 
 module test.micdn.maven.prune_test;
 
+import std.algorithm : canFind;
 import std.conv : to;
 import std.file;
 import std.path : buildPath;
@@ -69,6 +70,10 @@ unittest {
   assert(exists(dir ~ "/app-1.0-" ~ stamp(1) ~ "-1.jar"));
   assert(exists(dir ~ "/app-1.0-" ~ stamp(3) ~ "-3.jar"));
   assert(exists(dir ~ "/app-1.0-" ~ stamp(4) ~ "-4.jar"));
+  auto metadata = readText(dir ~ "/maven-metadata.xml");
+  assert(metadata.canFind("<buildNumber>4</buildNumber>"));
+  assert(metadata.canFind("<value>1.0-" ~ stamp(4) ~ "-4</value>"));
+  assert(!metadata.canFind("<buildNumber>1</buildNumber>"));
 }
 
 @("pruneSnapshotBuilds always keeps at least one build")

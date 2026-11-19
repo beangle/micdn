@@ -21,8 +21,8 @@ module micdn.maven.gc;
 /// 清理按「时间戳 + buildNumber」成组删除，版本级 `maven-metadata.xml` 指向的构建与最新 N 个
 /// 构建一律保留（至少保留 1 个）；artifact 级 `maven-metadata.xml`（版本列表）不在这里改。
 
-import std.algorithm : sort;
-import std.array : array;
+import std.algorithm : filter, sort;
+import std.array : array, join, split;
 import std.conv : to;
 import std.file : SpanMode, dirEntries, exists, isDir, readText, remove;
 import std.path : baseName, dirName;
@@ -30,7 +30,8 @@ import std.string : endsWith, indexOf, startsWith, strip;
 
 import vibe.core.log;
 
-import micdn.maven.snapshot : SnapshotFile, metadataFileName, parseSnapshotName;
+import micdn.maven.snapshot : SnapshotCoordinates, SnapshotFile, SnapshotRepo, metadataFileName,
+  parseSnapshotName, writeSnapshotMetadata;
 import micdn.web : normalizeBasePath;
 
 /// 清理结果（CLI / 管理端点打印用）。
@@ -54,26 +55,28 @@ MavenPruneResult pruneSnapshotBuilds(string base, uint keep = 1, bool dryRun = f
   auto root = normalizeBasePath(base);
   if (!exists(root) || !isDir(root))
     return result;
-  visit(root, keep, dryRun, result);
+  visit(root, root, keep, dryRun, result);
   return result;
 }
 
-private void visit(string dir, uint keep, bool dryRun, ref MavenPruneResult result) {
+private void visit(string root, string dir, uint keep, bool dryRun, ref MavenPruneResult result) {
   foreach (entry; dirEntries(dir, SpanMode.shallow, false)) {
     if (!entry.isDir || entry.isSymlink)
       continue;
     auto name = baseName(entry.name);
     if (name.endsWith("-SNAPSHOT")) {
       result.versions++;
-      pruneVersionDir(entry.name, keep, dryRun, result);
+      pruneVersionDir(root, entry.name, keep, dryRun, result);
     } else {
-      visit(entry.name, keep, dryRun, result);
+      visit(root, entry.name, keep, dryRun, result);
     }
   }
 }
 
-/// 一个版本目录：按 build 分组，保留最新 keep 个与元数据指向的 build。
-private void pruneVersionDir(string dir, uint keep, bool dryRun, ref MavenPruneResult result) {
+/// 一个版本目录：按 build 分组，保留最新 keep 个与元数据指向的 build；
+/// 删除后按剩余文件重写版本级 metadata，保证 metadata 不指向已删除构建。
+private void pruneVersionDir(string root, string dir, uint keep, bool dryRun,
+    ref MavenPruneResult result) {
   auto artifact = baseName(dirName(dir));
   auto ver = baseName(dir);
   auto protectedKey = metadataBuildKey(dir);
@@ -93,8 +96,11 @@ private void pruneVersionDir(string dir, uint keep, bool dryRun, ref MavenPruneR
     groups[key.text] = key;
     filesOfGroup[key.text] ~= entry.name;
   }
-  if (groups.length <= keep)
+  if (groups.length <= keep) {
+    if (!dryRun && groups.length > 0)
+      rewriteMetadata(root, dir, artifact, ver);
     return;
+  }
 
   BuildKey[] keys = groups.values;
   keys.sort!((a, b) => compareBuild(a, b) < 0); // 升序：旧 → 新
@@ -117,6 +123,24 @@ private void pruneVersionDir(string dir, uint keep, bool dryRun, ref MavenPruneR
     result.buildsRemoved++;
     result.removed ~= artifact ~ ":" ~ ver ~ " " ~ key.text;
   }
+
+  if (!dryRun)
+    rewriteMetadata(root, dir, artifact, ver);
+}
+
+/// 按剩余文件重写版本目录的 metadata + sha1；目录坐标从 root 下的相对路径推导。
+private void rewriteMetadata(string root, string dir, string artifact, string ver) {
+  auto normalizedRoot = normalizeBasePath(root);
+  auto normalizedDir = normalizeBasePath(dir);
+  if (normalizedDir.length <= normalizedRoot.length)
+    return;
+  auto rel = normalizedDir[normalizedRoot.length .. $];
+  auto parts = rel.split("/").filter!(p => p.length > 0).array;
+  if (parts.length < 3)
+    return;
+  auto group = parts[0 .. parts.length - 2].join(".");
+  auto coords = SnapshotCoordinates(group, artifact, ver);
+  writeSnapshotMetadata(new SnapshotRepo(normalizedRoot), coords);
 }
 
 /// 版本级元数据里的 `<snapshot><timestamp>` + `<buildNumber>` 组合；读不到返回空串。
