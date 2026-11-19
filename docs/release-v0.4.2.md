@@ -12,6 +12,8 @@ v0.4.2 增加**仓库清理**与**上游 Bearer 令牌**，面向“中心 micdn
 - **清理**：npm 开发版与 maven SNAPSHOT 构建默认各保留 1 份；可手动执行，也可按 `<prune>` 每日自动执行。
 - **令牌**：`<dev>` / `<snapshot>` 上游可配置 Bearer token，客户 micdn 从中心 micdn 下载时携带中心
   `<auth download-key>`。
+- **仓库代理**：native 可按完整路径从中心 micdn 回源；SNAPSHOT 上传后自动生成版本级
+  `maven-metadata.xml`，prune 删除旧构建后重写。
 - **远程配置所有权**：micdn 不再持有控制台 token、不再自己下载 `micdn.xml`；basagent 拉取后
   投递给 localhost `/admin/config`，micdn 自己校验、原子落盘并 reload。`micdn.env` 已移除。
 - **不改变正式版语义**：正式版 remote、`<micdn remote>`（v0.4.1 已移除）和现有配置都不受影响。
@@ -67,6 +69,35 @@ micdn -f /etc/micdn/micdn.xml prune all
 - 令牌只应指向中心 micdn 或会补同值鉴权的反代；不要把外部 registry 配成 dev/snapshot 上游并附带中心令牌。
 - bashub 侧由 `<snapshot download-token>` 统一下发到 `<snapshot token>` 和 `<dev token>`。
 
+## 仓库代理与 SNAPSHOT 元数据
+
+### Maven SNAPSHOT metadata
+
+`PUT /maven/.../*-SNAPSHOT/带时间戳构件` 落盘后，micdn 扫描版本目录并生成/刷新：
+
+```text
+maven-metadata.xml
+maven-metadata.xml.sha1
+```
+
+因此只上传时间戳 war/jar + `.sha1` 的客户端（如 `SnapshotPlugin`、`snapshot-upload`）不再需要
+自行生成 metadata；`mvn deploy` 主动上传的 metadata 会保留，直到 prune 重写。
+
+`pruneSnapshotBuilds` 删除旧构建后按剩余文件重写版本级 metadata，避免 `<snapshotVersions>` 指向
+已删除文件；即使本次没有删除，也会补齐缺失的 metadata。已有旧构件需要重新上传一次或执行一次
+`micdn prune` 才会补上 metadata。
+
+### Native 上游
+
+```xml
+<native base="/var/lib/micdn/native">
+  <remote url="http://central-micdn:8888/native" token="<central-download-key>"/>
+</native>
+```
+
+本地有文件时直接发本地；缺失时按完整路径回源并缓存，目录列表仍来自本地。未配置 `<remote>` 时
+缺失仍为 404。
+
 ## 远程配置与权限
 
 - 删除 `/etc/micdn/micdn.env`；micdn 不再读取 `BAS_PRINCIPAL` / `BAS_TOKEN`。
@@ -74,10 +105,6 @@ micdn -f /etc/micdn/micdn.xml prune all
   `127.0.0.1:8888/admin/config`；micdn 完整校验，成功后原子写入自己的
   `micdn.xml` 并重建 router。
 - `/admin/config` 只接受 localhost，body 上限 4 MiB；失败时旧文件和旧 router 都不变。
-- `/maven` 的 SNAPSHOT PUT 在上传带时间戳构件后自动生成/刷新版本级 `maven-metadata.xml` 和
-  `.sha1`；prune 删除旧构建后重写 metadata，避免指向已删除文件。
-- `<native>` 可配置中心上游：`<native><remote url="..." token="..."/></native>`，本地缺失时按完整
-  路径回源并缓存；目录列表仍来自本地。
 - `micdn.xml` 不再支持 `xi:include`：配置必须是一份完整文件，解析器遇到 `<xi:include>` 直接报错。
 - 包安装把 `/etc/micdn` 设为 `micdn:beangle 0750`，`micdn.xml` 为 `micdn:beangle 0640`；
   basagent 不需要写权限。
@@ -89,8 +116,11 @@ micdn -f /etc/micdn/micdn.xml prune all
 2. 需要自动清理时增加 `<prune>`，先用 `micdn prune ... --dry-run` 核对数量。
 3. 需要从中心代理 dev/SNAPSHOT 时，给 `<dev>` / `<snapshot>` 配 token；中心对应开启
    `<auth download-key>`。
-4. 远程配置由 basagent 拉取并投递；删除 `micdn.env`，确认 `/etc/micdn` 权限。
-5. 配置改动后执行 `micdn` reload（或重启）；清理器按新配置重建。
+4. 远程配置由 basagent 拉取并投递；需要 **basagent/basctl 0.0.3** 及以上，删除 `micdn.env`，
+   确认 `/etc/micdn` 权限。
+5. 旧 SNAPSHOT 构件缺少 metadata 时，重新上传一次或执行 `micdn prune` 补生成。
+6. 需要从中心代理 native 时，给 `<native>` 增加 `<remote>`；中心开启 `<auth download-key>`。
+7. 配置改动后执行 `micdn` reload（或重启）；清理器按新配置重建。
 
 ## 测试
 
