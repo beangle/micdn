@@ -15,3 +15,7 @@ packages
 *.ipr
 *.iws
 
+# GitHub release notes are project files, not local dotfiles
+!.github/
+!.github/release-notes/
+!.github/release-notes/*.md
