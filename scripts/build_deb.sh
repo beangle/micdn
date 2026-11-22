@@ -53,14 +53,15 @@ mkdir -p "$PKGDIR"
 pushd "$PKGDIR" > /dev/null
 
 # 文件布局（与 RPM 一致）：默认配置在 /usr/share，卸载 deb 不删除 /etc/micdn/micdn.xml
-mkdir -p usr/bin usr/share/micdn usr/lib/systemd/system
+mkdir -p usr/bin usr/share/micdn usr/lib/systemd/system etc/logrotate.d
 cp -f $MICDN_HOME/target/micdn usr/bin/micdn
 strip --strip-unneeded usr/bin/micdn
 cp -f $MICDN_HOME/scripts/package/micdn.xml usr/share/micdn/micdn.xml.default
 cp -f $MICDN_HOME/scripts/package/micdn.service usr/lib/systemd/system/micdn.service
+cp -f $MICDN_HOME/scripts/package/micdn.logrotate etc/logrotate.d/micdn
 
 chmod 0755 usr/bin/micdn
-chmod 0644 usr/share/micdn/micdn.xml.default usr/lib/systemd/system/micdn.service
+chmod 0644 usr/share/micdn/micdn.xml.default usr/lib/systemd/system/micdn.service etc/logrotate.d/micdn
 
 # DEBIAN 控制文件
 mkdir -p DEBIAN
@@ -74,14 +75,17 @@ Priority: optional
 Architecture: ${ARCH}
 Maintainer: ${MAINTAINER}
 Homepage: https://github.com/beangle/micdn
-Depends: curl
+Depends: curl, logrotate
 Description: Beangle Minimal CDN Server
  Mini CDN, serve static resource, maven artifacts and binary file storage.
  . 
  Main designer: Duan TiHua
 EOF
 
-# 不设 conffiles：/etc/micdn/micdn.xml 由 postinst 从 default 生成，不由包跟踪，卸载时保留
+# /etc/micdn/micdn.xml 由 postinst 从 default 生成，不由包跟踪，卸载时保留
+cat > DEBIAN/conffiles << 'EOF'
+/etc/logrotate.d/micdn
+EOF
 
 # preinst：创建用户和目录
 cat > DEBIAN/preinst << 'PREINST'

@@ -123,6 +123,17 @@ systemd 的 `$HOME`；因此可以写：
   basagent 不需要写权限。
 - micdn 启动必须有本地 `micdn.xml`；包默认配置可保证首次启动。
 
+## 日志
+
+安装包默认配置将业务日志写到 `/var/log/micdn/micdn.log`，并新增
+`/etc/logrotate.d/micdn`：
+
+- 每日轮转，保留 14 份；
+- `copytruncate`，无需重启 micdn；
+- `su micdn beangle`，与运行账号一致。
+
+启动/配置错误仍输出到 stderr，由 systemd 收进 journal；业务日志看文件。
+
 ## 升级
 
 1. 旧配置可直接启动；不写 `<prune>` 不会自动删除任何文件。

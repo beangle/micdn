@@ -1,0 +1,10 @@
+/var/log/micdn/micdn.log {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    su micdn beangle
+}

@@ -20,6 +20,8 @@
   passwd home 展开，不再依赖 systemd 是否设置 `$HOME`；`home="~"` 与 `base="~/maven"` 保持一致。
 - **SNAPSHOT 上传自动生成 metadata**：`PUT /maven/.../*-SNAPSHOT/带时间戳构件` 落盘后扫描版本目录
   生成/刷新 `maven-metadata.xml` 和 `.sha1`；prune 删除旧构建后也会重写，避免 metadata 悬空。
+- **日志轮转**：安装包新增 `/etc/logrotate.d/micdn`，默认 `/var/log/micdn/micdn.log` 每日轮转、
+  保留 14 份并使用 `copytruncate`，避免文件日志无限增长。
 - **native 上游代理**：`<native><remote url="..." token="..."/></native>` 支持从中心 micdn
   `/native` 按完整路径回源并缓存；本地有文件时仍直接发本地，未配置上游时缺失仍 404。
 - **移除 `xi:include` 支持**：micdn.xml 必须是一份完整配置；解析器遇到 `<xi:include>` 直接报错，

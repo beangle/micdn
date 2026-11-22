@@ -90,20 +90,21 @@ micdn_prepare_release_build
   mkdir -p $DESTDIR"/"$CDNDIR
   # switch to temp dir
   pushd $DESTDIR"/"$CDNDIR > /dev/null
-    mkdir -p usr/bin usr/share/micdn usr/lib/systemd/system
+    mkdir -p usr/bin usr/share/micdn usr/lib/systemd/system etc/logrotate.d
     cp -f $MICDN_HOME/target/micdn usr/bin/micdn
     strip --strip-unneeded usr/bin/micdn
     # 默认配置放在 /usr/share，由 %%post 首次安装时复制到 /etc/micdn/micdn.xml，卸载时不删除用户配置
     cp -f $MICDN_HOME/scripts/package/micdn.xml usr/share/micdn/micdn.xml.default
     cp -f $MICDN_HOME/scripts/package/micdn.service usr/lib/systemd/system/micdn.service
+cp -f $MICDN_HOME/scripts/package/micdn.logrotate etc/logrotate.d/micdn
 
     # change folders and files permissions
     chmod -R 0755 .
-    chmod 0644 usr/share/micdn/micdn.xml.default usr/lib/systemd/system/micdn.service
+    chmod 0644 usr/share/micdn/micdn.xml.default usr/lib/systemd/system/micdn.service etc/logrotate.d/micdn
     chmod 0755 usr/bin/micdn
 
     # 运行时依赖：ldc 仅在构建机需要（dub build），安装包的目标机无需 ldc（ldd 通常无 ldc.so）
-    DEPEND="curl"
+    DEPEND="curl, logrotate"
     # create micdn.spec file
     cd ..
     # Generate changelog
@@ -201,8 +202,10 @@ micdn_prepare_release_build
 
     # /etc/micdn/micdn.xml 不在 %%files 中，卸载 rpm 时保留配置与 /var 下数据目录
     find $DESTDIR/$CDNDIR/ ! -type d | \
+      grep -v -e '/etc/logrotate.d/micdn$' | \
       sed 's|'$DESTDIR'/'$CDNDIR'|/|' >> micdn.spec
 
+    echo '%config(noreplace) /etc/logrotate.d/micdn' >> micdn.spec
     echo >> micdn.spec
     mkdir -p $RPMDIR
     echo "%define _rpmdir $RPMDIR" >> micdn.spec
