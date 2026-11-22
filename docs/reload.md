@@ -7,8 +7,8 @@
 ## 概述
 
 - reload = **重新解析配置 + 重建整套路由/服务树 + 原子替换**，进程不重启；新配置立即生效。
-- 入口：**SIGHUP**（Linux）、**`/admin/reload`**（localhost，重解析本地 XML）和
-  **`/admin/config`**（localhost，接收 basagent 投递的 XML 后校验、原子落盘、reload）。
+- 入口：**SIGHUP**（Linux）和 **`/admin/reload`**（localhost，重解析本地 XML）。
+  HTTP 配置投递 `/admin/config` 已移除；远程配置由 root oneshot 安装后 restart。
 - 失败语义：解析或构建失败时**保留旧 router 继续服务**，仅记录 metrics 并打错误日志，配置不生效。
 
 ---
@@ -19,7 +19,6 @@
 |------|------|------|
 | SIGHUP | `sudo systemctl reload micdn`（等价 `kill -HUP $MAINPID`） | systemd 单元已配置 `ExecReload=/bin/kill -HUP $MAINPID`；**仅 Linux 编译启用** |
 | HTTP reload | `curl http://127.0.0.1:8080/admin/reload` | 仅接受 localhost 回环来源；只重解析本地 XML；成功返回 `reload ok`，失败返回 `reload failed: <msg>` |
-| HTTP config | `POST /admin/config`（basagent） | 仅接受 localhost；body 为完整 XML；micdn 校验成功后原子写自己的 `micdn.xml` 并 reload；失败返回 500，旧文件/router 不变 |
 
 **注意**：非 Linux（macOS/BSD 等）不编译 SIGHUP 监听线程，只可用 `/admin/reload`。
 
@@ -29,8 +28,7 @@
 
 1. **取得 XML**：
    - SIGHUP / `/admin/reload`：`parseFile` 读取本地 `micdn.xml`；
-   - `/admin/config`：basagent 已用 Project token 从 bashub 下载并 POST XML；micdn 完整解析校验，
-     成功后才写临时文件并 rename 覆盖自己的 `micdn.xml`。
+   - `/admin/config` 已移除；远程配置由 root helper 在进程外替换文件并 restart。
 2. **重新解析**：`parse` 完整校验（XSD、名称/base、try-file、重复 doc 等）。
 3. **解析监听**：`parseListen` 读取新 `host:port`（仅用于 metrics，见「生效范围」）。
 4. **应用限制**：`applyLimits` 把新 `blob.max-size`、`keepAliveTimeout` 写回共享 `HTTPServerSettings`，对新连接生效。
@@ -40,10 +38,9 @@
 8. **内存回收**：成功后立即 `runGcMinimize`（与启动期重活后回收一致），让旧路由/索引垃圾占用的 RSS 回落，日志 `Reload GC reclaim: …`。
 9. **记录指标**：`recordReload(ok)` 计入 `reload.total` / `reload.failed`（`src/micdn/admin/metrics.d`）。
 
-**日志**：`tryReload` 打 `Config reload started: <配置路径>`；`tryApply` 打
-`Config apply started: <配置路径>`；成功时 SIGHUP 路径打 `Config reload (SIGHUP): ok`、
-reload HTTP 路径打 `Config reload (HTTP): ok`、config 路径打 `Config apply (HTTP): ok`；失败打
-`Reload failed` / `Config apply failed`。
+**日志**：`tryReload` 打 `Config reload started: <配置路径>`；成功时 SIGHUP 路径打
+`Config reload (SIGHUP): ok`、reload HTTP 路径打 `Config reload (HTTP): ok`；失败打
+`Reload failed`。
 
 **SIGHUP 的实现要点**（`src/micdn/main.d` `startSighupReloadThread`）：
 

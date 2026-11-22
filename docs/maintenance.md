@@ -11,13 +11,13 @@
 | 运行用户 | `micdn`（系统用户，无登录 shell） |
 | 运行组 | `beangle` |
 | 配置文件 | `/etc/micdn/micdn.xml`（首次安装由 `/usr/share/micdn/micdn.xml.default` 复制） |
-| 远程配置 | 无 micdn 侧配置文件；basagent 拉取后 POST 到本机 `/admin/config`，由 micdn 自己落盘 |
+| 远程配置 | 无 micdn 侧配置文件；basagent 下载后触发 root oneshot，由 helper 校验并原子安装 |
 | 常见数据路径 | `/var/lib/micdn/`（blob、maven、npm、native、local 等）、`/var/cache/micdn/`（asset、www）、`/var/log/micdn/` |
 
 安装脚本会将上述 **`/var/*`** 目录 **`chown` 为 `micdn:beangle`**，并设为 **`2775`**（`rwxrwsr-x`：组可读写、**setgid** 使新建子目录继承 **`beangle` 组**）。systemd 单元中配置了 **`UMask=0002`**，进程新建文件对组可写。
 
 `/etc/micdn` 安装后为 **`micdn:beangle 0750`**，`micdn.xml` 为 **`micdn:beangle 0640`**：
-micdn 是唯一写自己配置的人；basagent 只读/投递，不需要写权限。
+root helper 是唯一写 `/etc/micdn` 的执行者；basagent 只写自己的请求目录，不需要写权限。
 
 > **`/etc/micdn/micdn.xml` 是用户数据：卸载、重装、升级都不得删除或覆盖。** 包内只放
 > `/usr/share/micdn/*.default` 模板，安装脚本只在缺失时生成；打包约束见
@@ -91,8 +91,9 @@ micdn 不再保存控制台凭证，也不自己下载配置。bashub 的 `micdn
 
 ```text
 basagent 拉取 /api/bashub/micdn/{project}/micdn.xml
-  → POST 127.0.0.1:8888/admin/config
-  → micdn 校验并原子替换自己的 micdn.xml
+  → 写 /var/lib/bas/micdn/micdn.xml
+  → sudo -n systemctl start basmicdn-apply.service
+  → root helper 校验并原子替换 /etc/micdn/micdn.xml，restart micdn
 ```
 
 手工修改 `/etc/micdn/micdn.xml` 后仍可 `systemctl reload micdn` 或 `curl 127.0.0.1:8888/admin/reload`；

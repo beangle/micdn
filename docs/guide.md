@@ -57,23 +57,26 @@ dub build --build=release-nobounds --compiler=ldc2
 ```
 
 `-f` 可为本地文件、目录（使用 `DIR/micdn.xml`）或 URL（下载到 `~/micdn.xml`）。
+配置检查用 `micdn -f FILE --check`，只解析校验、不监听端口。
 
 ## 远程配置
 
 **micdn 不再读取 `BAS_PRINCIPAL` / `BAS_TOKEN`，也不自己下载 `micdn.xml`**。远程配置由
-basagent 获取并投递：
+basagent 下载到私有目录，再由 root oneshot 安装：
 
 ```text
-basagent  GET /api/bashub/micdn/{project}/micdn.xml   (Project token)
-  → POST http://127.0.0.1:8888/admin/config             (XML body)
-  → micdn 解析/校验/原子写入自己的 micdn.xml → 重建 router
+basagent  GET /api/bashub/micdn/{project}/micdn.xml   (Project key)
+  → /var/lib/bas/micdn/micdn.xml (bas, 0600)
+  → sudo -n systemctl start basmicdn-apply.service
+  → root helper: micdn --check → 原子替换 /etc/micdn/micdn.xml → restart micdn
 ```
 
-- basagent 只下载和投递，不写 `/etc/micdn`；micdn 是唯一写自己配置文件的人。
-- 校验失败时旧文件和旧 router 都不变；不会先覆盖再 reload。
-- `/admin/config` 与 `/admin/reload` 都只接受本机回环访问；`/admin/reload` 只重解析本地 XML。
+- basagent 只写自己的 `/var/lib/bas/micdn`，不写 `/etc/micdn`；root helper 才写目标配置。
+- 校验失败时旧文件不变；restart 失败会恢复旧配置并重启。
+- `/admin/reload` 仍只接受本机回环访问，供手工重载本地 XML；HTTP 投递接口 `/admin/config` 已移除。
 - `micdn.xml` 启动时必须已存在；包安装会放一份默认配置。首次没有本地文件时 micdn 不会启动。
-- `/etc/micdn` 为 `micdn:beangle 0750`，`micdn.xml` 为 `micdn:beangle 0640`；basagent 不需要写权限。
+- `/etc/micdn` 为 `micdn:beangle 0750`，`micdn.xml` 为 `micdn:beangle 0640`；
+  root helper 负责写入，basagent 无写权限。
 - 不再有 `micdn.conf` / `micdn.env`；控制台凭证只存在于 basagent 的 `/etc/bas/conf/basctl.env`。
 - `-f URL` 仍可用于手工一次性下载配置，但不参与 systemd 的自动更新。
 

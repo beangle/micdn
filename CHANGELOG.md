@@ -1,6 +1,20 @@
 # Changelog
 
-## v0.4.2 (unreleased)
+## v0.4.3 (unreleased)
+
+- **配置应用改为 root oneshot**：basagent 下载 `micdn.xml` 后交给本机
+  `basmicdn-apply.service`；root helper 以 micdn 用户执行 `micdn --check`，校验后备份、原子替换
+  `/etc/micdn/micdn.xml` 并 restart，失败恢复旧配置。不再需要 micdn 已运行，也不再猜测管理端口。
+- **移除 `/admin/config` HTTP 投递接口**：basagent 不再 POST 配置；`/admin/config.xml` 和
+  `/admin/reload` 仍保留。
+- **配置检查命令**：新增 `micdn -f FILE --check` / `micdn -f FILE check`，只解析校验配置，
+  不监听端口，供 root helper 在替换前验证。
+- **日志轮转**：安装包新增 `/etc/logrotate.d/micdn`，默认 `/var/log/micdn/micdn.log` 每日轮转、
+  保留 14 份并使用 `copytruncate`，避免文件日志无限增长。
+
+完整说明见 [docs/release-v0.4.3.md](docs/release-v0.4.3.md)。
+
+## v0.4.2 (2026-11-19)
 
 - **开发版 npm 清理**：新增 `<prune npm-dev-keep="1" .../>`、`micdn prune npm` 和
   `/admin/prune`。每个包只保留最新一个预发布版本；正式版、dist-tag 指向的版本和上游代理条目保留，
@@ -20,8 +34,6 @@
   passwd home 展开，不再依赖 systemd 是否设置 `$HOME`；`home="~"` 与 `base="~/maven"` 保持一致。
 - **SNAPSHOT 上传自动生成 metadata**：`PUT /maven/.../*-SNAPSHOT/带时间戳构件` 落盘后扫描版本目录
   生成/刷新 `maven-metadata.xml` 和 `.sha1`；prune 删除旧构建后也会重写，避免 metadata 悬空。
-- **日志轮转**：安装包新增 `/etc/logrotate.d/micdn`，默认 `/var/log/micdn/micdn.log` 每日轮转、
-  保留 14 份并使用 `copytruncate`，避免文件日志无限增长。
 - **native 上游代理**：`<native><remote url="..." token="..."/></native>` 支持从中心 micdn
   `/native` 按完整路径回源并缓存；本地有文件时仍直接发本地，未配置上游时缺失仍 404。
 - **移除 `xi:include` 支持**：micdn.xml 必须是一份完整配置；解析器遇到 `<xi:include>` 直接报错，

@@ -81,7 +81,6 @@ class ReloadableDispatcher : HTTPServerRequestHandler {
   private string _routerPrefix;
   private HTTPServerSettings _settings;
   private ReloadResult delegate() _onReload;
-  private ReloadResult delegate(string xml) _onConfig;
 
   this(string configFile, string routerPrefix, HTTPServerSettings settings,
       ReloadResult delegate() onReload) {
@@ -93,11 +92,6 @@ class ReloadableDispatcher : HTTPServerRequestHandler {
 
   void setRouter(URLRouter router) {
     _currentRouter = router;
-  }
-
-  /// 由 main 注入「应用 XML + 收尾同步」的完整回调；新 router 的 admin 服务继续用它。
-  void setConfigHandler(ReloadResult delegate(string xml) handler) {
-    _onConfig = handler;
   }
 
   override void handleRequest(HTTPServerRequest req, HTTPServerResponse res) {
@@ -119,7 +113,7 @@ class ReloadableDispatcher : HTTPServerRequestHandler {
       auto config = parseFile(_configFile);
       auto listenPair = parseListen(config.listen);
       applyLimits(_settings, config);
-      auto router = buildRouter(config, _settings, _onReload, _onConfig);
+      auto router = buildRouter(config, _settings, _onReload);
       _currentRouter = router;
       recordReload(true);
       return ReloadResult(true, null, listenPair[1], config);
@@ -130,38 +124,6 @@ class ReloadableDispatcher : HTTPServerRequestHandler {
     }
   }
 
-  /** 接收 basagent 投递的 XML：先解析/建路由，成功后才原子写入自己的 micdn.xml。
-
-      basagent 只负责下载和投递，不写 micdn 的目录；失败时旧文件和旧 router 都不变。
-      不支持 xi:include；配置必须完整。
-  */
-  ReloadResult tryApply(string xml) {
-    logInfo("Config apply started: %s", _configFile);
-    try {
-      auto config = parse(dirName(_configFile), xml, _configFile);
-      auto listenPair = parseListen(config.listen);
-      applyLimits(_settings, config);
-      auto router = buildRouter(config, _settings, _onReload, _onConfig);
-
-      auto tmp = _configFile ~ ".incoming";
-      scope (exit) if (exists(tmp)) remove(tmp);
-      write(tmp, xml);
-      version (Posix) {
-        import core.sys.posix.sys.stat : chmod;
-        import std.conv : octal;
-        import std.string : toStringz;
-        chmod(tmp.toStringz, octal!640);
-      }
-      rename(tmp, _configFile);
-      _currentRouter = router;
-      recordReload(true);
-      return ReloadResult(true, null, listenPair[1], config);
-    } catch (Exception e) {
-      logError("Config apply failed: %s", e.msg);
-      recordReload(false);
-      return ReloadResult(false, e.msg, 0);
-    }
-  }
 }
 
 private void applyLimits(HTTPServerSettings settings, MicdnConfig config) {
@@ -177,13 +139,11 @@ private void applyLimits(HTTPServerSettings settings, MicdnConfig config) {
 
 /// 根据 config 构建 URLRouter，注册所有服务路由。
 URLRouter buildRouter(MicdnConfig config, HTTPServerSettings settings,
-    ReloadResult delegate() onReload, ReloadResult delegate(string xml) onConfig = null) {
+    ReloadResult delegate() onReload) {
   auto router = new URLRouter("");
 
-  auto adminService = new AdminService(config, getVersion(), onReload, onConfig);
+  auto adminService = new AdminService(config, getVersion(), onReload);
   registerEndpoint(router, "/admin", &adminService.service);
-  // /admin/config 是唯一写配置的 POST 入口；其他 /admin/* 仍只读。
-  router.post("/admin/config", &adminService.service);
 
   if (config.asset !is null) {
     auto assetService = new AssetService(config);
@@ -296,6 +256,20 @@ version (unittest) {
       return 0;
     }
     auto command = commandArg(args);
+    if (command == "check" || args.canFind("--check")) {
+      auto configArgValue = configArg(args);
+      if (configArgValue.length == 0) {
+        stderr.writeln("micdn: check requires -f FILE");
+        return ExitStartupError;
+      }
+      try {
+        auto checked = parseFile(expandHomePath(configArgValue));
+        writeln("config ok: " ~ checked.listen);
+        return 0;
+      } catch (Exception e) {
+        return reportStartupError(e.msg);
+      }
+    }
     if (command == "deploy") {
       try {
         return runDeploy(args);
@@ -370,12 +344,6 @@ version (unittest) {
       return r;
     }
 
-    ReloadResult applyAndSync(string xml) {
-      auto r = dispatcher.tryApply(xml);
-      syncAfterReload(r);
-      return r;
-    }
-
     try {
       applyRuntimeProfile();
       configFile = resolveConfigFile("micdn.xml");
@@ -402,8 +370,7 @@ version (unittest) {
 
       dispatcher = new ReloadableDispatcher(absolutePath(expandTilde(configFile)), "", settings,
           &reloadAndSync);
-      dispatcher.setConfigHandler(&applyAndSync);
-      dispatcher.setRouter(buildRouter(config, settings, &reloadAndSync, &applyAndSync));
+      dispatcher.setRouter(buildRouter(config, settings, &reloadAndSync));
 
       listener = listenHTTP(settings, dispatcher);
       wwwAutoDeploy.start(config);
@@ -924,6 +891,7 @@ Usage: micdn -f FILE|DIR|URL [command]
 
 Commands:
   (default)              启动 HTTP 服务
+  check                  只解析并校验 -f 指定的配置，不启动 HTTP 服务（--check 等价）
   resolve                解析配置并部署 www/static（下载 jar/npm、解压 zip/tgz，校验部署目录）；不启动 HTTP；日志输出到控制台
   deploy www [NAME]      离线部署 <www> doc（NAME 如 manual 或 a/b；省略则全部）；日志输出到控制台
   deploy static [BUNDLE] 离线部署 <static> bundle（省略则全部）

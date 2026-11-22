@@ -161,7 +161,7 @@ podman run --rm -it micdn:0.2.0 sh
 | `scripts/container/micdn.xml` | 容器默认配置，COPY 进镜像（监听 `0.0.0.0`，路径为容器内绝对路径） |
 | `scripts/container/entrypoint.sh` | 启动时修正数据目录及 `/etc/micdn` 权限，再以 `micdn` 运行 |
 | `scripts/package/micdn.xml` | deb/rpm 安装用配置（与容器版不同，如监听 `127.0.0.1`、`~/` 路径） |
-| `scripts/package/micdn.service` | systemd 单元；`ExecStart` 使用 `-f /etc/micdn/micdn.xml`，reload 只重解析本地文件；远程配置由 basagent 投递 |
+| `scripts/package/micdn.service` | systemd 单元；`ExecStart` 使用 `-f /etc/micdn/micdn.xml`，reload 只重解析本地文件；远程配置由 root oneshot 安装 |
 | `scripts/build_image.sh` | Podman 构建镜像（默认带 `--squash`） |
 | `scripts/build_deb.sh` | 构建 Debian **`.deb`**（需 `dpkg-deb`、`fakeroot`） |
 | `scripts/build_rpm.sh` | 构建 **`.rpm`**（需 `rpmbuild`、`fakeroot`） |
