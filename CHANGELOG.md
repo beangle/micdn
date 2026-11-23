@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.4.3 (unreleased)
+## v0.4.3 (2026-11-23)
 
 - **配置应用改为 root oneshot**：basagent 下载 `micdn.xml` 后交给本机
   `basmicdn-apply.service`；root helper 以 micdn 用户执行 `micdn --check`，校验后备份、原子替换

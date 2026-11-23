@@ -1,6 +1,6 @@
 # Micdn v0.4.3 Release Notes
 
-**发布日期：** 待定
+**发布日期：** 2026-11-23
 **对比基线：** [v0.4.2](https://github.com/beangle/micdn/compare/v0.4.2...v0.4.3)
 
 ---
@@ -70,7 +70,7 @@ micdn -f FILE check
 ## 升级
 
 1. 先升级 **micdn 0.4.3**（包含 `--check`）；
-2. 再升级 **basctl/basagent 0.0.3**（包含 `basmicdn-apply`、unit 和 sudoers）；
+2. 再升级 **basctl/basagent 0.0.4**（包含 `basmicdn-apply`、unit 和 sudoers）；
 3. `systemctl daemon-reload`，重启 basagent；
 4. 验证：
    ```sh
