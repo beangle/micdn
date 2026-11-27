@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4.4 (2026-11-27)
+
+- **XML 实体解码修复**：`micdn.xml` 属性统一经 `decodeXML` 解析，支持 `&amp;`、`&lt;`、
+  `&gt;`、`&quot;`、`&apos;` 以及十进制/十六进制字符引用。修复 bucket `key` 含 `&`、`<`、`>`
+  时下载 token 校验失败的问题，同时覆盖上游 URL、token、路径等属性。
+- **Maven/POM 文本节点**：`maven-metadata.xml` 与 `pom.xml` 的文本读取改用统一 helper，
+  正确解码实体并保留 CDATA 原文。
+- **配置序列化**：`toXml` 对所有属性值做 XML 转义，制表符、换行与回车使用字符引用，
+  保证 `micdn.xml` 与管理接口输出可安全往返。
+
+完整说明见 [docs/release-v0.4.4.md](docs/release-v0.4.4.md)。
+
 ## v0.4.3 (2026-11-23)
 
 - **配置应用改为 root oneshot**：basagent 下载 `micdn.xml` 后交给本机

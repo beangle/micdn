@@ -4,7 +4,7 @@
 
 轻量 CDN / 静态资源服务：Maven、npm、WebJar/本地静态包、WWW 文档站点与 Blob 存储（含可选 S3 兼容 API）。配置驱动，单进程 HTTP。
 
-**License:** GPLv3 · **Version:** 0.4.3
+**License:** GPLv3 · **Version:** 0.4.4
 
 ## 功能
 
@@ -427,7 +427,7 @@ jar/pom/sha1，不改 artifact 级 `maven-metadata.xml`。
 | [native.md](native.md) | native 发行包仓库 `/native`：单根布局、上传/下载与补丁别名、缓存、与构建/客户端对接 |
 | [reload.md](reload.md) | 配置热加载 |
 | [stress_test.md](stress_test.md) | 压测复测指南：环境、样例、场景与结果比较 |
-| [release-v0.4.3.md](release-v0.4.3.md) | 当前版本说明 |
+| [release-v0.4.4.md](release-v0.4.4.md) | 当前版本说明 |
 
 打包脚本（每次默认 `dub clean` + 清空 `target/` 后全量构建）：
 
