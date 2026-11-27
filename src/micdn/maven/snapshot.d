@@ -47,10 +47,9 @@ import std.string;
 import std.zip;
 
 import dxml.dom;
-import dxml.parser : EntityType;
 
 import micdn.model;
-import micdn.xml : children, parseDomRoot;
+import micdn.xml : children, elementText, parseDomRoot;
 import micdn.web : normalizeBasePath;
 
 /// 快照元数据文件名（maven 客户端据此把 `-SNAPSHOT` 版本解析成带时间戳的文件）。
@@ -790,14 +789,4 @@ private SnapshotCoordinates readPomCoordinates(string file) {
   }
   enforce(coords.artifact.length > 0, "pom lacks artifactId: " ~ file);
   return coords;
-}
-
-/// 元素下的直接文本（pom 里取值用）。
-private string elementText(T)(ref DOMEntity!T dom) {
-  auto app = appender!string;
-  foreach (c; dom.children) {
-    if (c.type == EntityType.text)
-      app.put(c.text);
-  }
-  return app.data.strip;
 }

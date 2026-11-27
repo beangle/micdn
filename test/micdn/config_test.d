@@ -274,6 +274,64 @@ unittest {
   assert(10L * 1024 * 1024 * 1024 == parseSize("10g"));
 }
 
+@("blob bucket key decodes XML entities")
+unittest {
+  auto content = `<?xml version="1.0"?>
+<micdn><blob base="/tmp/blob">
+  <bucket name="sanda.a" key="OX&amp;Xrgis1&lt;e!3s?GHx&lt;VbfAjc)H3F&lt;1&gt;%#IAKGF*-j9Q"/>
+</blob></micdn>`;
+  auto dom = parseXml(content);
+  auto config = parseBlob("~/tmp", dom);
+  auto key = "OX&Xrgis1<e!3s?GHx<VbfAjc)H3F<1>%#IAKGF*-j9Q";
+  assert(config.buckets[0].key == key);
+
+  auto roundTrip = toXml(parse("~/tmp", content));
+  assert(roundTrip.canFind("&amp;"));
+  assert(roundTrip.canFind("&lt;"));
+  assert(parse("~/tmp", roundTrip).blob.buckets[0].key == key);
+}
+
+@("XML attrs and element text decode all entity forms")
+unittest {
+  auto dom = parseXml(`<root attr="&amp;&lt;&gt;&quot;&apos;&#38;&#x3C;">
+  <value>1.0&amp;&lt;x&gt;&quot;&apos;&#38;&#x3C;</value>
+  <cdata><![CDATA[&<>"']]></cdata>
+</root>`);
+  auto attrs = getAttrs(dom);
+  assert(attrs["attr"] == `&<>"'&<`);
+
+  auto value = children(dom, "value").front;
+  assert(elementText(value) == `1.0&<x>"'&<`);
+  auto cdata = children(dom, "cdata").front;
+  assert(elementText(cdata) == `&<>"'`);
+}
+
+@("toXml escapes all attribute values")
+unittest {
+  auto config = parse("/srv", `<?xml version="1.0"?><micdn>
+  <maven base="/srv/a&amp;b">
+    <remote url="https://example.com/repo?a=1&amp;b=2"/>
+  </maven>
+</micdn>`);
+  auto xml = toXml(config);
+  assert(xml.canFind(`<maven base="/srv/a&amp;b">`));
+  assert(xml.canFind(`<remote url="https://example.com/repo?a=1&amp;b=2"/>`));
+
+  auto reparsed = parse("/srv", xml);
+  assert(reparsed.maven.base == "/srv/a&b");
+  assert(reparsed.maven.remotes[0] == "https://example.com/repo?a=1&b=2");
+}
+
+@("toXml preserves XML whitespace in attributes")
+unittest {
+  auto config = parse("/srv", `<?xml version="1.0"?><micdn><blob base="/tmp/blob">
+  <bucket name="ws" key="a&#9;b&#10;c&#13;d"/>
+</blob></micdn>`);
+  auto xml = toXml(config);
+  assert(xml.canFind(`key="a&#9;b&#10;c&#13;d"`));
+  assert(parse("/srv", xml).blob.buckets[0].key == "a\tb\nc\rd");
+}
+
 
 @("normalizeEndpoint and isValidEndpoint")
 unittest {

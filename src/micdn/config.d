@@ -205,25 +205,24 @@ string toXml(const MicdnConfig config) {
 <micdn xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xmlns:xi="http://www.w3.org/2001/XInclude"
   xsi:noNamespaceSchemaLocation="http://beangle.github.io/schema/micdn-1.1.0.xsd"
-  listen="$(
-      config.listen)"`.text);
+  listen="$(escapeXmlAttr(config.listen))"`.text);
   if (config.home.length > 0)
-    app.put(i` home="$(config.home)"`.text);
+    app.put(i` home="$(escapeXmlAttr(config.home))"`.text);
   if (config.logFile != "console")
-    app.put(i` log-file="$(config.logFile)"`.text);
+    app.put(i` log-file="$(escapeXmlAttr(config.logFile))"`.text);
   if (config.logLevel != "info")
-    app.put(i` log-level="$(config.logLevel)"`.text);
+    app.put(i` log-level="$(escapeXmlAttr(config.logLevel))"`.text);
   app.put(">");
 
   if (config.mavenDeclared) {
-    app.put(i`  <maven base="$(config.maven.base)">`.text);
+    app.put(i`  <maven base="$(escapeXmlAttr(config.maven.base))">`.text);
     app.put("\n");
     foreach (remote; config.maven.remotes) {
-      app.put(i`    <remote url="$(remote)"/>`.text);
+      app.put(i`    <remote url="$(escapeXmlAttr(remote))"/>`.text);
       app.put("\n");
     }
     if (config.maven.snapshotRemote.length > 0) {
-      app.put(i`    <snapshot remote="$(config.maven.snapshotRemote)"`.text);
+      app.put(i`    <snapshot remote="$(escapeXmlAttr(config.maven.snapshotRemote))"`.text);
       if (config.maven.snapshotToken.length > 0)
         app.put(i` token="$(escapeXmlAttr(config.maven.snapshotToken))"`.text);
       app.put("/>\n");
@@ -232,14 +231,14 @@ string toXml(const MicdnConfig config) {
   }
 
   if (config.npmDeclared) {
-    app.put(i`  <npm base="$(config.npm.base)">`.text);
+    app.put(i`  <npm base="$(escapeXmlAttr(config.npm.base))">`.text);
     app.put("\n");
     foreach (remote; config.npm.remotes) {
-      app.put(i`    <remote url="$(remote)"/>`.text);
+      app.put(i`    <remote url="$(escapeXmlAttr(remote))"/>`.text);
       app.put("\n");
     }
     if (config.npm.devRemote.length > 0) {
-      app.put(i`    <dev remote="$(config.npm.devRemote)"`.text);
+      app.put(i`    <dev remote="$(escapeXmlAttr(config.npm.devRemote))"`.text);
       if (config.npm.devToken.length > 0)
         app.put(i` token="$(escapeXmlAttr(config.npm.devToken))"`.text);
       app.put("/>\n");
@@ -249,14 +248,14 @@ string toXml(const MicdnConfig config) {
 
   if (config.nativeDeclared) {
     if (config.native.remote.length > 0) {
-      app.put(i`  <native base="$(config.native.base)">`.text);
+      app.put(i`  <native base="$(escapeXmlAttr(config.native.base))">`.text);
       app.put("\n");
       app.put(i`    <remote url="$(escapeXmlAttr(config.native.remote))"`.text);
       if (config.native.token.length > 0)
         app.put(i` token="$(escapeXmlAttr(config.native.token))"`.text);
       app.put("/>\n  </native>\n");
     } else {
-      app.put(i`  <native base="$(config.native.base)"/>`.text);
+      app.put(i`  <native base="$(escapeXmlAttr(config.native.base))"/>`.text);
       app.put("\n");
     }
   }
@@ -287,25 +286,25 @@ string toXml(const MicdnConfig config) {
   }
 
   if (config.asset) {
-    app.put(i`  <static base="$(config.asset.base)">`.text);
+    app.put(i`  <static base="$(escapeXmlAttr(config.asset.base))">`.text);
     app.put("\n");
     auto bundleKeys = config.asset.bundles.keys.array.sort;
     foreach (key; bundleKeys) {
       auto bundle = config.asset.bundles[key];
-      app.put(i`    <bundle name="$(bundle.name)">`.text);
+      app.put(i`    <bundle name="$(escapeXmlAttr(bundle.name))">`.text);
       app.put("\n");
       foreach (provider; bundle.providers) {
         if (DirProvider dp = cast(DirProvider) provider) {
-          app.put(i`      <dir location="$(dp.location)"/>`.text);
+          app.put(i`      <dir location="$(escapeXmlAttr(dp.location))"/>`.text);
           app.put("\n");
         } else if (GavJarProvider gjp = cast(GavJarProvider) provider) {
           if (gjp.dir.length > 0)
-            app.put(i`      <jar gav="$(gjp.gav)" dir="$(gjp.dir)"/>`.text);
+            app.put(i`      <jar gav="$(escapeXmlAttr(gjp.gav))" dir="$(escapeXmlAttr(gjp.dir))"/>`.text);
           else
-            app.put(i`      <jar gav="$(gjp.gav)"/>`.text);
+            app.put(i`      <jar gav="$(escapeXmlAttr(gjp.gav))"/>`.text);
           app.put("\n");
         } else if (NpmProvider np = cast(NpmProvider) provider) {
-          app.put(i`      <npm package="$(np.packageSpec)" dir="$(np.dir)"/>`.text);
+          app.put(i`      <npm package="$(escapeXmlAttr(np.packageSpec))" dir="$(escapeXmlAttr(np.dir))"/>`.text);
           app.put("\n");
         }
       }
@@ -316,7 +315,7 @@ string toXml(const MicdnConfig config) {
   }
 
   if (config.www) {
-    app.put(i`  <www base="$(config.www.base)">`.text);
+    app.put(i`  <www base="$(escapeXmlAttr(config.www.base))">`.text);
     app.put("\n");
     foreach (doc; config.www.docs) {
       app.put("    ");
@@ -327,7 +326,7 @@ string toXml(const MicdnConfig config) {
   }
 
   if (config.prune !is null) {
-    app.put(i`  <prune at="$(config.prune.at)"`.text);
+    app.put(i`  <prune at="$(escapeXmlAttr(config.prune.at))"`.text);
     app.put(i` npm-dev-keep="$(config.prune.npmDevKeep)"`.text);
     app.put(i` maven-snapshot-keep="$(config.prune.mavenSnapshotKeep)"/>`.text);
     app.put("\n");
@@ -704,6 +703,15 @@ private string escapeXmlAttr(string s) {
       break;
     case '<':
       app.put("&lt;");
+      break;
+    case '\t':
+      app.put("&#9;");
+      break;
+    case '\n':
+      app.put("&#10;");
+      break;
+    case '\r':
+      app.put("&#13;");
       break;
     default:
       app.put(c);

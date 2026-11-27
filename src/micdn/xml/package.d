@@ -25,6 +25,7 @@ import std.string;
 
 import dxml.dom;
 import dxml.parser : EntityType, TextPos, XMLParsingException;
+import dxml.util : decodeXML;
 
 /** micdn.xml 解析或结构校验失败；`msg` 已含文件路径、行列与上下文，可直接打印给用户。 */
 class MicdnXmlException : Exception {
@@ -36,9 +37,29 @@ class MicdnXmlException : Exception {
 auto getAttrs(T)(ref DOMEntity!T dom) {
   string[string] a;
   foreach (at; dom.attributes) {
-    a[at.name] = at.value;
+    a[at.name] = decodeXML(at.value).idup;
   }
   return a;
+}
+
+/** 元素直属文本（含 CDATA）；普通文本按 XML 实体规则解码，CDATA 保持原样。 */
+string elementText(T)(ref DOMEntity!T dom) {
+  import std.array : appender;
+
+  auto app = appender!string();
+  foreach (c; dom.children) {
+    switch (c.type) {
+    case EntityType.text:
+      app.put(decodeXML(c.text));
+      break;
+    case EntityType.cdata:
+      app.put(c.text);
+      break;
+    default:
+      break;
+    }
+  }
+  return app.data.strip;
 }
 
 bool isNamedElement(EntityType t) @safe pure nothrow @nogc {
